@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Conversia.Api/Conversia.Api.csproj" />
+    <Project Path="src/Conversia.Application/Conversia.Application.csproj" />
+    <Project Path="src/Conversia.Domain/Conversia.Domain.csproj" />
+    <Project Path="src/Conversia.Infrastructure/Conversia.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Conversia.IntegrationTests/Conversia.IntegrationTests.csproj" />
+    <Project Path="tests/Conversia.UnitTests/Conversia.UnitTests.csproj" />
+  </Folder>
+</Solution>
