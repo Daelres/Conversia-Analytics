@@ -30,7 +30,7 @@ public class WebhookEvent : BaseEntity
 
     public WebhookEventStatus Status { get; private set; } = WebhookEventStatus.Pending;
 
-    /// <summary>How many processing attempts failed so far.</summary>
+    /// <summary>How many processing attempts were started so far (counted when the event is claimed, so an attempt that kills the worker still counts).</summary>
     public int Attempts { get; private set; }
 
     /// <summary>The event is claimable once this instant has passed.</summary>
@@ -89,8 +89,26 @@ public class WebhookEvent : BaseEntity
     }
 
     /// <summary>
-    /// Counts a failed attempt. Below <paramref name="maxAttempts"/> the event stays pending and becomes claimable again after an
-    /// exponential delay; at the limit it is <see cref="WebhookEventStatus.Failed"/> and nothing retries it.
+    /// A worker claims the event: the attempt is counted now, before any work, and the event is leased until
+    /// <paramref name="lease"/> has passed: nobody else can claim it meanwhile, and if the worker dies the event becomes claimable again
+    /// and the attempt stays counted, so a payload that kills the process ends up <see cref="WebhookEventStatus.Failed"/>.
+    /// </summary>
+    public void BeginAttempt(DateTime now, TimeSpan lease)
+    {
+        Attempts++;
+        NextAttemptAt = UtcTime.Normalize(now) + lease;
+    }
+
+    /// <summary>The event could not be worked on yet (its tenant is busy): the attempt is given back and the event waits <paramref name="delay"/>.</summary>
+    public void Defer(DateTime now, TimeSpan delay)
+    {
+        Attempts = Math.Max(0, Attempts - 1);
+        NextAttemptAt = UtcTime.Normalize(now) + delay;
+    }
+
+    /// <summary>
+    /// Records that the attempt begun by <see cref="BeginAttempt"/> failed. Below <paramref name="maxAttempts"/> the event stays pending
+    /// and becomes claimable again after an exponential delay; at the limit it is <see cref="WebhookEventStatus.Failed"/> and nothing retries it.
     /// </summary>
     /// <param name="sanitizedError">Already sanitized by the caller; cut to <see cref="LastErrorMaxLength"/> here.</param>
     public void RegisterFailure(string sanitizedError, DateTime now, int maxAttempts, TimeSpan baseDelay)
@@ -100,8 +118,7 @@ public class WebhookEvent : BaseEntity
             throw new DomainException("El máximo de intentos debe ser al menos 1.");
         }
 
-        Attempts++;
-        LastError = sanitizedError.Length <= LastErrorMaxLength ? sanitizedError : sanitizedError[..LastErrorMaxLength];
+        LastError = Cut(sanitizedError);
 
         if (Attempts >= maxAttempts)
         {
@@ -111,6 +128,30 @@ public class WebhookEvent : BaseEntity
 
         NextAttemptAt = UtcTime.Normalize(now) + BackoffDelay(Attempts, baseDelay);
     }
+
+    /// <summary>A failure no retry can fix (for example a delivery over the size cap): straight to <see cref="WebhookEventStatus.Failed"/>.</summary>
+    public void Fail(string sanitizedError)
+    {
+        LastError = Cut(sanitizedError);
+        Status = WebhookEventStatus.Failed;
+    }
+
+    /// <summary>Puts a <see cref="WebhookEventStatus.Failed"/> event back in the queue with a fresh budget of attempts.</summary>
+    public void Requeue(DateTime now)
+    {
+        if (Status != WebhookEventStatus.Failed)
+        {
+            throw new DomainException("Solo se puede reencolar un evento fallido.");
+        }
+
+        Status = WebhookEventStatus.Pending;
+        Attempts = 0;
+        NextAttemptAt = UtcTime.Normalize(now);
+        ProcessedAt = null;
+        LastError = null;
+    }
+
+    private static string Cut(string text) => TextRules.Truncate(text, LastErrorMaxLength);
 
     /// <summary><paramref name="baseDelay"/> doubled after each failed attempt (the first retry waits the base), capped at six hours.</summary>
     public static TimeSpan BackoffDelay(int failedAttempts, TimeSpan baseDelay)

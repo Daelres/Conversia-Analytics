@@ -123,17 +123,33 @@ number; such messages are skipped and counted in `SkippedMessageCount`, never st
 ## Processing
 
 `WebhookEventProcessingService` (hosted service, `Webhooks:Processing:Enabled`, on by
-default) polls the queue. `WebhookEventRunner` handles one event per call:
+default) polls the queue. `WebhookEventRunner` handles one event per call, in three steps:
 
-1. In a transaction: `SELECT ... WHERE "Status" = 'Pending' AND "NextAttemptAt" <= now ORDER BY ... LIMIT 1 FOR UPDATE SKIP LOCKED`.
-   A row another worker holds is skipped, never waited for, so any number of workers
-   and API instances can run; a crash releases the lock and the event is claimable again.
-2. Sets the tenant of the event, then takes a transaction-level advisory lock for
-   that tenant, so two workers never race to create the same contact or
-   conversation. Different tenants run in parallel.
-3. Processes the delivery in a savepoint. On success the event becomes `Processed`.
-   On any exception the work is rolled back to the savepoint (nothing partial
-   survives), the failure is recorded on the still-locked event and committed.
+1. **Claim** (short transaction): `SELECT ... WHERE "Status" = 'Pending' AND "NextAttemptAt" <= now ORDER BY ... LIMIT 1 FOR UPDATE SKIP LOCKED`.
+   A row another worker is claiming is skipped, never waited for. In that same committed step
+   the **attempt is counted** (`Attempts + 1`) and the event is **leased**: `NextAttemptAt` moves to
+   now + `2 * ProcessingTimeoutSeconds + 10 s`. Nobody else can take it meanwhile.
+   If the process dies, the lease expires, the event is claimed again and the attempt it used
+   stays counted, so a payload that kills the worker ends up `Failed` (an event found with all its
+   attempts used and never finished is marked `Failed` on the claim, not processed again).
+   *Design choice*: counting at claim time on `Attempts`/`NextAttemptAt` needs no extra column and no
+   clock-skew-sensitive "locked until" field; the cost is that `Attempts` means "attempts started".
+2. **Process** (second transaction, bounded): `statement_timeout` and
+   `idle_in_transaction_session_timeout` are set `LOCAL` to `ProcessingTimeoutSeconds` (60 s) and
+   the whole step has that same total budget. The tenant is set, then a per-tenant advisory lock is
+   **tried** (`pg_try_advisory_xact_lock`, spinning at most `TenantLockWaitMilliseconds`, 2 s): if
+   another worker holds the tenant, the event is **deferred** `TenantBusyDelaySeconds` (10 s, jittered
+   50-150 %) *without consuming the attempt*, and the worker moves on to other events and tenants.
+   Otherwise the delivery is processed and the event marked `Processed` in one commit.
+   A delivery with more than `MaxMessagesPerDelivery` (500) messages is a permanent failure: `Failed`
+   at once, no retries, nothing stored.
+3. **Failure bookkeeping**: any exception anywhere after the claim (setting the tenant, the lock, the
+   processing, the commit) rolls the processing transaction back and records the attempt in a *fresh*
+   transaction on a fresh context that does not depend on the tenant context or on the dead
+   transaction: sanitized `LastError` and the exponential back-off, or `Failed` at the limit. If even
+   that cannot be written, the lease brings the event back later. The worker loop never faults: a
+   failing cycle is logged (sanitized description, never the raw exception) and the next one waits
+   2 s, 4 s, ... up to 60 s, back to normal after a cycle that works; shutdown never faults it.
 
 Rules applied when a message is stored:
 
@@ -169,14 +185,35 @@ Rules applied when a message is stored:
 
 ### Retries
 
-A failed attempt increments `Attempts` and sets `NextAttemptAt = now + RetryBaseDelaySeconds * 2^(attempts-1)`
-(30 s, 1 min, 2 min, ... capped at 6 h). At `MaxAttempts` (default 5) the event is
-`Failed`, nothing retries it, and it is also registered in the error registry
-(`ErrorLogs`, `docs/ERRORS.md`). `LastError` holds the exception type and its
-innermost message, sanitized with `ErrorSanitizer` (secrets redacted, cut to 1000
-characters) and with digit runs of 7 or more masked, because database errors can
-quote values such as phone numbers. To retry a `Failed` event by hand, set it back to
-`Pending` with `Attempts = 0` and a past `NextAttemptAt`.
+A failed attempt sets `NextAttemptAt = now + RetryBaseDelaySeconds * 2^(attempts-1)`
+(30 s, 1 min, 2 min, 4 min, 8 min, 16 min, 32 min, capped at 6 h). At `MaxAttempts` (default 8,
+about an hour of retries, so a short database outage does not burn the budget) the event is
+`Failed`, nothing retries it, and it is also registered in the error registry (`ErrorLogs`,
+`docs/ERRORS.md`). `LastError` is `WebhookErrors.Describe`: the exception type and its innermost
+message, sanitized with `ErrorSanitizer` (secrets redacted, cut to 1000 characters) and with digit
+runs of 7 or more masked, because database errors can quote values such as phone numbers.
+
+### Runbook
+
+- **See the queue**: `SELECT "Status", count(*), min("ReceivedAt") FROM "WebhookEvents" GROUP BY 1;`
+  and `GET /health` (see below).
+- **Why did an event fail?** `SELECT "Id", "TenantId", "Attempts", "LastError" FROM "WebhookEvents" WHERE "Status" = 'Failed' ORDER BY "UpdatedAt" DESC;`
+- **Requeue failed events** once the cause is fixed. In code: `IWebhookEventMaintenance.RequeueFailedAsync(tenantId, eventId?)`
+  (tenant-scoped, there is deliberately no HTTP endpoint). By SQL:
+
+  ```sql
+  UPDATE "WebhookEvents"
+  SET "Status" = 'Pending', "Attempts" = 0, "NextAttemptAt" = now(), "LastError" = NULL, "ProcessedAt" = NULL
+  WHERE "Status" = 'Failed' AND "TenantId" = '<tenant id>';   -- add AND "Id" = '<event id>' for one
+  ```
+
+- **Rolling back a deploy**: roll the *application* back to the previous version and leave the database
+  as it is. The migrations only add tables and columns, which older code ignores. **Do not run the
+  `Down` of `AddConversationsModel`** (or of any later migration): it drops the conversation tables
+  and destroys every stored contact, conversation, message and webhook event. If a migration is
+  wrong, fix forward with a new migration. If the webhook must stop meanwhile, deactivate the
+  channels (`POST /api/channels/{id}/deactivate`) or set `Webhooks:Processing:Enabled=false`:
+  deliveries keep being stored (when the endpoint is up) and are processed later.
 
 ## Configuration
 

@@ -286,7 +286,7 @@ public class WebhookProcessingTests : IAsyncLifetime
         var s = await ProcessAsync(f);
 
         var webhookEvent = Assert.Single(s.Events);
-        Assert.Equal((WebhookEventStatus.Processed, 0, (string?)null), (webhookEvent.Status, webhookEvent.Attempts, webhookEvent.LastError));
+        Assert.Equal((WebhookEventStatus.Processed, 1, (string?)null), (webhookEvent.Status, webhookEvent.Attempts, webhookEvent.LastError));
         Assert.Empty(s.Contacts);
         Assert.Empty(s.Conversations);
         Assert.Empty(s.Messages);

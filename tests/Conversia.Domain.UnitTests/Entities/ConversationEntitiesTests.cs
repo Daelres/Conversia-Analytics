@@ -270,20 +270,37 @@ public class ConversationEntitiesTests
         Assert.Throws<DomainException>(() => WebhookEvent.Receive(Tenant, Guid.NewGuid(), new byte[32], "", T0));
     }
 
+    private static void FailedAttempt(WebhookEvent e, string error, int maxAttempts, TimeSpan baseDelay)
+    {
+        e.BeginAttempt(T0, TimeSpan.FromMinutes(2));
+        e.RegisterFailure(error, T0, maxAttempts, baseDelay);
+    }
+
     [Fact]
-    public void WebhookEvent_RegisterFailure_BacksOffExponentiallyAndFailsAtTheLimit()
+    public void WebhookEvent_BeginAttempt_CountsTheAttemptAtOnceAndLeasesTheEvent()
+    {
+        var webhookEvent = NewEvent();
+
+        webhookEvent.BeginAttempt(T0, TimeSpan.FromMinutes(2));
+
+        Assert.Equal((WebhookEventStatus.Pending, 1), (webhookEvent.Status, webhookEvent.Attempts));
+        Assert.Equal(T0.AddMinutes(2), webhookEvent.NextAttemptAt);
+    }
+
+    [Fact]
+    public void WebhookEvent_RegisterFailure_BacksOffExponentially_AndFailsAtTheLimit()
     {
         var webhookEvent = NewEvent();
         var baseDelay = TimeSpan.FromSeconds(30);
 
-        webhookEvent.RegisterFailure("boom 1", T0, maxAttempts: 3, baseDelay);
+        FailedAttempt(webhookEvent, "boom 1", 3, baseDelay);
         Assert.Equal((WebhookEventStatus.Pending, 1), (webhookEvent.Status, webhookEvent.Attempts));
         Assert.Equal(T0.AddSeconds(30), webhookEvent.NextAttemptAt);
 
-        webhookEvent.RegisterFailure("boom 2", T0, maxAttempts: 3, baseDelay);
+        FailedAttempt(webhookEvent, "boom 2", 3, baseDelay);
         Assert.Equal(T0.AddSeconds(60), webhookEvent.NextAttemptAt);
 
-        webhookEvent.RegisterFailure("boom 3", T0, maxAttempts: 3, baseDelay);
+        FailedAttempt(webhookEvent, "boom 3", 3, baseDelay);
         Assert.Equal((WebhookEventStatus.Failed, 3), (webhookEvent.Status, webhookEvent.Attempts));
         Assert.Equal("boom 3", webhookEvent.LastError);
     }
@@ -293,16 +310,53 @@ public class ConversationEntitiesTests
     {
         var webhookEvent = NewEvent();
 
-        webhookEvent.RegisterFailure(new string('e', WebhookEvent.LastErrorMaxLength + 50), T0, 5, TimeSpan.Zero);
+        FailedAttempt(webhookEvent, new string('e', WebhookEvent.LastErrorMaxLength + 50), 5, TimeSpan.Zero);
 
         Assert.Equal(WebhookEvent.LastErrorMaxLength, webhookEvent.LastError!.Length);
+    }
+
+    [Fact]
+    public void WebhookEvent_Defer_GivesTheAttemptBack_AndNeverGoesBelowZero()
+    {
+        var webhookEvent = NewEvent();
+        webhookEvent.BeginAttempt(T0, TimeSpan.FromMinutes(2));
+
+        webhookEvent.Defer(T0, TimeSpan.FromSeconds(10));
+        webhookEvent.Defer(T0, TimeSpan.FromSeconds(10));
+
+        Assert.Equal((0, WebhookEventStatus.Pending), (webhookEvent.Attempts, webhookEvent.Status));
+        Assert.Equal(T0.AddSeconds(10), webhookEvent.NextAttemptAt);
+    }
+
+    [Fact]
+    public void WebhookEvent_Fail_IsFinalAtOnce()
+    {
+        var webhookEvent = NewEvent();
+        webhookEvent.BeginAttempt(T0, TimeSpan.FromMinutes(2));
+
+        webhookEvent.Fail("too big");
+
+        Assert.Equal((WebhookEventStatus.Failed, 1, "too big"), (webhookEvent.Status, webhookEvent.Attempts, webhookEvent.LastError));
+    }
+
+    [Fact]
+    public void WebhookEvent_Requeue_OnlyForFailedEvents_AndStartsAFreshBudget()
+    {
+        var webhookEvent = NewEvent();
+        Assert.Throws<DomainException>(() => webhookEvent.Requeue(T0));
+
+        webhookEvent.Fail("boom");
+        webhookEvent.Requeue(T0.AddHours(1));
+
+        Assert.Equal((WebhookEventStatus.Pending, 0, (string?)null), (webhookEvent.Status, webhookEvent.Attempts, webhookEvent.LastError));
+        Assert.Equal(T0.AddHours(1), webhookEvent.NextAttemptAt);
     }
 
     [Fact]
     public void WebhookEvent_MarkProcessed_ClearsTheErrorAndStampsTheTime()
     {
         var webhookEvent = NewEvent();
-        webhookEvent.RegisterFailure("boom", T0, 5, TimeSpan.Zero);
+        FailedAttempt(webhookEvent, "boom", 5, TimeSpan.Zero);
 
         webhookEvent.MarkProcessed(T0.AddMinutes(1));
 

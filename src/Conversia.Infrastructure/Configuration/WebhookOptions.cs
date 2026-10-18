@@ -8,7 +8,11 @@ public sealed record WebhookProcessingOptions(
     int PollIntervalMilliseconds,
     int BatchSize,
     int MaxAttempts,
-    int RetryBaseDelaySeconds)
+    int RetryBaseDelaySeconds,
+    int ProcessingTimeoutSeconds,
+    int MaxMessagesPerDelivery,
+    int TenantBusyDelaySeconds,
+    int TenantLockWaitMilliseconds)
 {
     public const string SectionName = "Webhooks:Processing";
     public const string EnabledKey = SectionName + ":Enabled";
@@ -16,13 +20,23 @@ public sealed record WebhookProcessingOptions(
     public const string BatchSizeKey = SectionName + ":BatchSize";
     public const string MaxAttemptsKey = SectionName + ":MaxAttempts";
     public const string RetryBaseDelaySecondsKey = SectionName + ":RetryBaseDelaySeconds";
+    public const string ProcessingTimeoutSecondsKey = SectionName + ":ProcessingTimeoutSeconds";
+    public const string MaxMessagesPerDeliveryKey = SectionName + ":MaxMessagesPerDelivery";
+    public const string TenantBusyDelaySecondsKey = SectionName + ":TenantBusyDelaySeconds";
+    public const string TenantLockWaitMillisecondsKey = SectionName + ":TenantLockWaitMilliseconds";
 
     public static WebhookProcessingOptions Default { get; } = new(
-        Enabled: true, PollIntervalMilliseconds: 2000, BatchSize: 20, MaxAttempts: 5, RetryBaseDelaySeconds: 30);
+        Enabled: true, PollIntervalMilliseconds: 2000, BatchSize: 20, MaxAttempts: 8, RetryBaseDelaySeconds: 30,
+        ProcessingTimeoutSeconds: 60, MaxMessagesPerDelivery: 500, TenantBusyDelaySeconds: 10, TenantLockWaitMilliseconds: 2000);
 
     public TimeSpan PollInterval => TimeSpan.FromMilliseconds(PollIntervalMilliseconds);
 
     public TimeSpan RetryBaseDelay => TimeSpan.FromSeconds(RetryBaseDelaySeconds);
+
+    /// <summary>How long an event stays leased to the worker that claimed it: twice the processing timeout plus a margin for the bookkeeping.</summary>
+    public TimeSpan Lease => TimeSpan.FromSeconds((2L * ProcessingTimeoutSeconds) + 10);
+
+    public TimeSpan TenantLockWait => TimeSpan.FromMilliseconds(TenantLockWaitMilliseconds);
 }
 
 /// <summary>

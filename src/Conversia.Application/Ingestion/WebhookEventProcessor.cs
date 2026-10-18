@@ -12,11 +12,13 @@ public class WebhookEventProcessor : IWebhookEventProcessor
     private readonly IConversationRepository _conversations;
     private readonly IMessageRepository _messages;
     private readonly TimeProvider _timeProvider;
+    private readonly WebhookIngestionLimits _limits;
 
     public WebhookEventProcessor(
         IWhatsAppChannelRepository channels, IContactRepository contacts, IConversationRepository conversations,
-        IMessageRepository messages, TimeProvider timeProvider)
+        IMessageRepository messages, TimeProvider timeProvider, WebhookIngestionLimits limits)
     {
+        _limits = limits;
         _channels = channels;
         _contacts = contacts;
         _conversations = conversations;
@@ -31,6 +33,13 @@ public class WebhookEventProcessor : IWebhookEventProcessor
             ?? throw new InvalidOperationException("The channel of the webhook event no longer exists.");
 
         var parsed = Dialog360PayloadParser.Parse(webhookEvent.RawPayload, _timeProvider.GetUtcNow().UtcDateTime);
+
+        // Bounded work per delivery: a bigger one would hold the tenant's queue (and a transaction) for too long, and no retry changes its size.
+        if (parsed.Messages.Count + parsed.SkippedCount > _limits.MaxMessagesPerDelivery)
+        {
+            throw new WebhookPermanentFailureException(
+                $"The delivery holds {parsed.Messages.Count + parsed.SkippedCount} messages, more than the {_limits.MaxMessagesPerDelivery} allowed per delivery.");
+        }
 
         var stored = 0;
         var alreadyStored = 0;

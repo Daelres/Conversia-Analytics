@@ -32,7 +32,11 @@ public static class WebhookOptionsValidator
             PollIntervalMilliseconds: ReadInt(configuration, WebhookProcessingOptions.PollIntervalMillisecondsKey, defaults.PollIntervalMilliseconds, 10, 600_000),
             BatchSize: ReadInt(configuration, WebhookProcessingOptions.BatchSizeKey, defaults.BatchSize, 1, 1000),
             MaxAttempts: ReadInt(configuration, WebhookProcessingOptions.MaxAttemptsKey, defaults.MaxAttempts, 1, 100),
-            RetryBaseDelaySeconds: ReadInt(configuration, WebhookProcessingOptions.RetryBaseDelaySecondsKey, defaults.RetryBaseDelaySeconds, 0, 86_400));
+            RetryBaseDelaySeconds: ReadInt(configuration, WebhookProcessingOptions.RetryBaseDelaySecondsKey, defaults.RetryBaseDelaySeconds, 0, 86_400),
+            ProcessingTimeoutSeconds: ReadInt(configuration, WebhookProcessingOptions.ProcessingTimeoutSecondsKey, defaults.ProcessingTimeoutSeconds, 1, 3600),
+            MaxMessagesPerDelivery: ReadInt(configuration, WebhookProcessingOptions.MaxMessagesPerDeliveryKey, defaults.MaxMessagesPerDelivery, 1, 100_000),
+            TenantBusyDelaySeconds: ReadInt(configuration, WebhookProcessingOptions.TenantBusyDelaySecondsKey, defaults.TenantBusyDelaySeconds, 1, 3600),
+            TenantLockWaitMilliseconds: ReadInt(configuration, WebhookProcessingOptions.TenantLockWaitMillisecondsKey, defaults.TenantLockWaitMilliseconds, 0, 60_000));
     }
 
     private static bool ReadBool(IConfiguration configuration, string key, bool defaultValue)

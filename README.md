@@ -259,8 +259,12 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Webhooks:Processing:Enabled` | API | `true` | Runs the background worker that processes stored webhook events. `false`: events are stored and stay pending. |
 | `Webhooks:Processing:PollIntervalMilliseconds` | API | `2000` | Pause of the worker when the queue is empty. 10 to 600000. |
 | `Webhooks:Processing:BatchSize` | API | `20` | Events processed per cycle before the worker looks at the clock again. 1 to 1000. |
-| `Webhooks:Processing:MaxAttempts` | API | `5` | Failed attempts after which an event is marked `Failed`. 1 to 100. |
+| `Webhooks:Processing:MaxAttempts` | API | `8` | Attempts after which an event is marked `Failed` (counted when the event is claimed). 1 to 100. |
 | `Webhooks:Processing:RetryBaseDelaySeconds` | API | `30` | Delay before the first retry; it doubles each time (cap 6 h). 0 to 86400. |
+| `Webhooks:Processing:ProcessingTimeoutSeconds` | API | `60` | `statement_timeout`, `idle_in_transaction_session_timeout` and total budget of processing one event; the lease is twice this plus 10 s. 1 to 3600. |
+| `Webhooks:Processing:MaxMessagesPerDelivery` | API | `500` | A delivery with more messages is `Failed` at once, without retries. 1 to 100000. |
+| `Webhooks:Processing:TenantBusyDelaySeconds` | API | `10` | Wait (jittered) of an event whose tenant another worker is processing; it does not use up an attempt. 1 to 3600. |
+| `Webhooks:Processing:TenantLockWaitMilliseconds` | API | `2000` | How long a worker spins trying to get the tenant lock before deferring the event. 0 to 60000. |
 | `Demo:Enabled` | API | `false` | Opt-in demo data seeded at startup (see `docs/USERS_TENANTS_PERMISSIONS.md`, "Demo data"). Only allowed in the `Development` and `Demo` environments; `true` anywhere else, or a value that is not `true`/`false`, stops the API at startup. |
 | `Demo:Password` | API | `Demo-Pass-2026!` | Password of every demo account. Must satisfy the registration password policy, otherwise the API will not start. Only read when `Demo:Enabled` is `true`. |
 | `Demo:ShowAccounts` | Web | `false` | Shows the demo accounts and their password on `/demo` and as sign-in shortcuts on `/login`. Only allowed in the `Development` and `Demo` environments; `true` anywhere else, or a value that is not `true`/`false`, stops the Web at startup. |

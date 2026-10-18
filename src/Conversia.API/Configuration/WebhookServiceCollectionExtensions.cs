@@ -35,7 +35,9 @@ public static class WebhookServiceCollectionExtensions
         services.AddScoped<IMessageRepository, MessageRepository>();
         services.AddScoped<IWebhookIngestionService, WebhookIngestionService>();
         services.AddScoped<IWebhookEventProcessor, WebhookEventProcessor>();
+        services.AddSingleton(new WebhookIngestionLimits(processing.MaxMessagesPerDelivery));
         services.AddSingleton<WebhookEventRunner>();
+        services.AddScoped<IWebhookEventMaintenance, WebhookEventMaintenance>();
 
         if (processing.Enabled)
         {

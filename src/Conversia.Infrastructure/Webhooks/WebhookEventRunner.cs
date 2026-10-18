@@ -1,6 +1,5 @@
-using System.Text.RegularExpressions;
 using Conversia.Application.DTOs.Diagnostics;
-using Conversia.Application.ErrorLogging;
+using Conversia.Application.Ingestion;
 using Conversia.Application.Interfaces;
 using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
@@ -14,42 +13,71 @@ namespace Conversia.Infrastructure.Webhooks;
 
 /// <summary>
 /// Claims and processes one pending webhook event at a time. Safe to run in several workers and several API instances at once.
-/// <list type="bullet">
-/// <item>The claim is <c>SELECT ... FOR UPDATE SKIP LOCKED</c> inside the transaction that also processes the event: a row another
-/// worker is working on is skipped, never waited for, and a crash simply releases the lock so the event is claimable again.</item>
-/// <item>Processing runs in a savepoint. On failure the work is rolled back to it, the failure is recorded on the event (attempt count,
-/// exponential back-off, sanitized error) and that is committed: the event keeps its lock the whole time, so no other worker can
-/// slip in between the failure and its bookkeeping. At the attempt limit the event becomes <c>Failed</c> and is also registered in
-/// the error registry.</item>
-/// <item>Processing of one tenant is serialized with a transaction-level advisory lock, so two workers never race to create the same
-/// contact or conversation (the unique indexes remain the backstop). Different tenants run in parallel.</item>
-/// <item>The tenant of the event is set on the scope before any tenant-filtered query runs (<see cref="ITenantContext"/>): the worker
-/// has no JWT, and a leak across tenants would need that filter to be bypassed.</item>
+/// <list type="number">
+/// <item><b>Claim</b> (short transaction): <c>SELECT ... FOR UPDATE SKIP LOCKED</c> takes the next due event; a row another worker is claiming is
+/// skipped, never waited for. The attempt is counted and the event is <b>leased</b> (<c>NextAttemptAt</c> moves to now plus the lease) in
+/// that same committed step, before any work. Nobody else can claim it meanwhile; if the process dies, the event becomes claimable again with
+/// the attempt already counted, so a payload that kills the worker ends up Failed instead of looping forever. An event that has used its
+/// attempts without ever finishing is marked Failed on the claim.</item>
+/// <item><b>Process</b> (second transaction, bounded by <c>statement_timeout</c>, <c>idle_in_transaction_session_timeout</c> and a total
+/// budget): the tenant is set, a per-tenant advisory lock is <i>tried</i> (never waited for beyond a short spin): if the tenant is busy the
+/// event is deferred a few seconds <b>without consuming the attempt</b> and the worker moves on to other tenants. The delivery is processed
+/// and the event marked Processed in one commit; any exception rolls the whole transaction back.</item>
+/// <item><b>Failure bookkeeping</b> (fresh transaction on a fresh context, no tenant context needed): whatever went wrong, anywhere after the
+/// claim, records the sanitized error and the exponential back-off, or Failed at the attempt limit (also registered in the error registry).
+/// It must be able to succeed when the processing transaction is dead, and it never throws out of the worker.</item>
 /// </list>
-/// Every call uses a DI scope (and DbContext) of its own.
+/// Processing of one tenant is serialized by the advisory lock so two workers never race to create the same contact or conversation (the
+/// unique indexes remain the backstop); different tenants run in parallel. Every call uses DI scopes (and DbContexts) of its own.
 /// </summary>
-public sealed partial class WebhookEventRunner(
+public sealed class WebhookEventRunner(
     IServiceScopeFactory scopeFactory,
     WebhookProcessingOptions options,
     IErrorRegistry errorRegistry,
     TimeProvider timeProvider,
     ILogger<WebhookEventRunner> logger)
 {
-    private const string SavepointName = "process_webhook_event";
+    private const int TenantLockPollMilliseconds = 25;
 
-    // Well below Npgsql's 30 s command timeout, so the wait for the tenant lock fails as a PostgreSQL error first.
-    private const string LockTimeoutSql = "SET LOCAL lock_timeout = '20s'";
-    private const string LockTimeoutResetSql = "SET LOCAL lock_timeout = 0";
-
-    /// <summary>Returns true when an event was claimed (processed, or its failure recorded), false when none was due.</summary>
+    /// <summary>Returns true when an event was claimed (processed, deferred, or its failure recorded), false when none was due.</summary>
     public async Task<bool> ProcessNextAsync(CancellationToken cancellationToken = default)
+    {
+        var claimed = await ClaimAsync(cancellationToken);
+        if (claimed is null)
+        {
+            return false;
+        }
+
+        if (claimed.AlreadyHandled)
+        {
+            return true;
+        }
+
+        try
+        {
+            await ProcessClaimedAsync(claimed, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The host is stopping. The lease expires and the event is claimed again, with this attempt counted.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            await RecordFailureAsync(claimed.EventId, claimed.TenantId, ex);
+        }
+
+        return true;
+    }
+
+    private sealed record Claimed(Guid EventId, Guid TenantId, bool AlreadyHandled = false);
+
+    private async Task<Claimed?> ClaimAsync(CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var tenantContext = scope.ServiceProvider.GetRequiredService<ITenantContext>();
-        var processor = scope.ServiceProvider.GetRequiredService<IWebhookEventProcessor>();
-
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await SetTimeoutsAsync(db, cancellationToken);
 
         var now = UtcNow();
 
@@ -67,100 +95,206 @@ public sealed partial class WebhookEventRunner(
 
         if (claimed.Count == 0)
         {
-            return false;
+            return null;
         }
 
         var webhookEvent = claimed[0];
-        tenantContext.SetTenant(webhookEvent.TenantId);
-        await AcquireTenantLockAsync(db, webhookEvent.TenantId, cancellationToken);
-
-        await transaction.CreateSavepointAsync(SavepointName, cancellationToken);
-        try
+        if (webhookEvent.Attempts >= options.MaxAttempts)
         {
-            var result = await processor.ProcessAsync(webhookEvent, cancellationToken);
-            webhookEvent.RecordParseCounts(result.Skipped, result.Statuses);
-            webhookEvent.MarkProcessed(UtcNow());
+            // Its attempts were all started and none finished: the worker died or timed out each time. Stop feeding it to workers.
+            webhookEvent.Fail("The event used all its processing attempts without finishing (the worker may have crashed or timed out while processing it).");
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-
-            logger.LogInformation(
-                "Webhook event {EventId} processed: {Stored} messages stored, {AlreadyStored} already stored, {Ignored} ignored.",
-                webhookEvent.Id, result.MessagesStored, result.MessagesAlreadyStored, result.Ignored);
-            if (result.Skipped > 0)
-            {
-                // No content here, on purpose: the skipped entries hold phone numbers or ids of customers.
-                logger.LogWarning(
-                    "Webhook event {EventId} of tenant {TenantId} had {Skipped} messages that could not be stored (no usable phone number, id or timestamp, a group, or another number).",
-                    webhookEvent.Id, webhookEvent.TenantId, result.Skipped);
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            await transaction.RollbackToSavepointAsync(SavepointName, CancellationToken.None);
-            await RecordFailureAsync(db, transaction, webhookEvent.Id, webhookEvent.TenantId, ex);
+            await ReportFailedAsync(webhookEvent.Id, webhookEvent.TenantId, webhookEvent.Attempts, "WorkerLostEvent", webhookEvent.LastError!);
+            return new Claimed(webhookEvent.Id, webhookEvent.TenantId, AlreadyHandled: true);
         }
 
-        return true;
+        webhookEvent.BeginAttempt(now, options.Lease);
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new Claimed(webhookEvent.Id, webhookEvent.TenantId);
     }
 
-    private async Task RecordFailureAsync(ApplicationDbContext db, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction, Guid eventId, Guid tenantId, Exception exception)
+    private async Task ProcessClaimedAsync(Claimed claimed, CancellationToken cancellationToken)
     {
-        // Drop whatever the failed attempt tracked, then reload the event: only the failure bookkeeping may be saved.
-        db.ChangeTracker.Clear();
-        var webhookEvent = await db.WebhookEvents.SingleAsync(e => e.Id == eventId);
+        // The whole processing, lock wait included, fits well inside the lease.
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromSeconds(options.ProcessingTimeoutSeconds));
 
-        var error = Describe(exception);
-        webhookEvent.RegisterFailure(error, UtcNow(), options.MaxAttempts, options.RetryBaseDelay);
-        await db.SaveChangesAsync();
-        await transaction.CommitAsync();
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(claimed.TenantId);
+        var processor = scope.ServiceProvider.GetRequiredService<IWebhookEventProcessor>();
 
-        if (webhookEvent.Status == WebhookEventStatus.Failed)
+        await using var transaction = await db.Database.BeginTransactionAsync(budget.Token);
+        await SetTimeoutsAsync(db, budget.Token);
+
+        if (!await TryLockTenantAsync(db, claimed.TenantId, budget.Token))
         {
-            logger.LogError("Webhook event {EventId} failed for good after {Attempts} attempts: {Error}", eventId, webhookEvent.Attempts, error);
-            await errorRegistry.RegisterAsync(new ErrorReport
+            await transaction.RollbackAsync(CancellationToken.None);
+            await DeferAsync(claimed.EventId);
+            return;
+        }
+
+        var webhookEvent = await db.WebhookEvents.SingleAsync(e => e.Id == claimed.EventId, budget.Token);
+        if (webhookEvent.Status != WebhookEventStatus.Pending)
+        {
+            return; // finished meanwhile by another worker whose lease on it had expired
+        }
+
+        WebhookProcessingResult result;
+        try
+        {
+            result = await processor.ProcessAsync(webhookEvent, budget.Token);
+        }
+        catch (WebhookPermanentFailureException ex)
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            await FailPermanentlyAsync(claimed.EventId, claimed.TenantId, ex);
+            return;
+        }
+
+        webhookEvent.RecordParseCounts(result.Skipped, result.Statuses);
+        webhookEvent.MarkProcessed(UtcNow());
+        await db.SaveChangesAsync(budget.Token);
+        await transaction.CommitAsync(budget.Token);
+
+        logger.LogInformation(
+            "Webhook event {EventId} processed: {Stored} messages stored, {AlreadyStored} already stored, {Ignored} ignored.",
+            webhookEvent.Id, result.MessagesStored, result.MessagesAlreadyStored, result.Ignored);
+        if (result.Skipped > 0)
+        {
+            // No content here, on purpose: the skipped entries hold phone numbers or ids of customers.
+            logger.LogWarning(
+                "Webhook event {EventId} of tenant {TenantId} had {Skipped} messages that could not be stored (no usable phone number, id or timestamp, a group, or another number).",
+                webhookEvent.Id, webhookEvent.TenantId, result.Skipped);
+        }
+    }
+
+    // The tenant advisory lock is tried, never waited for in the database: a short spin, then the caller defers the event so that the
+    // worker goes on with other tenants instead of sitting on this one.
+    private async Task<bool> TryLockTenantAsync(ApplicationDbContext db, Guid tenantId, CancellationToken cancellationToken)
+    {
+        var key = tenantId.ToString();
+        var deadline = timeProvider.GetTimestamp();
+        while (true)
+        {
+            var acquired = await db.Database
+                .SqlQuery<bool>($"SELECT pg_try_advisory_xact_lock(hashtextextended({key}, 0)) AS \"Value\"")
+                .SingleAsync(cancellationToken);
+            if (acquired)
             {
-                OccurredAt = UtcNow(),
-                Source = ErrorSource.Api,
-                Kind = ErrorKind.Unhandled,
-                Path = "webhook-worker",
-                TenantId = tenantId,
-                ExceptionType = exception.GetType().FullName ?? exception.GetType().Name,
-                ExceptionMessage = error,
-                Context = $"WebhookEvent {eventId} failed after {webhookEvent.Attempts} attempts.",
-            });
+                return true;
+            }
+
+            if (timeProvider.GetElapsedTime(deadline) >= options.TenantLockWait)
+            {
+                return false;
+            }
+
+            await Task.Delay(TenantLockPollMilliseconds, cancellationToken);
+        }
+    }
+
+    private async Task SetTimeoutsAsync(ApplicationDbContext db, CancellationToken cancellationToken)
+    {
+        // set_config(..., is_local = true) is SET LOCAL with a parameter: the settings end with the transaction.
+        var value = $"{options.ProcessingTimeoutSeconds}s";
+        await db.Database.ExecuteSqlAsync($"SELECT set_config('statement_timeout', {value}, true)", cancellationToken);
+        await db.Database.ExecuteSqlAsync($"SELECT set_config('idle_in_transaction_session_timeout', {value}, true)", cancellationToken);
+    }
+
+    // ---- Bookkeeping: fresh scope, fresh transaction, no tenant context (the event is addressed by id). Never throws. ----
+
+    private async Task DeferAsync(Guid eventId)
+    {
+        // 50% to 150% of the base delay, so deferred events of one busy tenant do not all come back at the same instant.
+        var delay = TimeSpan.FromSeconds(options.TenantBusyDelaySeconds * (0.5 + Random.Shared.NextDouble()));
+        await BookkeepAsync(eventId, "defer", (webhookEvent, now) => webhookEvent.Defer(now, delay));
+        logger.LogInformation("Webhook event {EventId} deferred {Delay:0.#} s: its tenant is being processed by another worker.", eventId, delay.TotalSeconds);
+    }
+
+    private async Task FailPermanentlyAsync(Guid eventId, Guid tenantId, Exception exception)
+    {
+        var error = WebhookErrors.Describe(exception);
+        var attempts = 0;
+        await BookkeepAsync(eventId, "fail", (webhookEvent, _) =>
+        {
+            webhookEvent.Fail(error);
+            attempts = webhookEvent.Attempts;
+        });
+        await ReportFailedAsync(eventId, tenantId, attempts, exception.GetType().FullName ?? exception.GetType().Name, error);
+    }
+
+    private async Task RecordFailureAsync(Guid eventId, Guid tenantId, Exception exception)
+    {
+        var error = WebhookErrors.Describe(exception);
+        var failedForGood = false;
+        var attempts = 0;
+        var next = default(DateTime);
+
+        var recorded = await BookkeepAsync(eventId, "record the failure of", (webhookEvent, now) =>
+        {
+            webhookEvent.RegisterFailure(error, now, options.MaxAttempts, options.RetryBaseDelay);
+            failedForGood = webhookEvent.Status == WebhookEventStatus.Failed;
+            attempts = webhookEvent.Attempts;
+            next = webhookEvent.NextAttemptAt;
+        });
+
+        if (!recorded)
+        {
+            return; // the lease will bring the event back; the attempt it used stays counted
+        }
+
+        if (failedForGood)
+        {
+            await ReportFailedAsync(eventId, tenantId, attempts, exception.GetType().FullName ?? exception.GetType().Name, error);
         }
         else
         {
             logger.LogWarning(
                 "Webhook event {EventId} failed (attempt {Attempts} of {MaxAttempts}); next attempt at {NextAttemptAt:O}: {Error}",
-                eventId, webhookEvent.Attempts, options.MaxAttempts, webhookEvent.NextAttemptAt, error);
+                eventId, attempts, options.MaxAttempts, next, error);
         }
     }
 
-    private static async Task AcquireTenantLockAsync(ApplicationDbContext db, Guid tenantId, CancellationToken cancellationToken)
+    private async Task ReportFailedAsync(Guid eventId, Guid tenantId, int attempts, string exceptionType, string error)
     {
-        // SET LOCAL takes no parameters; the values are constants. The timeout bounds the wait and is lifted once the lock is held.
-        await db.Database.ExecuteSqlRawAsync(LockTimeoutSql, cancellationToken);
-        await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({tenantId.ToString()}, 0))", cancellationToken);
-        await db.Database.ExecuteSqlRawAsync(LockTimeoutResetSql, cancellationToken);
+        logger.LogError("Webhook event {EventId} failed for good after {Attempts} attempts: {Error}", eventId, attempts, error);
+        await errorRegistry.RegisterAsync(new ErrorReport
+        {
+            OccurredAt = UtcNow(),
+            Source = ErrorSource.Api,
+            Kind = ErrorKind.Unhandled,
+            Path = "webhook-worker",
+            TenantId = tenantId,
+            ExceptionType = exceptionType,
+            ExceptionMessage = error,
+            Context = $"WebhookEvent {eventId} failed after {attempts} attempts.",
+        });
+    }
+
+    private async Task<bool> BookkeepAsync(Guid eventId, string what, Action<WebhookEvent, DateTime> change)
+    {
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            await using var transaction = await db.Database.BeginTransactionAsync(CancellationToken.None);
+            await SetTimeoutsAsync(db, CancellationToken.None);
+
+            var webhookEvent = await db.WebhookEvents.IgnoreQueryFilters().SingleAsync(e => e.Id == eventId, CancellationToken.None);
+            change(webhookEvent, UtcNow());
+            await db.SaveChangesAsync(CancellationToken.None);
+            await transaction.CommitAsync(CancellationToken.None);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError("Could not {What} webhook event {EventId}; its lease will bring it back: {Error}", what, eventId, WebhookErrors.Describe(ex));
+            return false;
+        }
     }
 
     private DateTime UtcNow() => DatabaseTime.Truncate(timeProvider.GetUtcNow().UtcDateTime);
-
-    // What is kept on the event and in the error registry: the exception type and its innermost message, sanitized like every stored
-    // error (secrets redacted, control characters stripped, cut) and with long digit runs (phone numbers) masked: a database error can quote values.
-    private static string Describe(Exception exception)
-    {
-        var innermost = exception;
-        while (innermost.InnerException is not null)
-        {
-            innermost = innermost.InnerException;
-        }
-
-        var text = $"{exception.GetType().Name}: {innermost.Message}";
-        return ErrorSanitizer.SanitizeText(LongNumber().Replace(text, "[num]"), WebhookEvent.LastErrorMaxLength) ?? string.Empty;
-    }
-
-    [GeneratedRegex(@"\+?\d{7,}", RegexOptions.CultureInvariant)]
-    private static partial Regex LongNumber();
 }
