@@ -44,6 +44,8 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.ContactId).IsRequired();
         builder.Property(c => c.ChannelId).IsRequired();
         builder.Property(c => c.BranchId).IsRequired();
+        builder.Property(c => c.AdvisorAssignedBy);
+        builder.Property(c => c.AdvisorAssignedAt);
         builder.Property(c => c.Source).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.SourceReference).HasMaxLength(Conversation.SourceReferenceMaxLength);
         builder.Property(c => c.StartedAt).IsRequired();
@@ -134,6 +136,7 @@ public class OpportunityConfiguration : IEntityTypeConfiguration<Opportunity>
         builder.Property(o => o.Stage).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(o => o.StageSource).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(o => o.StageChangedAt);
+        builder.Property(o => o.StageChangedBy);
         builder.Property(o => o.ServiceInterest).HasMaxLength(Opportunity.ServiceInterestMaxLength);
         builder.Property(o => o.InterestReason).HasMaxLength(Opportunity.InterestReasonMaxLength);
         builder.Property(o => o.Objection).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);

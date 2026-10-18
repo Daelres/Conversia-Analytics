@@ -213,6 +213,7 @@ public class ConversationClassificationTests
         var (conversation, opportunity) = await LoadAsync(_factory.Services, seeded.ConversationId);
         Assert.Equal((false, 0, (DateTime?)now), (conversation.ClassificationDirty, conversation.ClassificationFailures, conversation.ClassificationAttemptedAt));
         Assert.Equal((OpportunityStage.Lost, LossReason.NotInterested, StageSource.Auto), (opportunity.Stage, opportunity.LossReason, opportunity.StageSource));
+        Assert.Null(opportunity.StageChangedBy); // the classifier is not a user
         Assert.Equal(("axilas", ObjectionType.None, now, now, now), (opportunity.ServiceInterest, opportunity.Objection, opportunity.ClassifiedAt, opportunity.ClosedAt, opportunity.StageChangedAt));
         Assert.InRange(opportunity.ClassificationConfidence!.Value, 0.5m, 1m);
         Assert.Contains("outcome.lost.refusal", opportunity.ClassificationRules!);

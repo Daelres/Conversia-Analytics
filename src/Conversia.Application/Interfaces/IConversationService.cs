@@ -15,14 +15,16 @@ public interface IConversationService
     /// <summary>
     /// Assigns the advisor, or unassigns with a null id. The advisor must exist in the tenant, be active and work at the branch of the
     /// conversation, otherwise a <see cref="Domain.Exceptions.DomainException"/> (400). Throws <see cref="Exceptions.ConversationNotFoundException"/>.
+    /// <paramref name="actingUserId"/> is the user who does it, recorded on the conversation (<c>AdvisorAssignedBy</c>).
     /// </summary>
-    Task<ConversationListItem> AssignAdvisorAsync(Guid id, AssignAdvisorRequest request, CancellationToken cancellationToken = default);
+    Task<ConversationListItem> AssignAdvisorAsync(Guid id, AssignAdvisorRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// A person decides the outcome; the classifier never changes it afterwards. Throws <see cref="Exceptions.ConversationNotFoundException"/>
     /// and <see cref="Domain.Exceptions.DomainException"/> for a stage/reason combination the rules refuse.
+    /// <paramref name="actingUserId"/> is the user who decides, recorded on the opportunity (<c>StageChangedBy</c>).
     /// </summary>
-    Task<OpportunityResponse> SetOutcomeAsync(Guid id, SetOpportunityOutcomeRequest request, CancellationToken cancellationToken = default);
+    Task<OpportunityResponse> SetOutcomeAsync(Guid id, SetOpportunityOutcomeRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default);
 }
 
 /// <summary>The conversation list filters, parsed: enums are real enums and dates are UTC instants (<c>FromUtc</c> inclusive, <c>ToUtc</c> exclusive).</summary>

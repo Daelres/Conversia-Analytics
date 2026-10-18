@@ -38,11 +38,11 @@ public class ConversationsController : ControllerBase
     [HttpPut("{id:guid}/advisor")]
     [Authorize(Policy = nameof(Permission.ConversationsManage))]
     public async Task<ActionResult<ConversationListItem>> AssignAdvisor(Guid id, AssignAdvisorRequest request, CancellationToken cancellationToken)
-        => Ok(await _conversations.AssignAdvisorAsync(id, request, cancellationToken));
+        => Ok(await _conversations.AssignAdvisorAsync(id, request, User.GetUserId(), cancellationToken));
 
     /// <summary>A person decides the outcome (Won, Lost with a reason, or InFollowUp). The classifier never overwrites it.</summary>
     [HttpPut("{id:guid}/opportunity")]
     [Authorize(Policy = nameof(Permission.ConversationsManage))]
     public async Task<ActionResult<OpportunityResponse>> SetOutcome(Guid id, SetOpportunityOutcomeRequest request, CancellationToken cancellationToken)
-        => Ok(await _conversations.SetOutcomeAsync(id, request, cancellationToken));
+        => Ok(await _conversations.SetOutcomeAsync(id, request, User.GetUserId(), cancellationToken));
 }

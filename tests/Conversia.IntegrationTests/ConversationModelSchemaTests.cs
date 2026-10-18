@@ -67,6 +67,38 @@ public class ConversationModelSchemaTests
     }
 
     [Fact]
+    public async Task TheAuditColumns_AreNullable_AndRoundTrip()
+    {
+        var g = await SeedGraphAsync();
+        var conversation = NewConversation(g);
+        var opportunity = Opportunity.Open(g.TenantId, conversation.Id);
+        var advisor = Advisor.Create(g.TenantId, g.Branch.Id, "Ana");
+        await using (Scope(out var db))
+        {
+            db.AddRange(advisor, conversation, opportunity);
+            await db.SaveChangesAsync(); // nobody has assigned or decided anything yet: the columns are null
+        }
+
+        var user = Guid.NewGuid();
+        await using (Scope(out var db))
+        {
+            var tracked = await db.Conversations.IgnoreQueryFilters().SingleAsync(c => c.Id == conversation.Id);
+            var trackedOpportunity = await db.Opportunities.IgnoreQueryFilters().SingleAsync(o => o.ConversationId == conversation.Id);
+            Assert.Equal(((Guid?)null, (DateTime?)null, (Guid?)null), (tracked.AdvisorAssignedBy, tracked.AdvisorAssignedAt, trackedOpportunity.StageChangedBy));
+            tracked.AssignAdvisor(advisor.Id, user, T0);
+            trackedOpportunity.SetManualOutcome(OpportunityStage.Won, null, null, T0, user);
+            await db.SaveChangesAsync();
+        }
+
+        await using (Scope(out var db))
+        {
+            var reloaded = await db.Conversations.IgnoreQueryFilters().AsNoTracking().SingleAsync(c => c.Id == conversation.Id);
+            var reloadedOpportunity = await db.Opportunities.IgnoreQueryFilters().AsNoTracking().SingleAsync(o => o.ConversationId == conversation.Id);
+            Assert.Equal(((Guid?)user, (DateTime?)T0, (Guid?)user), (reloaded.AdvisorAssignedBy, reloaded.AdvisorAssignedAt, reloadedOpportunity.StageChangedBy));
+        }
+    }
+
+    [Fact]
     public async Task OnlyOneOpenConversationPerContactAndChannel_ButAClosedOneDoesNotCount()
     {
         var g = await SeedGraphAsync();

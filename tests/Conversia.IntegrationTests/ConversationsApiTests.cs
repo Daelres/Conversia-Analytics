@@ -389,6 +389,38 @@ public class ConversationsApiTests
     }
 
     [Fact]
+    public async Task TheDetail_ShowsWhoAssignedTheAdvisorAndWhoDecidedTheStage_ByIdOnly()
+    {
+        using var f = await NewTenantAsync();
+        using var manager = await f.Tenant.AddMemberAsync("manager", Permission.ConversationsView, Permission.ConversationsManage);
+        var seeded = await SeedAsync(f, D0);
+        var advisor = await CreateAdvisorAsync(f.Tenant.Owner.Client, f.Branch.Id);
+        var before = (await f.Tenant.Owner.Client.GetFromJsonAsync<ConversationDetailResponse>($"{Url}/{seeded.ConversationId}"))!;
+        Assert.Equal(((Guid?)null, (DateTime?)null, (Guid?)null), (before.AdvisorAssignedBy, before.AdvisorAssignedAt, before.Opportunity.StageChangedBy));
+
+        // The owner assigns, a colleague with ConversationsManage decides the stage.
+        await f.Tenant.Owner.Client.PutAsJsonAsync($"{Url}/{seeded.ConversationId}/advisor", new { advisorId = advisor.Id });
+        var decided = await manager.Client.PutAsJsonAsync($"{Url}/{seeded.ConversationId}/opportunity", new { stage = "Won" });
+        var assignedAt = DateTime.UtcNow;
+
+        var detail = (await f.Tenant.Owner.Client.GetFromJsonAsync<ConversationDetailResponse>($"{Url}/{seeded.ConversationId}"))!;
+        Assert.Equal(HttpStatusCode.OK, decided.StatusCode);
+        Assert.Equal(f.Tenant.Owner.UserId, detail.AdvisorAssignedBy);
+        Assert.InRange(detail.AdvisorAssignedAt!.Value, assignedAt.AddMinutes(-2), assignedAt.AddMinutes(1));
+        Assert.Equal(manager.UserId, detail.Opportunity.StageChangedBy);
+        Assert.Equal(manager.UserId, (await decided.Content.ReadFromJsonAsync<OpportunityResponse>())!.StageChangedBy);
+
+        // Ids only: nothing of the users is copied into the conversation's answer.
+        var raw = await f.Tenant.Owner.Client.GetStringAsync($"{Url}/{seeded.ConversationId}");
+        Assert.DoesNotContain(f.Tenant.Session.OwnerEmail, raw);
+
+        // The owner unassigns: the record follows the last change.
+        await f.Tenant.Owner.Client.PutAsJsonAsync($"{Url}/{seeded.ConversationId}/advisor", new { advisorId = (Guid?)null });
+        var after = (await f.Tenant.Owner.Client.GetFromJsonAsync<ConversationDetailResponse>($"{Url}/{seeded.ConversationId}"))!;
+        Assert.Equal((null, f.Tenant.Owner.UserId), (after.AdvisorId, after.AdvisorAssignedBy));
+    }
+
+    [Fact]
     public async Task AssignAdvisor_OfAnotherTenantOrUnknown_Is400WithTheSameMessage()
     {
         using var a = await NewTenantAsync();

@@ -156,6 +156,12 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("AdvisorAssignedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("AdvisorAssignedBy")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("AdvisorId")
                         .HasColumnType("uuid");
 
@@ -492,6 +498,9 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTime?>("StageChangedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("StageChangedBy")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("StageSource")
                         .IsRequired()

@@ -147,6 +147,11 @@ public class ConversationListItem
 
 public class ConversationDetailResponse : ConversationListItem
 {
+    /// <summary>The user who last assigned or unassigned the advisor (an id only, no name); null when nobody has, or the system did.</summary>
+    public Guid? AdvisorAssignedBy { get; set; }
+
+    public DateTime? AdvisorAssignedAt { get; set; }
+
     /// <summary>Oldest first, at most <see cref="MaxMessages"/>; <see cref="ConversationListItem.MessageCount"/> says how many exist.</summary>
     public IReadOnlyList<MessageResponse> Messages { get; set; } = [];
 
@@ -177,6 +182,9 @@ public class OpportunityResponse
 
     public DateTime? StageChangedAt { get; set; }
 
+    /// <summary>The user who last changed the stage by hand (an id only, no name); null when the system set it (the classifier, the close-by-inactivity rule).</summary>
+    public Guid? StageChangedBy { get; set; }
+
     public string? ServiceInterest { get; set; }
 
     public string? InterestReason { get; set; }
@@ -202,6 +210,7 @@ public class OpportunityResponse
         Stage = opportunity.Stage.ToString(),
         StageSource = opportunity.StageSource.ToString(),
         StageChangedAt = opportunity.StageChangedAt,
+        StageChangedBy = opportunity.StageChangedBy,
         ServiceInterest = opportunity.ServiceInterest,
         InterestReason = opportunity.InterestReason,
         Objection = opportunity.Objection.ToString(),

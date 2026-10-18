@@ -71,6 +71,88 @@ public class ConversationLifecycleTests
     public void Close_RequiresAUtcTime()
         => Assert.Throws<DomainException>(() => NewConversation().Close(new DateTime(2026, 10, 30, 0, 0, 0, DateTimeKind.Unspecified)));
 
+    // ---- The audit trail: who assigned the advisor, who decided the stage ---------------------------------------------------
+
+    [Fact]
+    public void AssigningAnAdvisor_RecordsWhoDidItAndWhen()
+    {
+        var conversation = NewConversation();
+        var advisor = Guid.NewGuid();
+        var user = Guid.NewGuid();
+
+        conversation.AssignAdvisor(advisor, user, T0.AddHours(1));
+
+        Assert.Equal((advisor, user, (DateTime?)T0.AddHours(1)), (conversation.AdvisorId, conversation.AdvisorAssignedBy, conversation.AdvisorAssignedAt));
+    }
+
+    [Fact]
+    public void AssigningWithoutAnActor_LeavesNobodyOnRecord()
+    {
+        var conversation = NewConversation();
+        conversation.AssignAdvisor(Guid.NewGuid(), Guid.NewGuid(), T0);
+
+        conversation.AssignAdvisor(Guid.NewGuid()); // the system (or a seed) changes it
+
+        Assert.Equal(((Guid?)null, (DateTime?)null), (conversation.AdvisorAssignedBy, conversation.AdvisorAssignedAt));
+    }
+
+    [Fact]
+    public void Unassigning_RecordsWhoDidItToo()
+    {
+        var conversation = NewConversation();
+        conversation.AssignAdvisor(Guid.NewGuid(), Guid.NewGuid(), T0);
+        var user = Guid.NewGuid();
+
+        conversation.UnassignAdvisor(user, T0.AddDays(1));
+
+        Assert.Equal(((Guid?)null, (Guid?)user, (DateTime?)T0.AddDays(1)), (conversation.AdvisorId, conversation.AdvisorAssignedBy, conversation.AdvisorAssignedAt));
+    }
+
+    [Fact]
+    public void ANewConversation_HasNoAssignmentOnRecord()
+    {
+        var conversation = NewConversation();
+
+        Assert.Equal(((Guid?)null, (DateTime?)null), (conversation.AdvisorAssignedBy, conversation.AdvisorAssignedAt));
+    }
+
+    [Fact]
+    public void ADecisionByHand_RecordsTheUser_AndTheSystemMovingItLaterRecordsNobody()
+    {
+        var opportunity = NewOpportunity();
+        var user = Guid.NewGuid();
+
+        opportunity.SetManualOutcome(OpportunityStage.InFollowUp, null, null, T0, user);
+        Assert.Equal(user, opportunity.StageChangedBy);
+
+        // The classifier cannot change a manual stage, so the record stays with the person.
+        opportunity.ApplyClassification(new ClassificationUpdate(null, null, ObjectionType.None, OpportunityStage.Won, null, 0.9m, null), T0.AddHours(1));
+        Assert.Equal((OpportunityStage.InFollowUp, (Guid?)user), (opportunity.Stage, opportunity.StageChangedBy));
+    }
+
+    [Fact]
+    public void WhenTheSystemChangesTheStage_NobodyIsOnRecord()
+    {
+        var opportunity = NewOpportunity();
+
+        opportunity.ApplyClassification(new ClassificationUpdate(null, null, ObjectionType.None, OpportunityStage.InFollowUp, null, 0.6m, null), T0);
+        Assert.Null(opportunity.StageChangedBy);
+
+        Assert.True(opportunity.MarkLostForNoResponse(T0.AddDays(8)));
+        Assert.Equal((OpportunityStage.Lost, (Guid?)null), (opportunity.Stage, opportunity.StageChangedBy));
+    }
+
+    [Fact]
+    public void ADecisionWithoutAnActor_ClearsAnOlderOne()
+    {
+        var opportunity = NewOpportunity();
+        opportunity.SetManualOutcome(OpportunityStage.Won, null, null, T0, Guid.NewGuid());
+
+        opportunity.SetManualOutcome(OpportunityStage.InFollowUp, null, null, T0.AddHours(1));
+
+        Assert.Null(opportunity.StageChangedBy);
+    }
+
     [Fact]
     public void Unassign_RemovesTheAdvisor()
     {

@@ -26,6 +26,14 @@ public class Conversation : BaseEntity
 
     public Guid? AdvisorId { get; private set; }
 
+    /// <summary>
+    /// The user who last assigned or unassigned the advisor, and when. Both are null while nobody has done it (a conversation that has never had an
+    /// advisor, or an assignment by the system). An id only: the user's name is not copied here.
+    /// </summary>
+    public Guid? AdvisorAssignedBy { get; private set; }
+
+    public DateTime? AdvisorAssignedAt { get; private set; }
+
     public ConversationSource Source { get; private set; }
 
     /// <summary>For an ad, what identified it (headline, URL or ad id).</summary>
@@ -82,9 +90,26 @@ public class Conversation : BaseEntity
         };
     }
 
-    public void AssignAdvisor(Guid advisorId) => AdvisorId = TextRules.RequiredId(advisorId, "El asesor es obligatorio.");
+    /// <param name="advisorId">The advisor to assign.</param>
+    /// <param name="assignedBy">The user who does it; null when the system or a seed does.</param>
+    /// <param name="assignedAt">When; recorded only with <paramref name="assignedBy"/> or on its own, null leaves the time empty.</param>
+    public void AssignAdvisor(Guid advisorId, Guid? assignedBy = null, DateTime? assignedAt = null)
+    {
+        AdvisorId = TextRules.RequiredId(advisorId, "El asesor es obligatorio.");
+        RecordAssignment(assignedBy, assignedAt);
+    }
 
-    public void UnassignAdvisor() => AdvisorId = null;
+    public void UnassignAdvisor(Guid? unassignedBy = null, DateTime? unassignedAt = null)
+    {
+        AdvisorId = null;
+        RecordAssignment(unassignedBy, unassignedAt);
+    }
+
+    private void RecordAssignment(Guid? by, DateTime? at)
+    {
+        AdvisorAssignedBy = by;
+        AdvisorAssignedAt = at is null ? null : UtcTime.Normalize(at.Value);
+    }
 
     /// <summary>
     /// Closes an open conversation. A closed conversation takes no more messages: the next one from the customer opens a new conversation.

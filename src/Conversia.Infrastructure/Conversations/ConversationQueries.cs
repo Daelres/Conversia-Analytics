@@ -68,6 +68,8 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
             BranchName = item.BranchName,
             AdvisorId = item.AdvisorId,
             AdvisorName = item.AdvisorName,
+            AdvisorAssignedBy = row.Conversation.AdvisorAssignedBy,
+            AdvisorAssignedAt = row.Conversation.AdvisorAssignedAt,
             Source = item.Source,
             SourceReference = item.SourceReference,
             Status = item.Status,

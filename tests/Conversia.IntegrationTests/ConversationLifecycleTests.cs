@@ -122,6 +122,7 @@ public class ConversationLifecycleTests
 
         var (_, opportunity) = await LoadAsync(_factory.Services, ghosted.ConversationId);
         Assert.Equal((OpportunityStage.Lost, LossReason.NoResponse, StageSource.Auto), (opportunity.Stage, opportunity.LossReason, opportunity.StageSource));
+        Assert.Null(opportunity.StageChangedBy); // the closing job is not a user
         Assert.Equal((Now, Now), (opportunity.ClosedAt, opportunity.StageChangedAt));
         Assert.True(batch.LostForNoResponse >= 1);
     }

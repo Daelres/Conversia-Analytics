@@ -60,9 +60,10 @@ public class ConversationService : IConversationService
     public async Task<ConversationDetailResponse> GetAsync(Guid id, CancellationToken cancellationToken = default)
         => await _queries.GetDetailAsync(id, cancellationToken) ?? throw new ConversationNotFoundException();
 
-    public async Task<ConversationListItem> AssignAdvisorAsync(Guid id, AssignAdvisorRequest request, CancellationToken cancellationToken = default)
+    public async Task<ConversationListItem> AssignAdvisorAsync(Guid id, AssignAdvisorRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default)
     {
         var conversation = await _conversations.GetForUpdateAsync(id, cancellationToken) ?? throw new ConversationNotFoundException();
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
 
         if (request.AdvisorId is { } advisorId)
         {
@@ -78,25 +79,25 @@ public class ConversationService : IConversationService
                 throw new DomainException(AdvisorInactiveMessage);
             }
 
-            conversation.AssignAdvisor(advisorId);
+            conversation.AssignAdvisor(advisorId, actingUserId, now);
         }
         else
         {
-            conversation.UnassignAdvisor();
+            conversation.UnassignAdvisor(actingUserId, now);
         }
 
         await _conversations.UpdateAsync(conversation, cancellationToken);
         return await _queries.GetSummaryAsync(id, cancellationToken) ?? throw new ConversationNotFoundException();
     }
 
-    public async Task<OpportunityResponse> SetOutcomeAsync(Guid id, SetOpportunityOutcomeRequest request, CancellationToken cancellationToken = default)
+    public async Task<OpportunityResponse> SetOutcomeAsync(Guid id, SetOpportunityOutcomeRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default)
     {
         var stage = Parse<OpportunityStage>(request.Stage) ?? throw new DomainException("La etapa es obligatoria.");
         var lossReason = Parse<LossReason>(request.LossReason);
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
         var opportunity = await _conversations.ChangeOpportunityAsync(
-            id, (_, opportunity) => opportunity.SetManualOutcome(stage, lossReason, request.Detail, now), cancellationToken)
+            id, (_, opportunity) => opportunity.SetManualOutcome(stage, lossReason, request.Detail, now, actingUserId), cancellationToken)
             ?? throw new ConversationNotFoundException();
         return OpportunityResponse.From(opportunity);
     }

@@ -34,6 +34,12 @@ public class Opportunity : BaseEntity
     /// <summary>When the stage last changed (or was last decided by a person); null while the opportunity is still <see cref="OpportunityStage.New"/>.</summary>
     public DateTime? StageChangedAt { get; private set; }
 
+    /// <summary>
+    /// The user who last changed the stage by hand (<see cref="SetManualOutcome"/>); null when the stage was set by the system (the classifier or
+    /// the close-by-inactivity rule) or has not changed yet. An id only: the user's name is not copied here.
+    /// </summary>
+    public Guid? StageChangedBy { get; private set; }
+
     /// <summary>The service or body zone the customer asked about, as a normalized code (<c>axilas</c>, <c>piernas,bikini</c>).</summary>
     public string? ServiceInterest { get; private set; }
 
@@ -74,9 +80,9 @@ public class Opportunity : BaseEntity
     /// <summary>
     /// A person decides the outcome. It always wins over the system: from now on the classifier leaves the stage and the loss reason alone.
     /// <see cref="OpportunityStage.Lost"/> needs a loss reason (the detail is optional); the other stages take neither. Everything is
-    /// validated before anything changes.
+    /// validated before anything changes. <paramref name="changedBy"/> is the user who decided (null for a decision without one, such as seed data).
     /// </summary>
-    public void SetManualOutcome(OpportunityStage stage, LossReason? lossReason, string? detail, DateTime now)
+    public void SetManualOutcome(OpportunityStage stage, LossReason? lossReason, string? detail, DateTime now, Guid? changedBy = null)
     {
         if (stage is not (OpportunityStage.Won or OpportunityStage.Lost or OpportunityStage.InFollowUp))
         {
@@ -106,6 +112,7 @@ public class Opportunity : BaseEntity
 
         StageSource = StageSource.Manual;
         StageChangedAt = at;
+        StageChangedBy = changedBy;
         ApplyStage(stage, lossReason, at);
         LossDetail = stage == OpportunityStage.Lost ? cleanDetail : null;
     }
@@ -169,6 +176,7 @@ public class Opportunity : BaseEntity
         if (Stage != stage)
         {
             StageChangedAt = at;
+            StageChangedBy = null; // the system moved it
         }
 
         StageSource = StageSource.Auto;
@@ -207,6 +215,7 @@ public class Opportunity : BaseEntity
         var at = UtcTime.Normalize(now);
         StageSource = StageSource.Auto;
         StageChangedAt = at;
+        StageChangedBy = null;
         ApplyStage(OpportunityStage.Lost, Enums.LossReason.NoResponse, at);
         LossDetail = null;
         return true;
