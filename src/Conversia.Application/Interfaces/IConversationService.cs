@@ -37,7 +37,8 @@ public sealed record ConversationFilter(
     Domain.Enums.ConversationStatus? Status = null,
     DateTime? FromUtc = null,
     DateTime? ToUtc = null,
-    bool UnansweredOnly = false);
+    bool UnansweredOnly = false,
+    bool ClosedUnansweredOnly = false);
 
 /// <summary>Read side of the conversations: projections straight to the response shapes, tenant-scoped by the query filters.</summary>
 public interface IConversationQueries

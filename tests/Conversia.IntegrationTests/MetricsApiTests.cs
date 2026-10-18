@@ -120,7 +120,7 @@ public class MetricsApiTests
     public async Task TheAnswers_AreCamelCaseJson_WithThePeriodEchoed_AndRatesAsNumbers()
     {
         using var t = await MetricsTenant.StartAsync(_factory, _client);
-        await t.SeedAsync(_factory.Services, false, DateTime.UtcNow.AddHours(-2), [In(0), Out(300)], stage: OpportunityStage.Won);
+        await t.SeedAsync(_factory.Services, false, DateTime.UtcNow.AddDays(-15), [In(0), Out(300)], stage: OpportunityStage.Won);
 
         var json = await t.Owner.GetStringAsync(Url("conversion"));
 
@@ -130,10 +130,26 @@ public class MetricsApiTests
         Assert.Equal("America/Bogota", root.GetProperty("period").GetProperty("timeZone").GetString());
         Assert.Equal(1, root.GetProperty("totals").GetProperty("total").GetInt32());
         Assert.Equal(JsonValueKind.Number, root.GetProperty("totals").GetProperty("conversionRate").ValueKind);
+        Assert.False(root.GetProperty("totals").GetProperty("inMaturation").GetBoolean());
         Assert.Equal("Centro", root.GetProperty("byBranch")[0].GetProperty("name").GetString());
         Assert.Equal("Organic", root.GetProperty("bySource")[0].GetProperty("name").GetString());
         Assert.Equal(JsonValueKind.Null, root.GetProperty("byAdvisor")[0].GetProperty("id").ValueKind); // the unassigned bucket
         Assert.Equal("Sin asesor", root.GetProperty("byAdvisor")[0].GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task ARecentPeriod_HasANullRate_AndSaysItIsInMaturation()
+    {
+        using var t = await MetricsTenant.StartAsync(_factory, _client);
+        await t.SeedAsync(_factory.Services, false, DateTime.UtcNow.AddHours(-2), [In(0), Out(300)], stage: OpportunityStage.Won);
+
+        using var document = JsonDocument.Parse(await t.Owner.GetStringAsync(Url("conversion")));
+
+        var totals = document.RootElement.GetProperty("totals");
+        Assert.Equal(JsonValueKind.Null, totals.GetProperty("conversionRate").ValueKind);
+        Assert.True(totals.GetProperty("inMaturation").GetBoolean());
+        Assert.Equal((1, 1, 0), (totals.GetProperty("won").GetInt32(), totals.GetProperty("immature").GetInt32(), totals.GetProperty("matured").GetInt32()));
+        Assert.Equal(JsonValueKind.Number, totals.GetProperty("winShareOfAll").ValueKind); // the raw share is still there
     }
 
     [Fact]
@@ -234,5 +250,20 @@ public class MetricsApiTests
             var ex = Assert.Throws<InvalidOperationException>(() => Conversia.API.Configuration.MetricsServiceCollectionExtensions.GetValidatedOptions(Config((key, value))));
             Assert.Contains(key, ex.Message);
         }
+    }
+
+    [Fact]
+    public void TheMaturity_MustNotBeShorterThanTheAutoClose_UnlessTheJobIsOff()
+    {
+        // 7 days of auto-close by default: a 3-day maturity would rate conversations the job is still going to decide.
+        var ex = Assert.Throws<InvalidOperationException>(() => Conversia.API.Configuration.MetricsServiceCollectionExtensions.GetValidatedOptions(Config(("Metrics:ConversionMaturityDays", "3"))));
+        Assert.Contains("Metrics:ConversionMaturityDays", ex.Message);
+        Assert.Contains("Conversations:AutoCloseAfterDays", ex.Message);
+
+        var longer = Conversia.API.Configuration.MetricsServiceCollectionExtensions.GetValidatedOptions(Config(("Metrics:ConversionMaturityDays", "14")));
+        var equal = Conversia.API.Configuration.MetricsServiceCollectionExtensions.GetValidatedOptions(Config(("Metrics:ConversionMaturityDays", "7")));
+        var jobOff = Conversia.API.Configuration.MetricsServiceCollectionExtensions.GetValidatedOptions(Config(("Metrics:ConversionMaturityDays", "3"), ("Conversations:AutoCloseEnabled", "false")));
+        var shorterJob = Conversia.API.Configuration.MetricsServiceCollectionExtensions.GetValidatedOptions(Config(("Metrics:ConversionMaturityDays", "3"), ("Conversations:AutoCloseAfterDays", "2")));
+        Assert.Equal((14, 7, 3, 3), (longer.ConversionMaturityDays, equal.ConversionMaturityDays, jobOff.ConversionMaturityDays, shorterJob.ConversionMaturityDays));
     }
 }

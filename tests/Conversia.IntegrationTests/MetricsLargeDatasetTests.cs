@@ -35,7 +35,7 @@ public class MetricsLargeDatasetTests
 
     private sealed record Row(
         int Index, bool North, Guid? AdvisorId, ConversationSource Source, DateTime Start, int? ResponseSeconds, DateTime LastMessageAt,
-        OpportunityStage Stage, LossReason? Loss, ObjectionType Objection, List<(MessageDirection Direction, DateTime At)> Messages);
+        OpportunityStage Stage, LossReason? Loss, ObjectionType Objection, List<(MessageDirection Direction, DateTime At)> Messages, bool Closed);
 
     private static List<Row> Generate(MetricsTenant t)
     {
@@ -57,11 +57,11 @@ public class MetricsLargeDatasetTests
             }
 
             var stage = (i % 10) switch { <= 3 => OpportunityStage.Won, <= 6 => OpportunityStage.Lost, 8 => OpportunityStage.New, _ => OpportunityStage.InFollowUp };
-            LossReason? loss = stage == OpportunityStage.Lost ? (i % 3) switch { 0 => LossReason.Price, 1 => LossReason.Timing, _ => LossReason.Location } : null;
+            LossReason? loss = stage == OpportunityStage.Lost ? (i % 4 == 0 ? LossReason.NoResponse : (i % 3) switch { 0 => LossReason.Price, 1 => LossReason.Timing, _ => LossReason.Location }) : null;
             var objection = (i % 6) switch { 0 => ObjectionType.Price, 1 => ObjectionType.Pain, _ => ObjectionType.None };
             var source = i % 7 == 0 ? ConversationSource.Ads : i % 11 == 0 ? ConversationSource.Unknown : ConversationSource.Organic;
             Guid? advisor = i % 5 == 0 ? null : north ? t.Beto.Id : t.Ana.Id;
-            rows.Add(new Row(i, north, advisor, source, start, response, messages.Max(m => m.Item2), stage, loss, objection, messages));
+            rows.Add(new Row(i, north, advisor, source, start, response, messages.Max(m => m.Item2), stage, loss, objection, messages, Closed: i % 17 == 0));
         }
 
         return rows;
@@ -87,6 +87,11 @@ public class MetricsLargeDatasetTests
                     .Select(m => Message.Create(t.TenantId, conversation.Id, channelId, $"wamid.{Guid.NewGuid():N}", m.Direction, "text", null, m.At))
                     .ToList();
                 conversation.ApplyTimeline(ConversationTimeline.From(messages.Select(m => (m.Direction, m.SentAt)))!);
+                if (row.Closed)
+                {
+                    conversation.Close(row.LastMessageAt.AddDays(8));
+                }
+
                 var opportunity = Opportunity.Open(t.TenantId, conversation.Id);
                 MetricsTenant.Decide(opportunity, row.Start, row.Stage, row.Loss, row.Objection);
                 db.AddRange(contact, conversation, opportunity);
@@ -119,28 +124,39 @@ public class MetricsLargeDatasetTests
 
     private static bool IsStale(Row r) => r.Stage is OpportunityStage.InFollowUp or OpportunityStage.New && r.LastMessageAt < Now.AddDays(-7);
 
+    // Matured: the conversation started at least the maturity (7 days) before the clock. The rate is computed over those only.
+    private static bool IsMatured(Row r) => r.Start <= Now.AddDays(-7);
+
     private static void AssertConversion(IEnumerable<Row> cohort, ConversionCounts actual)
     {
         var rows = cohort.ToList();
         var won = rows.Count(r => r.Stage == OpportunityStage.Won);
         var lost = rows.Count(r => r.Stage == OpportunityStage.Lost);
         var stale = rows.Count(IsStale);
-        var decided = won + lost + stale;
+        var matured = rows.Where(IsMatured).ToList();
+        var maturedWon = matured.Count(r => r.Stage == OpportunityStage.Won);
+        var maturedLost = matured.Count(r => r.Stage == OpportunityStage.Lost);
+        var decided = maturedWon + maturedLost + stale;
         Assert.Equal(
-            (rows.Count, won, lost, rows.Count(r => r.Stage == OpportunityStage.InFollowUp), rows.Count(r => r.Stage == OpportunityStage.New), stale, decided, Percent(won, decided), Percent(won, rows.Count)),
-            (actual.Total, actual.Won, actual.Lost, actual.InFollowUp, actual.New, actual.Stale, actual.Decided, actual.ConversionRate, actual.WinShareOfAll));
+            (rows.Count, won, lost, rows.Count(r => r.Stage == OpportunityStage.InFollowUp), rows.Count(r => r.Stage == OpportunityStage.New), stale,
+             matured.Count, rows.Count - matured.Count, maturedWon, maturedLost, decided, Percent(maturedWon, decided), Percent(won, rows.Count), rows.Count > 0 && matured.Count == 0),
+            (actual.Total, actual.Won, actual.Lost, actual.InFollowUp, actual.New, actual.Stale,
+             actual.Matured, actual.Immature, actual.MaturedWon, actual.MaturedLost, actual.Decided, actual.ConversionRate, actual.WinShareOfAll, actual.InMaturation));
     }
 
     private static void AssertResponse(IEnumerable<Row> cohort, FirstResponseStats actual)
     {
         var rows = cohort.ToList();
         var seconds = rows.Where(r => r.ResponseSeconds is not null).Select(r => (double)r.ResponseSeconds!.Value).Order().ToList();
-        var unanswered = rows.Where(r => r.ResponseSeconds is null).ToList();
+        var unanswered = rows.Where(r => r.ResponseSeconds is null && !r.Closed).ToList(); // open and waiting: the only ones that are "waiting"
+        var closedUnanswered = rows.Count(r => r.ResponseSeconds is null && r.Closed);
         var overSla = unanswered.Count(r => r.Start < Now.AddMinutes(-30));
         var within = seconds.Count(s => s <= 30 * 60);
 
-        Assert.Equal((rows.Count, seconds.Count, unanswered.Count, within, overSla, seconds.Count + overSla), (actual.Conversations, actual.Answered, actual.Unanswered, actual.WithinSla, actual.UnansweredOverSla, actual.SlaEligible));
-        Assert.Equal(Percent(within, seconds.Count + overSla), actual.AnsweredWithinSlaPercent);
+        Assert.Equal(
+            (rows.Count, seconds.Count, unanswered.Count, closedUnanswered, within, overSla, seconds.Count + overSla + closedUnanswered),
+            (actual.Conversations, actual.Answered, actual.UnansweredOpen, actual.UnansweredClosed, actual.WithinSla, actual.UnansweredOpenOverSla, actual.SlaEligible));
+        Assert.Equal(Percent(within, seconds.Count + overSla + closedUnanswered), actual.AnsweredWithinSlaPercent);
         if (seconds.Count == 0)
         {
             Assert.Null(actual.AvgMinutes);
@@ -156,11 +172,11 @@ public class MetricsLargeDatasetTests
 
         if (unanswered.Count == 0)
         {
-            Assert.Null(actual.OldestUnansweredMinutes);
+            Assert.Null(actual.OldestUnansweredOpenMinutes);
         }
         else
         {
-            Assert.Equal(Round((Now - unanswered.Min(r => r.Start)).TotalMinutes, 2), actual.OldestUnansweredMinutes);
+            Assert.Equal(Round((Now - unanswered.Min(r => r.Start)).TotalMinutes, 2), actual.OldestUnansweredOpenMinutes);
         }
     }
 
@@ -209,14 +225,18 @@ public class MetricsLargeDatasetTests
         // Loss reasons and objections.
         var losses = await h.Service.GetLossReasonsAsync(query);
         var lostRows = cohort.Where(r => r.Stage == OpportunityStage.Lost).ToList();
-        Assert.Equal((cohort.Count, lostRows.Count, 0), (losses.Conversations, losses.TotalLost, losses.OtherCount));
+        var stated = lostRows.Where(r => r.Loss != LossReason.NoResponse).ToList();
+        var silent = lostRows.Count - stated.Count;
+        Assert.True(silent > 0 && stated.Count > 0); // the dataset has both kinds of loss
+        Assert.Equal((cohort.Count, lostRows.Count, stated.Count, silent, 0), (losses.Conversations, losses.TotalLost, losses.StatedLost, losses.NoResponse.Count, losses.OtherCount));
+        Assert.Equal(Percent(silent, lostRows.Count), losses.NoResponse.SharePercent); // of everything lost
         Assert.Equal(
-            lostRows.GroupBy(r => r.Loss!.Value.ToString()).Select(g => (g.Key, g.Count(), Percent(g.Count(), lostRows.Count)!.Value)).OrderByDescending(x => x.Item2).ThenBy(x => x.Key, StringComparer.Ordinal),
-            losses.TopReasons.Select(r => (r.Reason, r.Count, r.SharePercent)));
+            stated.GroupBy(r => r.Loss!.Value.ToString()).Select(g => (g.Key, g.Count(), Percent(g.Count(), stated.Count))).OrderByDescending(x => x.Item2).ThenBy(x => x.Key, StringComparer.Ordinal),
+            losses.TopReasons.Select(r => (r.Reason, r.Count, r.SharePercent))); // of the ones who said why
         foreach (var objection in losses.Objections)
         {
             var expected = cohort.Count(r => r.Objection.ToString() == objection.Objection);
-            Assert.Equal((expected, Percent(expected, cohort.Count) ?? 0), (objection.Count, objection.SharePercent));
+            Assert.Equal((expected, Percent(expected, cohort.Count)), (objection.Count, objection.SharePercent));
         }
 
         // Volume: conversations per day and per hour of the week, messages per day.

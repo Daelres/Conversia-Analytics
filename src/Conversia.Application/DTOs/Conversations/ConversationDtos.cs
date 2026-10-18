@@ -50,9 +50,16 @@ public class ConversationQuery : IValidatableObject
     [Display(Name = "Hasta")]
     public DateOnly? To { get; set; }
 
-    /// <summary>The customer wrote and nobody answered yet.</summary>
+    /// <summary>
+    /// The customer wrote, nobody has answered and the conversation is still <b>open</b>: somebody can still answer it (the same set as
+    /// <c>unansweredOpen</c> of the metrics). Use <see cref="ClosedUnanswered"/> for the ones that closed without a reply.
+    /// </summary>
     [Display(Name = "Sin responder")]
     public bool? Unanswered { get; set; }
+
+    /// <summary>The customer wrote and the conversation closed without any reply (the same set as <c>unansweredClosed</c> of the metrics).</summary>
+    [Display(Name = "Cerradas sin responder")]
+    public bool? ClosedUnanswered { get; set; }
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -64,6 +71,11 @@ public class ConversationQuery : IValidatableObject
         if (AdvisorId is not null && Unassigned == true)
         {
             yield return new ValidationResult("No se puede filtrar por un asesor y por conversaciones sin asesor a la vez.", [nameof(AdvisorId), nameof(Unassigned)]);
+        }
+
+        if (Unanswered == true && ClosedUnanswered == true)
+        {
+            yield return new ValidationResult("No se puede filtrar por conversaciones abiertas y cerradas sin responder a la vez.", [nameof(Unanswered), nameof(ClosedUnanswered)]);
         }
     }
 }
@@ -110,8 +122,11 @@ public class ConversationListItem
 
     public DateTime? ClosedAt { get; set; }
 
-    /// <summary>The customer wrote and nobody has answered yet.</summary>
-    public bool Unanswered => FirstInboundAt is not null && FirstResponseAt is null;
+    /// <summary>The customer wrote, nobody has answered and the conversation is still open.</summary>
+    public bool Unanswered => FirstInboundAt is not null && FirstResponseAt is null && Status == nameof(ConversationStatus.Open);
+
+    /// <summary>The customer wrote and the conversation closed without any reply.</summary>
+    public bool ClosedUnanswered => FirstInboundAt is not null && FirstResponseAt is null && Status == nameof(ConversationStatus.Closed);
 
     public int MessageCount { get; set; }
 

@@ -24,8 +24,10 @@ All endpoints need the `MetricsView` permission, are scoped to the caller's tena
 | `unassigned=true` | Only conversations with no advisor (cannot be combined with `advisorId`). |
 | `source` | `Ads`, `Organic` or `Unknown`. |
 
-Percentages are numbers from 0 to 100 with one decimal (`23.5`); durations are minutes with two decimals; a value that cannot be computed
-(no data) is `null`, never `0`. Every answer repeats the `period` it was computed for (`from`, `to`, `timeZone`, `days`).
+**Units.** Every percentage of the metrics API is a number **from 0 to 100** with one decimal (`23.5`). The classifier's `classificationConfidence`
+(`GET /api/conversations/{id}`) is a different scale on purpose: **0 to 1** (`0.85`); do not mix them. Durations are minutes with two decimals. A value that
+cannot be computed (no data, an empty denominator) is `null`, never `0`: that includes every `sharePercent` over an empty set. Every answer repeats the
+`period` it was computed for (`from`, `to`, `timeZone`, `days`).
 
 ## Time zone
 
@@ -47,20 +49,33 @@ for a past period can still change when its conversations are classified, decide
 
 Each cohort conversation has one opportunity, whose stage is one of **Won**, **Lost**, **InFollowUp** or **New** (not classified yet, or nothing could be read).
 
+**The rate is computed over the matured cohort.** A conversation is *matured* when it started at least `Metrics:ConversionMaturityDays` (default **7**) before
+now. Comparing a young period with an old one is biased otherwise: the decided conversations of the last days count at once (a sale is won in minutes) while the
+ones that will go cold are not known yet, so the recent rate looks better than it will be and a real drop is hidden. Only matured conversations enter the rate,
+in the headline, in every breakdown and in the previous-period comparison of `CONVERSION_DROP`; all the raw counts still cover the whole cohort.
+
 | Field | Definition |
 |---|---|
 | `total` | Cohort size. |
-| `won`, `lost`, `inFollowUp`, `new` | Conversations by stage; they add up to `total`. |
-| `stale` | Of `inFollowUp` and `new`, those whose last message is older than `Metrics:ConversionMaturityDays` (default **7**, the idle-close threshold): undecided and gone cold. |
-| `inProgress` | `inFollowUp + new - stale`: still maturing. |
-| `decided` | `won + lost + stale`. |
-| **`conversionRate`** | **`won / decided * 100`**; `null` when `decided` is 0. |
-| `winShareOfAll` | `won / total * 100`: the same, ignoring maturity; `null` when `total` is 0. |
+| `won`, `lost`, `inFollowUp`, `new` | Conversations by stage, **all of them**; they add up to `total`. |
+| `matured` | Cohort conversations that started at least the maturity ago: the ones the rate is computed over. |
+| `immature` | `total - matured`: too recent. They are in every raw count and in none of the rate. |
+| `maturedWon`, `maturedLost` | `won` and `lost` among the matured ones. |
+| `stale` | Of `inFollowUp` and `new`, those whose last message is older than the maturity: undecided and gone cold (always matured). |
+| `inProgress` | `inFollowUp + new - stale`: still alive. |
+| `decided` | `maturedWon + maturedLost + stale`: the denominator of the rate. |
+| **`conversionRate`** | **`maturedWon / decided * 100`**, 0 to 100; `null` when `decided` is 0. |
+| `inMaturation` | `true` when the period has conversations but **none is mature yet**: there is no rate to give, not "0 %" and not "unknown", just too early. A matured period with nothing decided has a `null` rate and `inMaturation: false`. |
+| `winShareOfAll` | `won / total * 100` over the whole cohort, maturity ignored; `null` when `total` is 0. |
 
-Why this definition: `won / total` falls every time a conversation is still in progress, so the rate of the last days always looks bad
-and comparing periods is unfair; `won / (won + lost)` ignores the conversations that went quiet without anyone deciding, which is most
-of the lost sales. Counting the stale ones as non-conversions and leaving the fresh ones out is the simplest rate that is neither of those. The raw
-counts are always returned so the dashboard can show both. The breakdowns (`byBranch`, `byAdvisor`, `bySource`) apply the same definition per group.
+Why this definition: `won / total` falls every time a conversation is still in progress, so the rate of the last days always looks bad; `won / (won + lost)` ignores the
+conversations that went quiet without anyone deciding, which is most of the lost sales. Counting the stale ones as non-conversions, leaving the alive ones out and
+rating only the conversations old enough to have settled is the simplest rate that is none of those. A dashboard shows `immature` next to the rate ("12 of 80
+conversations are still maturing") and `inMaturation` as "too early". The breakdowns (`byBranch`, `byAdvisor`, `bySource`) apply the same definition per group.
+
+`Metrics:ConversionMaturityDays` must be **at least `Conversations:AutoCloseAfterDays`** while the closing job is on (the API refuses to start otherwise, naming both keys):
+the job gives the silent conversations up as lost after that many idle days, so a conversation rated earlier would still be decided afterwards and the rate of a period
+would keep moving.
 
 Groups: **branch** (the conversation's branch), **advisor** (the assigned advisor; conversations with none form an explicit bucket with
 `id: null` and the name `Sin asesor`), **source** (`Ads`, `Organic`, `Unknown`). Rows are ordered by `total` descending, then name.
@@ -70,26 +85,40 @@ Groups: **branch** (the conversation's branch), **advisor** (the assigned adviso
 Per cohort conversation: `FirstInboundAt` is the customer's first message; `FirstResponseAt` is the business's first message at or after it
 (`docs/WEBHOOKS.md`). The response time is `FirstResponseAt - FirstInboundAt`.
 
+**"Unanswered" has one definition across the API: the customer wrote and nobody replied.** It splits in two by the status of the conversation:
+
+- **open** (`unansweredOpen`): somebody can still answer it. This is the actionable set and the one the rest of the API means by *unanswered*:
+  `alerts.unanswered`, `GET /api/conversations?unanswered=true` and `oldestUnansweredOpenMinutes`.
+- **closed** (`unansweredClosed`): the conversation closed (idle, or by a person) and nobody ever replied. A miss that is over: not actionable, but not forgotten either;
+  `GET /api/conversations?closedUnanswered=true` lists them.
+
 | Field | Definition |
 |---|---|
 | `conversations` | Cohort size. |
 | `answered` | Conversations with a first response. |
-| `unanswered` | Conversations without one. **They are never counted as zero** nor mixed into the statistics below. |
+| `unansweredOpen` | Open, no reply yet. **Never counted as zero** nor mixed into the statistics below. |
+| `unansweredClosed` | Closed with no reply. Never part of the statistics either. `conversations = answered + unansweredOpen + unansweredClosed`. |
 | `avgMinutes`, `medianMinutes`, `p90Minutes` | Over the **answered** ones. Median and p90 are `percentile_cont(0.5)` and `percentile_cont(0.9)`: linear interpolation between neighbouring values (the median of 1, 2 and 4 minutes is 2; of 1, 2, 3 and 10 it is 2.5). `null` without answered conversations. |
 | `slaMinutes` | `Metrics:FirstResponseSlaMinutes` (default **30**). |
 | `withinSla` | Answered in at most `slaMinutes` (inclusive). |
-| `slaEligible` | `answered + unanswered whose customer message is older than the SLA`: the conversations that have had their chance. An unanswered one still inside the SLA window is not a miss yet. |
-| `answeredWithinSlaPercent` | `withinSla / slaEligible * 100`; `null` when `slaEligible` is 0. An unanswered conversation past the SLA counts as a miss. |
-| `unansweredOverSla` | Unanswered with a customer message older than the SLA. |
-| `oldestUnansweredMinutes` | How long the oldest unanswered conversation has been waiting (`now - FirstInboundAt`); `null` when none. |
+| `unansweredOpenOverSla` | Open, unanswered, with a customer message older than the SLA. |
+| `slaEligible` | `answered + unansweredOpenOverSla + unansweredClosed`: the conversations that have had their chance. An open one still inside the SLA window is not a miss yet; a closed one is a miss for good. |
+| `answeredWithinSlaPercent` | `withinSla / slaEligible * 100`; `null` when `slaEligible` is 0. |
+| `oldestUnansweredOpenMinutes` | How long the oldest **open** unanswered conversation has been waiting (`now - FirstInboundAt`); `null` when none. A conversation that closed unanswered is not "waiting". |
 
 ## Loss reasons and objections
 
-- `totalLost`: cohort conversations whose stage is **Lost**.
-- `topReasons`: the loss reasons of those, the top `Metrics:TopLossReasons` (default **5**) by count (ties: reason name), each with `count` and
-  `sharePercent` (of `totalLost`); `otherCount` is what the rest add up to. A loss with no reason counts as `Unknown`.
+- `totalLost`: cohort conversations whose stage is **Lost**. It is `statedLost + noResponse.count`.
+- `noResponse`: `{ count, sharePercent }`, the sales lost because the customer **stopped answering** (`LossReason.NoResponse`, set by the job that closes idle
+  conversations). It is the system's **inference** from silence: the customer never said it, so it is shown **on its own line** and left out of the ranking below
+  (otherwise, on a typical pilot, "no response" tops the list and tells the manager nothing). `sharePercent` is of `totalLost`; `null` when nothing is lost.
+- `statedLost`: the rest of the losses: a reason the customer gave, the classifier read or a person set.
+- `topReasons`: the loss reasons of `statedLost` (without `NoResponse`), the top `Metrics:TopLossReasons` (default **5**) by count (ties: reason name), each with `count` and
+  `sharePercent` **of `statedLost`**; `otherCount` is what the rest add up to. A loss with no reason counts as `Unknown`.
 - `objections`: **all** cohort conversations by the latest objection raised (`None`, `Price`, `Timing`, `Location`, `Trust`, `Pain`, `Other`), every type
-  present, with `count` and `sharePercent` of the cohort (`None` included: its share says how many conversations had no objection at all).
+  present, with `count` and `sharePercent` of the cohort (`None` included: its share says how many conversations had no objection at all); `null` over an empty cohort.
+
+`GET /api/metrics/summary` carries the same `totalLost`, `statedLost`, `noResponse` and `topLossReasons`.
 
 ## Volume
 
@@ -108,10 +137,10 @@ decided conversations) in **both** sides of the comparison, so a handful of conv
 | Code | Raised when | Severity |
 |---|---|---|
 | `UNANSWERED_OVER_SLA` | There are **open** cohort conversations whose customer wrote more than `slaMinutes` ago and nobody answered. Values: `count`, `slaMinutes`, `oldestWaitingMinutes`. | `Critical` if the oldest waits more than 4 x the SLA, else `Warning` |
-| `CONVERSION_DROP` | The `conversionRate` of the period is at least `Metrics:ConversionDropAlertPoints` (default **10**) points below that of the **previous period of the same length** (the days right before `from`, same filters), both with `decided >= MinSampleSize`. Values: `currentRate`, `previousRate`, `dropPoints`, `currentSample`, `previousSample`. | `Critical` from 2 x the threshold |
-| `BRANCH_BELOW_AVERAGE` | A branch's `conversionRate` is at least `Metrics:BranchBelowAveragePoints` (default **15**) points below the tenant's, with `decided >= MinSampleSize` for that branch **and** for the tenant. One alert per branch; not raised when a `branchId` filter is given. Values: `branchId`, `branchRate`, `tenantRate`, `gapPoints`, `branchSample`. | `Critical` from 2 x the threshold |
+| `CONVERSION_DROP` | The `conversionRate` of the period is at least `Metrics:ConversionDropAlertPoints` (default **10**) points below that of the **previous period of the same length** (the days right before `from`, same filters), both rates over their **matured** cohort and both with `decided >= MinSampleSize`. The drop is computed from the **exact** rates and rounded only for the text: 9.96 points is not a 10-point drop. Values: `currentRate`, `previousRate`, `dropPoints`, `currentSample`, `previousSample`. | `Critical` from 2 x the threshold |
+| `BRANCH_BELOW_AVERAGE` | A branch's `conversionRate` is at least `Metrics:BranchBelowAveragePoints` (default **15**) points below the tenant's (exact rates, as above), with `decided >= MinSampleSize` for that branch **and** for the tenant. One alert per branch; not raised when a `branchId` filter is given. Values: `branchId`, `branchRate`, `tenantRate`, `gapPoints`, `branchSample`. | `Critical` from 2 x the threshold |
 
-`unanswered`: `total` (the same open conversations as `UNANSWERED_OVER_SLA`) and `items`, the **20 oldest first**: `conversationId`, `branchId`,
+`unanswered`: `total` (the same **open** conversations as `UNANSWERED_OVER_SLA`; closed ones are not waiting for anybody) and `items`, the **20 oldest first**: `conversationId`, `branchId`,
 `branchName`, `advisorId`, `advisorName`, `firstInboundAt`, `waitingMinutes`. No customer name, number or text: the conversation is opened
 with `GET /api/conversations/{id}`, which needs its own permission.
 
@@ -121,7 +150,7 @@ with `GET /api/conversations/{id}`, which needs its own permission.
 |---|---|---|
 | `Metrics:TimeZone` | `America/Bogota` | Time zone of dates, days and hours. |
 | `Metrics:FirstResponseSlaMinutes` | `30` | First-response SLA. 1 to 1440. |
-| `Metrics:ConversionMaturityDays` | `7` | Age after which an undecided conversation counts against conversion. 1 to 365. |
+| `Metrics:ConversionMaturityDays` | `7` | A conversation enters the conversion rate once it started this many days ago; an undecided one idle for that long counts against it. 1 to 365. Must be at least `Conversations:AutoCloseAfterDays` while the closing job is on. |
 | `Metrics:TopLossReasons` | `5` | Loss reasons listed. 1 to 20. |
 | `Metrics:MinSampleSize` | `20` | Minimum decided conversations for the rate alerts. 1 to 100000. |
 | `Metrics:ConversionDropAlertPoints` | `10` | Points of drop that raise `CONVERSION_DROP`. 1 to 100. |

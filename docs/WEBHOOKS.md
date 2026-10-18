@@ -260,8 +260,9 @@ description, no raw exception) and retried at the next one.
 
 - **Reopen policy**: a message that arrives after the close always starts a *new* conversation. There is no
   "reopen window": it would need a rule for the opportunity of the closed conversation (Won? Lost?) and for
-  messages that arrive late and out of order, and nothing in the pilot asks for it yet. `Conversation.Reopen()`
-  exists in the domain for a person who closed one by mistake; no endpoint uses it.
+  messages that arrive late and out of order, and nothing in the pilot asks for it yet. (A `Conversation.Reopen()` method that
+  nothing called was removed: reopening would also have to decide what happens to the opportunity, so it belongs with the
+  reopen window, if the pilot ever asks for one.)
 - **Opportunity**: when the last message of the closed conversation is the business's, and the customer had
   written before (the customer went silent), the opportunity becomes `Lost` / `NoResponse` (`StageSource = Auto`).
   Nothing changes when the stage is already `Won` or `Lost`, when a person decided it (`StageSource = Manual`), or when the

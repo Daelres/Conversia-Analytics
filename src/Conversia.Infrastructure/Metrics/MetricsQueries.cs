@@ -23,6 +23,7 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
     private const string Lost = nameof(OpportunityStage.Lost);
     private const string InFollowUp = nameof(OpportunityStage.InFollowUp);
     private const string New = nameof(OpportunityStage.New);
+    private const string Open = nameof(ConversationStatus.Open);
 
     // The filters a request can add, written once for the cohort and for the message volume. A null parameter means "no filter".
     private const string ConversationFilters = """
@@ -64,8 +65,16 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
         public int New { get; set; }
 
         public int Stale { get; set; }
+
+        public int Matured { get; set; }
+
+        public int MaturedWon { get; set; }
+
+        public int MaturedLost { get; set; }
     }
 
+    // A conversation is matured when it started at or before the cutoff; the rate is computed over those only. "Stale" (undecided and gone cold:
+    // its last message is older than the cutoff) is always matured, since a conversation never starts after its last message.
     public async Task<IReadOnlyList<ConversionRaw>> ConversionAsync(MetricsFilter filter, MetricsGroupBy by, DateTime matureBeforeUtc, CancellationToken cancellationToken = default)
     {
         var (keys, join, group) = Grouping(by);
@@ -77,7 +86,10 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
                    (count(*) FILTER (WHERE k."Stage" = '{Lost}'))::int AS "Lost",
                    (count(*) FILTER (WHERE k."Stage" = '{InFollowUp}'))::int AS "InFollowUp",
                    (count(*) FILTER (WHERE k."Stage" = '{New}'))::int AS "New",
-                   (count(*) FILTER (WHERE k."Stage" IN ('{InFollowUp}', '{New}') AND k."LastMessageAt" < @matureBefore))::int AS "Stale"
+                   (count(*) FILTER (WHERE k."Stage" IN ('{InFollowUp}', '{New}') AND k."LastMessageAt" < @matureBefore))::int AS "Stale",
+                   (count(*) FILTER (WHERE k."StartedAt" <= @matureBefore))::int AS "Matured",
+                   (count(*) FILTER (WHERE k."StartedAt" <= @matureBefore AND k."Stage" = '{Won}'))::int AS "MaturedWon",
+                   (count(*) FILTER (WHERE k."StartedAt" <= @matureBefore AND k."Stage" = '{Lost}'))::int AS "MaturedLost"
             FROM cohort k
             {join}
             {group}
@@ -85,7 +97,7 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
         var rows = await db.Database
             .SqlQueryRaw<ConversionRow>(sql, [.. Parameters(filter), Timestamp("matureBefore", matureBeforeUtc)])
             .ToListAsync(cancellationToken);
-        return rows.Select(r => new ConversionRaw(r.GroupId, r.GroupName, r.Total, r.Won, r.Lost, r.InFollowUp, r.New, r.Stale)).ToList();
+        return rows.Select(r => new ConversionRaw(r.GroupId, r.GroupName, r.Total, r.Won, r.Lost, r.InFollowUp, r.New, r.Stale, r.Matured, r.MaturedWon, r.MaturedLost)).ToList();
     }
 
     // ---- First response -----------------------------------------------------------------------------------------------
@@ -100,7 +112,9 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
 
         public int Answered { get; set; }
 
-        public int Unanswered { get; set; }
+        public int UnansweredOpen { get; set; }
+
+        public int UnansweredClosed { get; set; }
 
         public double? AvgSeconds { get; set; }
 
@@ -110,9 +124,9 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
 
         public int WithinSla { get; set; }
 
-        public int UnansweredOverSla { get; set; }
+        public int UnansweredOpenOverSla { get; set; }
 
-        public DateTime? OldestUnansweredInboundAt { get; set; }
+        public DateTime? OldestUnansweredOpenInboundAt { get; set; }
     }
 
     public async Task<IReadOnlyList<ResponseRaw>> FirstResponseAsync(MetricsFilter filter, MetricsGroupBy by, TimeSpan sla, DateTime nowUtc, CancellationToken cancellationToken = default)
@@ -124,13 +138,14 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
             SELECT {keys},
                    count(*)::int AS "Conversations",
                    count(k."FirstResponseAt")::int AS "Answered",
-                   (count(*) FILTER (WHERE k."FirstResponseAt" IS NULL))::int AS "Unanswered",
+                   (count(*) FILTER (WHERE k."FirstResponseAt" IS NULL AND k."Status" = '{Open}'))::int AS "UnansweredOpen",
+                   (count(*) FILTER (WHERE k."FirstResponseAt" IS NULL AND k."Status" <> '{Open}'))::int AS "UnansweredClosed",
                    avg({Seconds})::float8 AS "AvgSeconds",
                    (percentile_cont(0.5) WITHIN GROUP (ORDER BY {Seconds}))::float8 AS "MedianSeconds",
                    (percentile_cont(0.9) WITHIN GROUP (ORDER BY {Seconds}))::float8 AS "P90Seconds",
                    (count(*) FILTER (WHERE k."FirstResponseAt" IS NOT NULL AND k."FirstResponseAt" - k."FirstInboundAt" <= @sla))::int AS "WithinSla",
-                   (count(*) FILTER (WHERE k."FirstResponseAt" IS NULL AND k."FirstInboundAt" < @slaDeadline))::int AS "UnansweredOverSla",
-                   min(k."FirstInboundAt") FILTER (WHERE k."FirstResponseAt" IS NULL) AS "OldestUnansweredInboundAt"
+                   (count(*) FILTER (WHERE k."FirstResponseAt" IS NULL AND k."Status" = '{Open}' AND k."FirstInboundAt" < @slaDeadline))::int AS "UnansweredOpenOverSla",
+                   min(k."FirstInboundAt") FILTER (WHERE k."FirstResponseAt" IS NULL AND k."Status" = '{Open}') AS "OldestUnansweredOpenInboundAt"
             FROM cohort k
             {join}
             {group}
@@ -139,7 +154,8 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
             .SqlQueryRaw<ResponseRow>(sql, [.. Parameters(filter), new NpgsqlParameter("sla", NpgsqlDbType.Interval) { Value = sla }, Timestamp("slaDeadline", nowUtc - sla)])
             .ToListAsync(cancellationToken);
         return rows.Select(r => new ResponseRaw(
-            r.GroupId, r.GroupName, r.Conversations, r.Answered, r.Unanswered, r.AvgSeconds, r.MedianSeconds, r.P90Seconds, r.WithinSla, r.UnansweredOverSla, r.OldestUnansweredInboundAt)).ToList();
+            r.GroupId, r.GroupName, r.Conversations, r.Answered, r.UnansweredOpen, r.UnansweredClosed, r.AvgSeconds, r.MedianSeconds, r.P90Seconds, r.WithinSla,
+            r.UnansweredOpenOverSla, r.OldestUnansweredOpenInboundAt)).ToList();
     }
 
     // ---- Loss reasons and objections ------------------------------------------------------------------------------------

@@ -186,7 +186,7 @@ public class MetricsQueryTests
 
         Assert.Equal((0, 0, 0, null, null), (conversion.Totals.Total, conversion.Totals.Won, conversion.Totals.Decided, conversion.Totals.ConversionRate, conversion.Totals.WinShareOfAll));
         Assert.Empty(conversion.ByBranch);
-        Assert.Equal((0, 0, 0, null, null, null, null), (response.Totals.Conversations, response.Totals.Answered, response.Totals.Unanswered, response.Totals.AvgMinutes, response.Totals.MedianMinutes, response.Totals.P90Minutes, response.Totals.AnsweredWithinSlaPercent));
+        Assert.Equal((0, 0, 0, null, null, null, null), (response.Totals.Conversations, response.Totals.Answered, response.Totals.UnansweredOpen, response.Totals.AvgMinutes, response.Totals.MedianMinutes, response.Totals.P90Minutes, response.Totals.AnsweredWithinSlaPercent));
         Assert.Empty(response.ByAdvisor);
         Assert.Equal((0, 0), (losses.TotalLost, losses.Conversations));
         Assert.Empty(losses.TopReasons);
@@ -207,12 +207,12 @@ public class MetricsQueryTests
         var totals = (await h.Service.GetFirstResponseAsync(October)).Totals;
 
         // Minutes of the nine answered: 1, 2, 5, 10, 10, 20, 30, 60, 120. c4 never got an answer and is in none of the statistics.
-        Assert.Equal((10, 9, 1), (totals.Conversations, totals.Answered, totals.Unanswered));
+        Assert.Equal((10, 9, 1), (totals.Conversations, totals.Answered, totals.UnansweredOpen));
         Assert.Equal(28.67, totals.AvgMinutes); // 258 / 9
         Assert.Equal(10.0, totals.MedianMinutes); // the fifth of nine
         Assert.Equal(72.0, totals.P90Minutes); // position 0.9 * 8 = 7.2: 60 + 0.2 * (120 - 60)
         Assert.Equal((30, 7, 10, 70.0), (totals.SlaMinutes, totals.WithinSla, totals.SlaEligible, totals.AnsweredWithinSlaPercent)); // 30 min is within; c4 is a miss
-        Assert.Equal((1, 47_340.0), (totals.UnansweredOverSla, totals.OldestUnansweredMinutes)); // 8 Oct 15:00 -> 10 Nov 12:00 = 32 days 21 hours
+        Assert.Equal((1, 47_340.0), (totals.UnansweredOpenOverSla, totals.OldestUnansweredOpenMinutes)); // 8 Oct 15:00 -> 10 Nov 12:00 = 32 days 21 hours
     }
 
     [Fact]
@@ -225,13 +225,13 @@ public class MetricsQueryTests
 
         Assert.Equal(["Centro", "Norte"], rows.Select(r => r.Name));
         var centro = rows[0]; // 5, 20, 60, 30 minutes answered; c4 not
-        Assert.Equal((5, 4, 1), (centro.Conversations, centro.Answered, centro.Unanswered));
+        Assert.Equal((5, 4, 1), (centro.Conversations, centro.Answered, centro.UnansweredOpen));
         Assert.Equal((28.75, 25.0, 51.0), (centro.AvgMinutes, centro.MedianMinutes, centro.P90Minutes));
-        Assert.Equal((3, 5, 60.0, 47_340.0), (centro.WithinSla, centro.SlaEligible, centro.AnsweredWithinSlaPercent, centro.OldestUnansweredMinutes));
+        Assert.Equal((3, 5, 60.0, 47_340.0), (centro.WithinSla, centro.SlaEligible, centro.AnsweredWithinSlaPercent, centro.OldestUnansweredOpenMinutes));
         var norte = rows[1]; // 1, 2, 10, 10, 120 minutes
-        Assert.Equal((5, 5, 0), (norte.Conversations, norte.Answered, norte.Unanswered));
+        Assert.Equal((5, 5, 0), (norte.Conversations, norte.Answered, norte.UnansweredOpen));
         Assert.Equal((28.6, 10.0, 76.0), (norte.AvgMinutes, norte.MedianMinutes, norte.P90Minutes));
-        Assert.Equal((4, 5, 80.0, null), (norte.WithinSla, norte.SlaEligible, norte.AnsweredWithinSlaPercent, norte.OldestUnansweredMinutes));
+        Assert.Equal((4, 5, 80.0, null), (norte.WithinSla, norte.SlaEligible, norte.AnsweredWithinSlaPercent, norte.OldestUnansweredOpenMinutes));
     }
 
     [Fact]
@@ -245,7 +245,7 @@ public class MetricsQueryTests
         Assert.Equal(["Beto", "Ana", "Sin asesor"], rows.Select(r => r.Name));
         Assert.Equal((28.75, 25.0, 51.0, 75.0), (rows[1].AvgMinutes, rows[1].MedianMinutes, rows[1].P90Minutes, rows[1].AnsweredWithinSlaPercent)); // Ana: 5, 20, 60, 30
         var unassigned = rows[2];
-        Assert.Equal((1, 0, 1), (unassigned.Conversations, unassigned.Answered, unassigned.Unanswered));
+        Assert.Equal((1, 0, 1), (unassigned.Conversations, unassigned.Answered, unassigned.UnansweredOpen));
         Assert.Equal((null, null, null), (unassigned.AvgMinutes, unassigned.MedianMinutes, unassigned.P90Minutes));
         Assert.Equal((0, 1, 0.0), (unassigned.WithinSla, unassigned.SlaEligible, unassigned.AnsweredWithinSlaPercent));
     }
@@ -260,10 +260,10 @@ public class MetricsQueryTests
 
         Assert.Equal(["Organic", "Ads"], rows.Select(r => r.Name));
         var organic = rows[0]; // 20, 60, 1, 10, 10, 30, 120 minutes
-        Assert.Equal((7, 7, 0), (organic.Conversations, organic.Answered, organic.Unanswered));
+        Assert.Equal((7, 7, 0), (organic.Conversations, organic.Answered, organic.UnansweredOpen));
         Assert.Equal((35.86, 20.0, 84.0, 71.4), (organic.AvgMinutes, organic.MedianMinutes, organic.P90Minutes, organic.AnsweredWithinSlaPercent));
         var ads = rows[1]; // 5 and 2 minutes, and c4 unanswered
-        Assert.Equal((3, 2, 1), (ads.Conversations, ads.Answered, ads.Unanswered));
+        Assert.Equal((3, 2, 1), (ads.Conversations, ads.Answered, ads.UnansweredOpen));
         Assert.Equal((3.5, 3.5, 4.7, 66.7), (ads.AvgMinutes, ads.MedianMinutes, ads.P90Minutes, ads.AnsweredWithinSlaPercent));
     }
 
@@ -291,10 +291,10 @@ public class MetricsQueryTests
 
         var totals = (await h.Service.GetFirstResponseAsync(new MetricsQuery { From = new DateOnly(2026, 11, 1), To = new DateOnly(2026, 11, 11) })).Totals;
 
-        Assert.Equal((1, 0, 1), (totals.Conversations, totals.Answered, totals.Unanswered));
-        Assert.Equal((0, 0, 0), (totals.SlaEligible, totals.UnansweredOverSla, totals.WithinSla));
+        Assert.Equal((1, 0, 1), (totals.Conversations, totals.Answered, totals.UnansweredOpen));
+        Assert.Equal((0, 0, 0), (totals.SlaEligible, totals.UnansweredOpenOverSla, totals.WithinSla));
         Assert.Null(totals.AnsweredWithinSlaPercent); // nobody has had their chance yet
-        Assert.Equal(10.0, totals.OldestUnansweredMinutes);
+        Assert.Equal(10.0, totals.OldestUnansweredOpenMinutes);
     }
 
     // ---- Loss reasons and objections ----------------------------------------------------------------------------------

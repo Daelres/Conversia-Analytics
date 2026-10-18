@@ -140,6 +140,42 @@ public class ConversationsApiTests
     }
 
     [Fact]
+    public async Task Unanswered_MeansOpenAndWithoutAReply_AndTheClosedOnesHaveTheirOwnFilter()
+    {
+        // The same definition as the metrics' unansweredOpen / unansweredClosed (docs/METRICS.md): the customer wrote, nobody replied.
+        using var f = await NewTenantAsync();
+        var openSilent = await SeedConversationAsync(_factory.Services, f, D0, [In(0)]);
+        var closedSilent = await SeedConversationAsync(_factory.Services, f, D0.AddHours(1), [In(0)], closed: true);
+        await SeedConversationAsync(_factory.Services, f, D0.AddHours(2), [In(0), Out(60)], closed: true);
+        await SeedConversationAsync(_factory.Services, f, D0.AddHours(3), [In(0), Out(60)]);
+        var client = f.Tenant.Owner.Client;
+
+        Assert.Equal([openSilent.ConversationId], (await ListOkAsync(client, "unanswered=true")).Items.Select(i => i.Id));
+        Assert.Equal([closedSilent.ConversationId], (await ListOkAsync(client, "closedUnanswered=true")).Items.Select(i => i.Id));
+        Assert.Equal(4, (await ListOkAsync(client, "unanswered=false&closedUnanswered=false")).TotalCount);
+
+        using var document = System.Text.Json.JsonDocument.Parse(await client.GetStringAsync("/api/conversations?pageSize=100"));
+        var flags = document.RootElement.GetProperty("items").EnumerateArray()
+            .Select(i => (Id: i.GetProperty("id").GetGuid(), Open: i.GetProperty("unanswered").GetBoolean(), Closed: i.GetProperty("closedUnanswered").GetBoolean()))
+            .ToList();
+        var openFlags = flags.Single(x => x.Id == openSilent.ConversationId);
+        var closedFlags = flags.Single(x => x.Id == closedSilent.ConversationId);
+        Assert.Equal((true, false), (openFlags.Open, openFlags.Closed));
+        Assert.Equal((false, true), (closedFlags.Open, closedFlags.Closed));
+        Assert.Equal(2, flags.Count(x => !x.Open && !x.Closed));
+    }
+
+    [Fact]
+    public async Task OpenAndClosedUnanswered_CannotBeCombined()
+    {
+        using var f = await NewTenantAsync();
+
+        var response = await f.Tenant.Owner.Client.GetAsync("/api/conversations?unanswered=true&closedUnanswered=true");
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task TheDateRange_UsesTheTenantTimeZone_FromInclusive_ToExclusive()
     {
         using var f = await NewTenantAsync();

@@ -35,12 +35,20 @@ public enum MetricsGroupBy
     Source = 3,
 }
 
-/// <summary>One group of an aggregation. <c>GroupId</c> is the branch or advisor (null for the unassigned bucket and for sources); <c>GroupName</c> the name, or the source.</summary>
-public sealed record ConversionRaw(Guid? GroupId, string? GroupName, int Total, int Won, int Lost, int InFollowUp, int New, int Stale);
+/// <summary>
+/// One group of an aggregation. <c>GroupId</c> is the branch or advisor (null for the unassigned bucket and for sources); <c>GroupName</c> the name, or the source.
+/// <c>Total</c>, <c>Won</c>, <c>Lost</c>, <c>InFollowUp</c> and <c>New</c> count the whole cohort; <c>Matured</c>, <c>MaturedWon</c> and <c>MaturedLost</c> only the
+/// conversations that started at or before the maturity cutoff; <c>Stale</c> the undecided ones that went cold (always matured).
+/// </summary>
+public sealed record ConversionRaw(
+    Guid? GroupId, string? GroupName, int Total, int Won, int Lost, int InFollowUp, int New, int Stale, int Matured, int MaturedWon, int MaturedLost);
 
+/// <summary>
+/// First-response aggregation of a group. An unanswered conversation is <b>open</b> (somebody can still answer it) or <b>closed</b> (nobody did).
+/// </summary>
 public sealed record ResponseRaw(
-    Guid? GroupId, string? GroupName, int Conversations, int Answered, int Unanswered,
-    double? AvgSeconds, double? MedianSeconds, double? P90Seconds, int WithinSla, int UnansweredOverSla, DateTime? OldestUnansweredInboundAt);
+    Guid? GroupId, string? GroupName, int Conversations, int Answered, int UnansweredOpen, int UnansweredClosed,
+    double? AvgSeconds, double? MedianSeconds, double? P90Seconds, int WithinSla, int UnansweredOpenOverSla, DateTime? OldestUnansweredOpenInboundAt);
 
 public sealed record LossReasonRaw(string? Reason, int Count);
 
@@ -60,7 +68,10 @@ public sealed record UnansweredRaw(Guid ConversationId, Guid BranchId, string? B
 /// </summary>
 public interface IMetricsQueries
 {
-    /// <summary>One row per group (a single row, even for an empty cohort, with <see cref="MetricsGroupBy.None"/>).</summary>
+    /// <summary>
+    /// One row per group (a single row, even for an empty cohort, with <see cref="MetricsGroupBy.None"/>). A conversation is matured when it
+    /// started at or before <paramref name="matureBeforeUtc"/>.
+    /// </summary>
     Task<IReadOnlyList<ConversionRaw>> ConversionAsync(MetricsFilter filter, MetricsGroupBy by, DateTime matureBeforeUtc, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ResponseRaw>> FirstResponseAsync(MetricsFilter filter, MetricsGroupBy by, TimeSpan sla, DateTime nowUtc, CancellationToken cancellationToken = default);

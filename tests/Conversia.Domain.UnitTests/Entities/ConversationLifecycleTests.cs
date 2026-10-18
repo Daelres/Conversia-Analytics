@@ -72,33 +72,6 @@ public class ConversationLifecycleTests
         => Assert.Throws<DomainException>(() => NewConversation().Close(new DateTime(2026, 10, 30, 0, 0, 0, DateTimeKind.Unspecified)));
 
     [Fact]
-    public void Reopen_OpensAClosedConversationAndForgetsTheClosingTime()
-    {
-        var conversation = NewConversation();
-        conversation.Close(T0.AddDays(8));
-
-        conversation.Reopen();
-
-        Assert.Equal((ConversationStatus.Open, (DateTime?)null), (conversation.Status, conversation.ClosedAt));
-    }
-
-    [Fact]
-    public void Reopen_RefusesAnOpenConversation()
-        => Assert.Throws<DomainException>(() => NewConversation().Reopen());
-
-    [Fact]
-    public void ACloseReopenCloseCycle_ResultsInTheLastClosingTime()
-    {
-        var conversation = NewConversation();
-        conversation.Close(T0.AddDays(8));
-        conversation.Reopen();
-
-        conversation.Close(T0.AddDays(20));
-
-        Assert.Equal(T0.AddDays(20), conversation.ClosedAt);
-    }
-
-    [Fact]
     public void Unassign_RemovesTheAdvisor()
     {
         var conversation = NewConversation();

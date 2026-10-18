@@ -22,9 +22,9 @@ public class MetricsServiceTests
     {
         public List<MetricsFilter> ConversionFilters { get; } = [];
 
-        public Func<MetricsFilter, MetricsGroupBy, IReadOnlyList<ConversionRaw>> Conversion { get; set; } = (_, _) => [new ConversionRaw(null, null, 0, 0, 0, 0, 0, 0)];
+        public Func<MetricsFilter, MetricsGroupBy, IReadOnlyList<ConversionRaw>> Conversion { get; set; } = (_, _) => [new ConversionRaw(null, null, 0, 0, 0, 0, 0, 0, 0, 0, 0)];
 
-        public Func<MetricsGroupBy, IReadOnlyList<ResponseRaw>> FirstResponse { get; set; } = _ => [new ResponseRaw(null, null, 0, 0, 0, null, null, null, 0, 0, null)];
+        public Func<MetricsGroupBy, IReadOnlyList<ResponseRaw>> FirstResponse { get; set; } = _ => [new ResponseRaw(null, null, 0, 0, 0, 0, null, null, null, 0, 0, null)];
 
         public IReadOnlyList<LossReasonRaw> LossReasons { get; set; } = [];
 
@@ -81,8 +81,10 @@ public class MetricsServiceTests
     private MetricsService Sut(MetricsOptions? options = null, string timeZone = "America/Bogota")
         => new(_queries, options ?? MetricsOptions.Default, new TenantTimeZone(timeZone), new FixedTimeProvider(Now));
 
-    private static ConversionRaw Counts(int won, int lost, int followUp, int @new, int stale, Guid? id = null, string? name = null)
-        => new(id, name, won + lost + followUp + @new, won, lost, followUp, @new, stale);
+    // By default the whole cohort is matured; the tests about maturity say how many are not.
+    private static ConversionRaw Counts(
+        int won, int lost, int followUp, int @new, int stale, Guid? id = null, string? name = null, int immature = 0, int immatureWon = 0, int immatureLost = 0)
+        => new(id, name, won + lost + followUp + @new, won, lost, followUp, @new, stale, won + lost + followUp + @new - immature, won - immatureWon, lost - immatureLost);
 
     // ---- The period --------------------------------------------------------------------------------------------------
 
@@ -159,7 +161,7 @@ public class MetricsServiceTests
         var totals = (await Sut().GetConversionAsync(new MetricsQuery())).Totals;
 
         Assert.Equal((10, 4, 3, 2, 1, 2), (totals.Total, totals.Won, totals.Lost, totals.InFollowUp, totals.New, totals.Stale));
-        Assert.Equal((1, 9), (totals.InProgress, totals.Decided));
+        Assert.Equal((1, 9, 10, 0, false), (totals.InProgress, totals.Decided, totals.Matured, totals.Immature, totals.InMaturation));
         Assert.Equal(44.4, totals.ConversionRate);
         Assert.Equal(40.0, totals.WinShareOfAll);
     }
@@ -196,6 +198,86 @@ public class MetricsServiceTests
         Assert.Equal(66.7, (await Sut().GetConversionAsync(new MetricsQuery())).Totals.ConversionRate);
     }
 
+    // ---- Conversion over the matured cohort ----------------------------------------------------------------------------
+
+    [Fact]
+    public async Task TheRate_IsComputedOverTheMaturedCohort_AndTheImmatureTailIsOnlyCounted()
+    {
+        // 110 conversations: 100 are old enough (20 won, 80 lost) and a fresh tail of 10 has already been won. The tail cannot flatter the rate.
+        _queries.Conversion = (_, _) => [Counts(won: 30, lost: 80, 0, 0, 0, immature: 10, immatureWon: 10)];
+
+        var totals = (await Sut().GetConversionAsync(new MetricsQuery())).Totals;
+
+        Assert.Equal((110, 30, 80), (totals.Total, totals.Won, totals.Lost)); // the raw counts stay raw
+        Assert.Equal((100, 10, 20, 80, 100), (totals.Matured, totals.Immature, totals.MaturedWon, totals.MaturedLost, totals.Decided));
+        Assert.Equal(20.0, totals.ConversionRate); // not 27.3: that would be 30 of 110
+        Assert.Equal(27.3, totals.WinShareOfAll); // the raw share still exists for whoever wants it
+        Assert.False(totals.InMaturation);
+    }
+
+    [Fact]
+    public async Task WhenNothingInThePeriodIsMatureYet_ThereIsNoRate_AndItSaysSoInsteadOfGuessing()
+    {
+        _queries.Conversion = (_, _) => [new ConversionRaw(null, null, Total: 5, Won: 3, Lost: 0, InFollowUp: 2, New: 0, Stale: 0, Matured: 0, MaturedWon: 0, MaturedLost: 0)];
+
+        var totals = (await Sut().GetConversionAsync(new MetricsQuery())).Totals;
+
+        Assert.Null(totals.ConversionRate);
+        Assert.True(totals.InMaturation);
+        Assert.Equal((5, 5, 0), (totals.Total, totals.Immature, totals.Matured));
+        Assert.Equal(60.0, totals.WinShareOfAll);
+    }
+
+    [Fact]
+    public async Task AMaturedPeriodWithNothingDecided_HasNoRate_ButIsNotInMaturation()
+    {
+        // Old enough, every conversation still alive (its last message is recent): nothing to compute, but nothing left to wait for either.
+        _queries.Conversion = (_, _) => [Counts(won: 0, lost: 0, followUp: 4, @new: 0, stale: 0)];
+
+        var totals = (await Sut().GetConversionAsync(new MetricsQuery())).Totals;
+
+        Assert.Null(totals.ConversionRate);
+        Assert.False(totals.InMaturation);
+    }
+
+    [Fact]
+    public async Task AnEmptyPeriod_IsNotInMaturation()
+        => Assert.False((await Sut().GetConversionAsync(new MetricsQuery())).Totals.InMaturation);
+
+    [Fact]
+    public async Task ARealDrop_IsNotHiddenByAFreshTailThatWasWonAtOnce()
+    {
+        // Previous period, mature: 30 % (30 of 100 decided). Current period: 20 % among the conversations old enough (20 of 100), plus 10 fresh
+        // ones already won. Counting the tail would give 27.3 % and a 2.7-point "drop" that raises nothing; the real drop is 10 points.
+        RatesByPeriod((f, _) => [IsCurrent(f) ? Counts(won: 30, lost: 80, 0, 0, 0, immature: 10, immatureWon: 10) : Counts(won: 30, lost: 70, 0, 0, 0)]);
+
+        var response = await Sut().GetAlertsAsync(new MetricsQuery { From = From, To = To });
+
+        var alert = Assert.Single(response.Alerts, a => a.Code == AlertCodes.ConversionDrop);
+        Assert.Equal((20.0, 30.0, 10.0, 100, 100), (alert.Values["currentRate"], alert.Values["previousRate"], alert.Values["dropPoints"], alert.Values["currentSample"], alert.Values["previousSample"]));
+    }
+
+    [Fact]
+    public async Task ARecentPeriodWithNothingMatureYet_RaisesNoDropAlert()
+    {
+        RatesByPeriod((f, _) => [IsCurrent(f) ? new ConversionRaw(null, null, 40, 2, 38, 0, 0, 0, 0, 0, 0) : Counts(won: 60, lost: 40, 0, 0, 0)]);
+
+        Assert.DoesNotContain((await Sut().GetAlertsAsync(new MetricsQuery { From = From, To = To })).Alerts, a => a.Code == AlertCodes.ConversionDrop);
+    }
+
+    [Theory]
+    [InlineData(751, 1749, false)] // 40.0 against 30.04: a drop of 9.96, which is not 10 even though it rounds to it
+    [InlineData(750, 1750, true)] // 30.0: exactly 10
+    [InlineData(749, 1751, true)] // 29.96: 10.04
+    public async Task TheDrop_IsComputedFromTheExactRates_AndRoundedOnlyForTheText(int currentWon, int currentLost, bool raised)
+    {
+        RatesByPeriod((f, _) => [IsCurrent(f) ? Counts(won: currentWon, lost: currentLost, 0, 0, 0) : Counts(won: 40, lost: 60, 0, 0, 0)]);
+
+        var response = await Sut().GetAlertsAsync(new MetricsQuery { From = From, To = To });
+
+        Assert.Equal(raised, response.Alerts.Any(a => a.Code == AlertCodes.ConversionDrop));
+    }
+
     [Fact]
     public async Task TheBreakdowns_AreOrderedByTotalThenName_AndTheUnassignedAdvisorHasItsOwnBucket()
     {
@@ -219,43 +301,56 @@ public class MetricsServiceTests
     // ---- First response ----------------------------------------------------------------------------------------------
 
     private static ResponseRaw Response(
-        int answered, int unanswered, double? avg, double? median, double? p90, int withinSla, int unansweredOverSla, DateTime? oldest = null, Guid? id = null, string? name = null)
-        => new(id, name, answered + unanswered, answered, unanswered, avg, median, p90, withinSla, unansweredOverSla, oldest);
+        int answered, int unansweredOpen, double? avg, double? median, double? p90, int withinSla, int openOverSla, DateTime? oldest = null, Guid? id = null, string? name = null, int unansweredClosed = 0)
+        => new(id, name, answered + unansweredOpen + unansweredClosed, answered, unansweredOpen, unansweredClosed, avg, median, p90, withinSla, openOverSla, oldest);
 
     [Fact]
     public async Task FirstResponse_ConvertsSecondsToMinutes_AndCountsTheUnansweredApart()
     {
-        _queries.FirstResponse = _ => [Response(answered: 9, unanswered: 1, avg: 1720.0, median: 600.0, p90: 4320.0, withinSla: 7, unansweredOverSla: 1, oldest: Now.AddMinutes(-90))];
+        _queries.FirstResponse = _ => [Response(answered: 9, unansweredOpen: 1, avg: 1720.0, median: 600.0, p90: 4320.0, withinSla: 7, openOverSla: 1, oldest: Now.AddMinutes(-90))];
 
         var totals = (await Sut().GetFirstResponseAsync(new MetricsQuery())).Totals;
 
-        Assert.Equal((10, 9, 1), (totals.Conversations, totals.Answered, totals.Unanswered));
+        Assert.Equal((10, 9, 1, 0), (totals.Conversations, totals.Answered, totals.UnansweredOpen, totals.UnansweredClosed));
         Assert.Equal((28.67, 10.0, 72.0), (totals.AvgMinutes, totals.MedianMinutes, totals.P90Minutes));
-        Assert.Equal(90.0, totals.OldestUnansweredMinutes);
+        Assert.Equal(90.0, totals.OldestUnansweredOpenMinutes);
     }
 
     [Fact]
-    public async Task TheSlaPercent_CountsAnUnansweredPastTheSlaAsAMiss_AndLeavesOutTheOnesStillInsideIt()
+    public async Task TheSlaPercent_CountsAnOpenUnansweredPastTheSlaAndEveryClosedOneAsAMiss_AndLeavesOutTheOnesStillInsideIt()
     {
-        // 9 answered (7 in time), 1 unanswered past the SLA, 2 unanswered still inside it.
-        _queries.FirstResponse = _ => [Response(answered: 9, unanswered: 3, avg: 100.0, median: 100.0, p90: 100.0, withinSla: 7, unansweredOverSla: 1)];
+        // 9 answered (7 in time); open and unanswered: 1 past the SLA and 2 still inside it; 1 closed without a reply.
+        _queries.FirstResponse = _ => [Response(answered: 9, unansweredOpen: 3, avg: 100.0, median: 100.0, p90: 100.0, withinSla: 7, openOverSla: 1, unansweredClosed: 1)];
 
         var totals = (await Sut().GetFirstResponseAsync(new MetricsQuery())).Totals;
 
-        Assert.Equal((30, 7, 10, 1), (totals.SlaMinutes, totals.WithinSla, totals.SlaEligible, totals.UnansweredOverSla));
-        Assert.Equal(70.0, totals.AnsweredWithinSlaPercent);
+        Assert.Equal((30, 7, 11, 1, 1), (totals.SlaMinutes, totals.WithinSla, totals.SlaEligible, totals.UnansweredOpenOverSla, totals.UnansweredClosed));
+        Assert.Equal(63.6, totals.AnsweredWithinSlaPercent); // 7 of 9 + 1 + 1
     }
 
     [Fact]
     public async Task WithoutAnsweredConversations_TheStatisticsAreNull_NotZero()
     {
-        _queries.FirstResponse = _ => [Response(answered: 0, unanswered: 2, avg: null, median: null, p90: null, withinSla: 0, unansweredOverSla: 2, oldest: Now.AddHours(-2))];
+        _queries.FirstResponse = _ => [Response(answered: 0, unansweredOpen: 2, avg: null, median: null, p90: null, withinSla: 0, openOverSla: 2, oldest: Now.AddHours(-2))];
 
         var totals = (await Sut().GetFirstResponseAsync(new MetricsQuery())).Totals;
 
         Assert.Equal((null, null, null), (totals.AvgMinutes, totals.MedianMinutes, totals.P90Minutes));
         Assert.Equal(0.0, totals.AnsweredWithinSlaPercent); // two misses, no hit
-        Assert.Equal(120.0, totals.OldestUnansweredMinutes);
+        Assert.Equal(120.0, totals.OldestUnansweredOpenMinutes);
+    }
+
+    [Fact]
+    public async Task TheOldestUnanswered_IsAboutOpenConversationsOnly()
+    {
+        // Only closed conversations without a reply: nobody can answer them any more, so nothing is "waiting".
+        _queries.FirstResponse = _ => [Response(answered: 4, unansweredOpen: 0, avg: 60.0, median: 60.0, p90: 60.0, withinSla: 4, openOverSla: 0, oldest: null, unansweredClosed: 3)];
+
+        var totals = (await Sut().GetFirstResponseAsync(new MetricsQuery())).Totals;
+
+        Assert.Equal((7, 0, 3), (totals.Conversations, totals.UnansweredOpen, totals.UnansweredClosed));
+        Assert.Null(totals.OldestUnansweredOpenMinutes);
+        Assert.Equal(57.1, totals.AnsweredWithinSlaPercent); // 4 of 4 answered + 3 closed misses
     }
 
     [Fact]
@@ -265,7 +360,7 @@ public class MetricsServiceTests
 
         Assert.Equal((0, 0, 0), (totals.Conversations, totals.Answered, totals.SlaEligible));
         Assert.Null(totals.AnsweredWithinSlaPercent);
-        Assert.Null(totals.OldestUnansweredMinutes);
+        Assert.Null(totals.OldestUnansweredOpenMinutes);
     }
 
     [Fact]
@@ -287,9 +382,36 @@ public class MetricsServiceTests
 
         var response = await Sut(MetricsOptions.Default with { TopLossReasons = 3 }).GetLossReasonsAsync(new MetricsQuery());
 
-        Assert.Equal(13, response.TotalLost);
+        Assert.Equal((13, 13, 0), (response.TotalLost, response.StatedLost, response.NoResponse.Count));
         Assert.Equal([("Price", 5, 38.5), ("Location", 2, 15.4), ("Timing", 2, 15.4)], response.TopReasons.Select(r => (r.Reason, r.Count, r.SharePercent)));
         Assert.Equal(4, response.OtherCount); // 13 lost, 9 of them in the top three
+    }
+
+    [Fact]
+    public async Task NoResponse_IsTheSystemsInference_SoItIsItsOwnLineAndNotPartOfTheRankingOfStatedReasons()
+    {
+        // 6 of 10 lost sales are silence; the customers who said why: price 3, timing 1.
+        _queries.LossReasons = [new("NoResponse", 6), new("Price", 3), new("Timing", 1)];
+
+        var response = await Sut().GetLossReasonsAsync(new MetricsQuery());
+
+        Assert.Equal((10, 4), (response.TotalLost, response.StatedLost));
+        Assert.Equal((6, 60.0), (response.NoResponse.Count, response.NoResponse.SharePercent)); // of everything lost
+        Assert.Equal([("Price", 3, 75.0), ("Timing", 1, 25.0)], response.TopReasons.Select(r => (r.Reason, r.Count, r.SharePercent))); // of the stated ones
+        Assert.DoesNotContain(response.TopReasons, r => r.Reason == "NoResponse");
+        Assert.Equal(0, response.OtherCount);
+    }
+
+    [Fact]
+    public async Task WhenEveryLossIsSilence_ThereAreNoStatedReasons_AndNoShareIsInvented()
+    {
+        _queries.LossReasons = [new("NoResponse", 4)];
+
+        var summary = await Sut().GetSummaryAsync(new MetricsQuery());
+
+        Assert.Equal((4, 0, 4), (summary.TotalLost, summary.StatedLost, summary.NoResponse.Count));
+        Assert.Equal(100.0, summary.NoResponse.SharePercent);
+        Assert.Empty(summary.TopLossReasons);
     }
 
     [Fact]
@@ -308,7 +430,8 @@ public class MetricsServiceTests
     {
         var response = await Sut().GetLossReasonsAsync(new MetricsQuery());
 
-        Assert.Equal((0, 0), (response.TotalLost, response.OtherCount));
+        Assert.Equal((0, 0, 0, 0), (response.TotalLost, response.StatedLost, response.NoResponse.Count, response.OtherCount));
+        Assert.Null(response.NoResponse.SharePercent); // no losses: no percentage, not 0 %
         Assert.Empty(response.TopReasons);
     }
 
@@ -322,6 +445,15 @@ public class MetricsServiceTests
         Assert.Equal(10, response.Conversations);
         Assert.Equal(["None", "Price", "Timing", "Location", "Trust", "Pain", "Other"], response.Objections.Select(o => o.Objection));
         Assert.Equal([50.0, 30.0, 10.0, 0.0, 0.0, 10.0, 0.0], response.Objections.Select(o => o.SharePercent));
+    }
+
+    [Fact]
+    public async Task OverAnEmptyCohort_TheObjectionSharesAreNull_NeverZero()
+    {
+        var response = await Sut().GetLossReasonsAsync(new MetricsQuery());
+
+        Assert.Equal(7, response.Objections.Count);
+        Assert.All(response.Objections, o => Assert.Equal((0, (double?)null), (o.Count, o.SharePercent)));
     }
 
     // ---- Volume ------------------------------------------------------------------------------------------------------
@@ -582,6 +714,6 @@ public class MetricsServiceTests
 
         Assert.Equal(50.0, summary.Conversion.ConversionRate);
         Assert.Equal(5.0, summary.FirstResponse.AvgMinutes);
-        Assert.Equal((1, "Price"), (summary.TotalLost, summary.TopLossReasons[0].Reason));
+        Assert.Equal((1, 1, "Price"), (summary.TotalLost, summary.StatedLost, summary.TopLossReasons[0].Reason));
     }
 }

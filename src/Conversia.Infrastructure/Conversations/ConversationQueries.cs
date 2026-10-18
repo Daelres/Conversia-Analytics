@@ -156,9 +156,16 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
             query = query.Where(r => r.Conversation.StartedAt < to);
         }
 
+        // One definition of "unanswered" everywhere (docs/METRICS.md): the customer wrote and nobody replied. While the conversation is open
+        // somebody still can (the actionable set, the same as the metrics' unansweredOpen); closed, nobody did (unansweredClosed).
         if (f.UnansweredOnly)
         {
-            query = query.Where(r => r.Conversation.FirstInboundAt != null && r.Conversation.FirstResponseAt == null);
+            query = query.Where(r => r.Conversation.FirstInboundAt != null && r.Conversation.FirstResponseAt == null && r.Conversation.Status == ConversationStatus.Open);
+        }
+
+        if (f.ClosedUnansweredOnly)
+        {
+            query = query.Where(r => r.Conversation.FirstInboundAt != null && r.Conversation.FirstResponseAt == null && r.Conversation.Status == ConversationStatus.Closed);
         }
 
         return query;

@@ -44,7 +44,8 @@ public class ConversationService : IConversationService
             Parse<ConversationStatus>(query.Status),
             query.From is { } from ? _timeZone.StartOfDayUtc(from) : null,
             query.To is { } to ? _timeZone.StartOfDayUtc(to) : null,
-            query.Unanswered == true);
+            query.Unanswered == true,
+            query.ClosedUnanswered == true);
 
         var (items, totalCount) = await _queries.ListAsync(filter, cancellationToken);
         return new PagedResponse<ConversationListItem>

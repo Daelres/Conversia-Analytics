@@ -288,7 +288,7 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Classification:RetryDelaySeconds` | API | `60` | Wait before a failed conversation is tried again. 0 to 86400. |
 | `Classification:ProcessingTimeoutSeconds` | API | `30` | Time budget of one classification (also its `statement_timeout`). 1 to 3600. |
 | `Metrics:FirstResponseSlaMinutes` | API | `30` | First-response SLA of the metrics and the unanswered alert. 1 to 1440. |
-| `Metrics:ConversionMaturityDays` | API | `7` | Age after which an undecided conversation counts against the conversion rate. 1 to 365. |
+| `Metrics:ConversionMaturityDays` | API | `7` | A conversation enters the conversion rate once it started this many days ago (an undecided one idle that long counts against it). 1 to 365; at least `Conversations:AutoCloseAfterDays` while the closing job is on, otherwise the API does not start. |
 | `Metrics:TopLossReasons` | API | `5` | Loss reasons listed by `/api/metrics/loss-reasons`. 1 to 20. |
 | `Metrics:MinSampleSize` | API | `20` | Decided conversations needed on both sides of a rate comparison for an alert. 1 to 100000. |
 | `Metrics:ConversionDropAlertPoints` | API | `10` | Points of conversion drop against the previous period that raise `CONVERSION_DROP`. 1 to 100. |
@@ -333,7 +333,7 @@ policy in their own tenant.
 | POST | `/api/channels/{id}/deactivate`, `/activate` | `OrganizationManage` | `200` channel (webhook answers 401 while inactive) | `401`, `403`, `404` |
 | POST | `/api/channels/{id}/rotate-secret` | `OrganizationManage` | `200` channel + the NEW `webhookSecret` (once); the old one stops at once | `401`, `403`, `404` |
 | POST | `/api/channels` | `OrganizationManage` | `201` channel + `webhookSecret` (shown only once) | `400` (also unknown branch), `401`, `403` |
-| GET | `/api/conversations` | `ConversationsView` | `200` page of conversations, newest first (filters `branchId`, `advisorId`, `unassigned`, `stage`, `source`, `status`, `from`, `to`, `unanswered`; page size 1 to 100); no message text | `400`, `401`, `403` |
+| GET | `/api/conversations` | `ConversationsView` | `200` page of conversations, newest first (filters `branchId`, `advisorId`, `unassigned`, `stage`, `source`, `status`, `from`, `to`, `unanswered` (open, no reply yet), `closedUnanswered` (closed, never replied); page size 1 to 100); no message text | `400`, `401`, `403` |
 | GET | `/api/conversations/{id}` | `ConversationsView` | `200` conversation + opportunity (stage, outcome source, service, reason, objection, loss reason, classifier confidence and rule codes) + messages (text included) | `401`, `403`, `404` unknown or other-tenant conversation |
 | PUT | `/api/conversations/{id}/advisor` | `ConversationsManage` | `200` conversation (`{"advisorId": null}` unassigns) | `400` unknown/other-tenant/inactive advisor or one from another branch, `401`, `403`, `404` |
 | PUT | `/api/conversations/{id}/opportunity` | `ConversationsManage` | `200` opportunity; a manual `Won`, `Lost` (needs `lossReason`) or `InFollowUp`, which the classifier never overwrites | `400`, `401`, `403`, `404` |

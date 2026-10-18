@@ -74,8 +74,8 @@ public class MetricsService : IMetricsService
         var scope = Resolve(query);
         var conversion = await ConversionTotalsAsync(scope, cancellationToken);
         var response = await FirstResponseTotalsAsync(scope, cancellationToken);
-        var (totalLost, top, _) = await TopLossReasonsAsync(scope, cancellationToken);
-        return new SummaryResponse(scope.Period, conversion, response, totalLost, top);
+        var losses = await TopLossReasonsAsync(scope, cancellationToken);
+        return new SummaryResponse(scope.Period, conversion, response, losses.TotalLost, losses.StatedLost, losses.NoResponse, losses.Top);
     }
 
     public async Task<ConversionResponse> GetConversionAsync(MetricsQuery query, CancellationToken cancellationToken = default)
@@ -105,14 +105,14 @@ public class MetricsService : IMetricsService
     public async Task<LossReasonsResponse> GetLossReasonsAsync(MetricsQuery query, CancellationToken cancellationToken = default)
     {
         var scope = Resolve(query);
-        var (totalLost, top, other) = await TopLossReasonsAsync(scope, cancellationToken);
+        var losses = await TopLossReasonsAsync(scope, cancellationToken);
         var raw = await _queries.ObjectionsAsync(scope.Filter, cancellationToken);
         var cohort = raw.Sum(o => o.Count);
         var counts = raw.ToDictionary(o => o.Objection, o => o.Count, StringComparer.Ordinal);
         var objections = Enum.GetValues<ObjectionType>()
-            .Select(type => new ObjectionShare(type.ToString(), counts.GetValueOrDefault(type.ToString()), Percent(counts.GetValueOrDefault(type.ToString()), cohort) ?? 0))
+            .Select(type => new ObjectionShare(type.ToString(), counts.GetValueOrDefault(type.ToString()), Percent(counts.GetValueOrDefault(type.ToString()), cohort)))
             .ToList();
-        return new LossReasonsResponse(scope.Period, cohort, totalLost, top, other, objections);
+        return new LossReasonsResponse(scope.Period, cohort, losses.TotalLost, losses.StatedLost, losses.NoResponse, losses.Top, losses.Other, objections);
     }
 
     public async Task<VolumeResponse> GetVolumeAsync(MetricsQuery query, CancellationToken cancellationToken = default)
@@ -163,45 +163,49 @@ public class MetricsService : IMetricsService
                 new Dictionary<string, object?> { ["count"] = unansweredTotal, ["slaMinutes"] = _options.FirstResponseSlaMinutes, ["oldestWaitingMinutes"] = oldest }));
         }
 
-        // The conversion of this period against the one just before, of the same length.
+        // The conversion of this period against the one just before, of the same length. Both are rates of the matured cohort (the conversations
+        // old enough to have settled), so a fresh tail never flatters the period. The drop is computed from the exact rates and rounded only
+        // for the text: 9.96 points is not a 10-point drop.
         var current = await ConversionTotalsAsync(scope, cancellationToken);
         var previousScope = scope with { Filter = scope.Filter.ForPeriod(_timeZone.StartOfDayUtc(scope.Period.From.AddDays(-scope.Period.Days)), scope.Filter.FromUtc) };
         var previous = await ConversionTotalsAsync(previousScope, cancellationToken);
-        if (current.ConversionRate is { } currentRate && previous.ConversionRate is { } previousRate
+        if (ExactRate(current.MaturedWon, current.Decided) is { } currentExact && ExactRate(previous.MaturedWon, previous.Decided) is { } previousExact
             && current.Decided >= _options.MinSampleSize && previous.Decided >= _options.MinSampleSize)
         {
-            var drop = Math.Round(previousRate - currentRate, 1, MidpointRounding.AwayFromZero);
+            var drop = previousExact - currentExact;
             if (drop >= _options.ConversionDropAlertPoints)
             {
+                var shown = Round(drop);
                 alerts.Add(new MetricAlert(
                     AlertCodes.ConversionDrop,
                     drop >= 2 * _options.ConversionDropAlertPoints ? AlertSeverities.Critical : AlertSeverities.Warning,
-                    $"La conversión bajó {Number(drop)} puntos frente al periodo anterior (de {Number(previousRate)} % a {Number(currentRate)} %).",
+                    $"La conversión bajó {Number(shown)} puntos frente al periodo anterior (de {Number(Round(previousExact))} % a {Number(Round(currentExact))} %).",
                     new Dictionary<string, object?>
                     {
-                        ["currentRate"] = currentRate, ["previousRate"] = previousRate, ["dropPoints"] = drop,
+                        ["currentRate"] = Round(currentExact), ["previousRate"] = Round(previousExact), ["dropPoints"] = shown,
                         ["currentSample"] = current.Decided, ["previousSample"] = previous.Decided,
                     }));
             }
         }
 
         // Branches far below the tenant's average (only when the caller is not looking at one branch).
-        if (scope.Filter.BranchId is null && current.ConversionRate is { } tenantRate && current.Decided >= _options.MinSampleSize)
+        if (scope.Filter.BranchId is null && ExactRate(current.MaturedWon, current.Decided) is { } tenantExact && current.Decided >= _options.MinSampleSize)
         {
             foreach (var branch in (await ConversionRowsAsync(scope.Filter, MetricsGroupBy.Branch, scope, cancellationToken))
-                         .Where(b => b.ConversionRate is not null && b.Decided >= _options.MinSampleSize)
-                         .Select(b => (Row: b, Gap: Math.Round(tenantRate - b.ConversionRate!.Value, 1, MidpointRounding.AwayFromZero)))
+                         .Where(b => b.Decided >= _options.MinSampleSize && b.Decided > 0)
+                         .Select(b => (Row: b, Gap: tenantExact - ExactRate(b.MaturedWon, b.Decided)!.Value))
                          .Where(b => b.Gap >= _options.BranchBelowAveragePoints)
                          .OrderByDescending(b => b.Gap).ThenBy(b => b.Row.Name, StringComparer.Ordinal))
             {
+                var shown = Round(branch.Gap);
                 alerts.Add(new MetricAlert(
                     AlertCodes.BranchBelowAverage,
                     branch.Gap >= 2 * _options.BranchBelowAveragePoints ? AlertSeverities.Critical : AlertSeverities.Warning,
-                    $"La sucursal «{branch.Row.Name}» convierte {Number(branch.Row.ConversionRate!.Value)} % frente al {Number(tenantRate)} % del total: {Number(branch.Gap)} puntos por debajo.",
+                    $"La sucursal «{branch.Row.Name}» convierte {Number(branch.Row.ConversionRate!.Value)} % frente al {Number(Round(tenantExact))} % del total: {Number(shown)} puntos por debajo.",
                     new Dictionary<string, object?>
                     {
-                        ["branchId"] = branch.Row.Id, ["branchRate"] = branch.Row.ConversionRate, ["tenantRate"] = tenantRate,
-                        ["gapPoints"] = branch.Gap, ["branchSample"] = branch.Row.Decided,
+                        ["branchId"] = branch.Row.Id, ["branchRate"] = branch.Row.ConversionRate, ["tenantRate"] = Round(tenantExact),
+                        ["gapPoints"] = shown, ["branchSample"] = branch.Row.Decided,
                     }));
             }
         }
@@ -215,7 +219,7 @@ public class MetricsService : IMetricsService
     private async Task<ConversionCounts> ConversionTotalsAsync(Scope scope, CancellationToken cancellationToken)
     {
         var rows = await _queries.ConversionAsync(scope.Filter, MetricsGroupBy.None, scope.MatureBeforeUtc(_options.ConversionMaturityDays), cancellationToken);
-        return ToCounts(rows.Count == 0 ? new ConversionRaw(null, null, 0, 0, 0, 0, 0, 0) : rows[0], new ConversionCounts());
+        return ToCounts(rows.Count == 0 ? new ConversionRaw(null, null, 0, 0, 0, 0, 0, 0, 0, 0, 0) : rows[0], new ConversionCounts());
     }
 
     private async Task<IReadOnlyList<ConversionRow>> ConversionRowsAsync(MetricsFilter filter, MetricsGroupBy by, Scope scope, CancellationToken cancellationToken)
@@ -237,8 +241,13 @@ public class MetricsService : IMetricsService
         into.New = raw.New;
         into.Stale = raw.Stale;
         into.InProgress = raw.InFollowUp + raw.New - raw.Stale;
-        into.Decided = raw.Won + raw.Lost + raw.Stale;
-        into.ConversionRate = Percent(raw.Won, into.Decided);
+        into.Matured = raw.Matured;
+        into.Immature = raw.Total - raw.Matured;
+        into.MaturedWon = raw.MaturedWon;
+        into.MaturedLost = raw.MaturedLost;
+        into.Decided = raw.MaturedWon + raw.MaturedLost + raw.Stale;
+        into.InMaturation = raw.Total > 0 && raw.Matured == 0;
+        into.ConversionRate = Percent(raw.MaturedWon, into.Decided);
         into.WinShareOfAll = Percent(raw.Won, raw.Total);
         return into;
     }
@@ -248,7 +257,7 @@ public class MetricsService : IMetricsService
     private async Task<FirstResponseStats> FirstResponseTotalsAsync(Scope scope, CancellationToken cancellationToken)
     {
         var rows = await _queries.FirstResponseAsync(scope.Filter, MetricsGroupBy.None, _options.FirstResponseSla, scope.NowUtc, cancellationToken);
-        return ToStats(rows.Count == 0 ? new ResponseRaw(null, null, 0, 0, 0, null, null, null, 0, 0, null) : rows[0], new FirstResponseStats(), scope.NowUtc);
+        return ToStats(rows.Count == 0 ? new ResponseRaw(null, null, 0, 0, 0, 0, null, null, null, 0, 0, null) : rows[0], new FirstResponseStats(), scope.NowUtc);
     }
 
     private async Task<IReadOnlyList<FirstResponseRow>> FirstResponseRowsAsync(Scope scope, MetricsGroupBy by, CancellationToken cancellationToken)
@@ -265,32 +274,40 @@ public class MetricsService : IMetricsService
     {
         into.Conversations = raw.Conversations;
         into.Answered = raw.Answered;
-        into.Unanswered = raw.Unanswered;
+        into.UnansweredOpen = raw.UnansweredOpen;
+        into.UnansweredClosed = raw.UnansweredClosed;
         into.AvgMinutes = raw.AvgSeconds is { } avg ? Minutes(avg) : null;
         into.MedianMinutes = raw.MedianSeconds is { } median ? Minutes(median) : null;
         into.P90Minutes = raw.P90Seconds is { } p90 ? Minutes(p90) : null;
         into.SlaMinutes = _options.FirstResponseSlaMinutes;
         into.WithinSla = raw.WithinSla;
-        into.UnansweredOverSla = raw.UnansweredOverSla;
-        into.SlaEligible = raw.Answered + raw.UnansweredOverSla;
+        into.UnansweredOpenOverSla = raw.UnansweredOpenOverSla;
+        into.SlaEligible = raw.Answered + raw.UnansweredOpenOverSla + raw.UnansweredClosed;
         into.AnsweredWithinSlaPercent = Percent(raw.WithinSla, into.SlaEligible);
-        into.OldestUnansweredMinutes = raw.OldestUnansweredInboundAt is { } oldest ? Minutes((nowUtc - oldest).TotalSeconds) : null;
+        into.OldestUnansweredOpenMinutes = raw.OldestUnansweredOpenInboundAt is { } oldest ? Minutes((nowUtc - oldest).TotalSeconds) : null;
         return into;
     }
 
     // ---- Loss reasons -----------------------------------------------------------------------------------------------
 
-    private async Task<(int TotalLost, IReadOnlyList<LossReasonShare> Top, int Other)> TopLossReasonsAsync(Scope scope, CancellationToken cancellationToken)
+    private sealed record LossReasons(int TotalLost, int StatedLost, NoResponseLoss NoResponse, IReadOnlyList<LossReasonShare> Top, int Other);
+
+    // A loss without a reason is "Unknown", so the lists always add up to the number of lost sales. NoResponse is the system's inference
+    // from silence, not something the customer said: it is a line of its own and the ranking of reasons is made without it.
+    private async Task<LossReasons> TopLossReasonsAsync(Scope scope, CancellationToken cancellationToken)
     {
-        // A loss without a reason is "Unknown", so the list always adds up to the number of lost sales.
         var reasons = (await _queries.LossReasonsAsync(scope.Filter, cancellationToken))
             .GroupBy(r => r.Reason ?? nameof(LossReason.Unknown))
             .Select(g => (Reason: g.Key, Count: g.Sum(r => r.Count)))
-            .OrderByDescending(r => r.Count).ThenBy(r => r.Reason, StringComparer.Ordinal)
             .ToList();
         var total = reasons.Sum(r => r.Count);
-        var top = reasons.Take(_options.TopLossReasons).Select(r => new LossReasonShare(r.Reason, r.Count, Percent(r.Count, total) ?? 0)).ToList();
-        return (total, top, total - top.Sum(r => r.Count));
+        var silent = reasons.Where(r => r.Reason == nameof(LossReason.NoResponse)).Sum(r => r.Count);
+        var stated = reasons.Where(r => r.Reason != nameof(LossReason.NoResponse))
+            .OrderByDescending(r => r.Count).ThenBy(r => r.Reason, StringComparer.Ordinal)
+            .ToList();
+        var statedTotal = total - silent;
+        var top = stated.Take(_options.TopLossReasons).Select(r => new LossReasonShare(r.Reason, r.Count, Percent(r.Count, statedTotal))).ToList();
+        return new LossReasons(total, statedTotal, new NoResponseLoss(silent, Percent(silent, total)), top, statedTotal - top.Sum(r => r.Count));
     }
 
     // ---- Small helpers ----------------------------------------------------------------------------------------------
@@ -300,6 +317,11 @@ public class MetricsService : IMetricsService
 
     private static double? Percent(int part, int whole)
         => whole <= 0 ? null : Math.Round(100.0 * part / whole, 1, MidpointRounding.AwayFromZero);
+
+    // The exact rate, for comparisons: decimal, so that 7 out of 20 is 35 and not 35.00000000000001. Null when nothing is decided.
+    private static decimal? ExactRate(int part, int whole) => whole <= 0 ? null : 100m * part / whole;
+
+    private static double Round(decimal value) => (double)Math.Round(value, 1, MidpointRounding.AwayFromZero);
 
     private static double Minutes(double seconds) => Math.Round(seconds / 60.0, 2, MidpointRounding.AwayFromZero);
 

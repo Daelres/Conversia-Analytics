@@ -114,7 +114,7 @@ Content-Type: application/json
 GET {{host}}/api/branches
 Authorization: Bearer {{token}}
 
-### List conversations (ConversationsView), newest first. Filters: branchId, advisorId, unassigned, stage, source, status, from, to, unanswered
+### List conversations (ConversationsView), newest first. Filters: branchId, advisorId, unassigned, stage, source, status, from, to, unanswered (open and without a reply), closedUnanswered (closed and never replied)
 GET {{host}}/api/conversations?pageSize=20&stage=InFollowUp
 Authorization: Bearer {{token}}
 

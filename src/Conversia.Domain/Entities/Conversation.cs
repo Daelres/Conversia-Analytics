@@ -108,22 +108,6 @@ public class Conversation : BaseEntity
     }
 
     /// <summary>
-    /// Opens a closed conversation again. Not used by ingestion (a message after the close starts a new conversation, see docs/WEBHOOKS.md);
-    /// it exists for a person who closed one by mistake. The database allows one open conversation per contact and channel, so reopening
-    /// while the contact has another open one fails there.
-    /// </summary>
-    public void Reopen()
-    {
-        if (Status == ConversationStatus.Open)
-        {
-            throw new DomainException("La conversación ya está abierta.");
-        }
-
-        Status = ConversationStatus.Open;
-        ClosedAt = null;
-    }
-
-    /// <summary>
     /// A referral on any message of the conversation marks it as coming from an ad. A conversation that is already an ad keeps its
     /// reference, unless it has none yet and this referral brings one.
     /// </summary>

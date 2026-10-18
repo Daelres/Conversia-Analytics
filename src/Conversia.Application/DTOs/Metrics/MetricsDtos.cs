@@ -58,7 +58,11 @@ public class MetricsQuery : IValidatableObject
 /// <param name="Days">Days in the period.</param>
 public sealed record MetricsPeriod(DateOnly From, DateOnly To, string TimeZone, int Days);
 
-/// <summary>Conversations of a group by stage, and the conversion rate they give (docs/METRICS.md, "Conversion").</summary>
+/// <summary>
+/// Conversations of a group by stage, and the conversion rate they give (docs/METRICS.md, "Conversion"). The counts of the stages are the raw
+/// numbers of the whole cohort; the rate is computed over its <b>matured</b> part only: the conversations that started at least
+/// <c>Metrics:ConversionMaturityDays</c> ago, whose outcome is settled. All percentages of the metrics API go from 0 to 100.
+/// </summary>
 public class ConversionCounts
 {
     public int Total { get; set; }
@@ -77,13 +81,31 @@ public class ConversionCounts
     /// <summary>Still maturing: in follow-up or new and not stale yet.</summary>
     public int InProgress { get; set; }
 
-    /// <summary><c>Won + Lost + Stale</c>: the denominator of the conversion rate.</summary>
+    /// <summary>Conversations that started at least the maturity ago: the cohort the rate is computed over.</summary>
+    public int Matured { get; set; }
+
+    /// <summary>The rest of <see cref="Total"/>: started less than the maturity ago. They are in every raw count and in none of the rate.</summary>
+    public int Immature { get; set; }
+
+    /// <summary><see cref="Won"/> among the <see cref="Matured"/> ones.</summary>
+    public int MaturedWon { get; set; }
+
+    /// <summary><see cref="Lost"/> among the <see cref="Matured"/> ones.</summary>
+    public int MaturedLost { get; set; }
+
+    /// <summary><c>MaturedWon + MaturedLost + Stale</c>: the denominator of the conversion rate.</summary>
     public int Decided { get; set; }
 
-    /// <summary>Percent, one decimal: <c>Won / Decided</c>; null when nothing is decided.</summary>
+    /// <summary>
+    /// The period has conversations but none is mature yet, so there is no rate to give (<see cref="ConversionRate"/> is null): not "0 %", not
+    /// "unknown", just too early.
+    /// </summary>
+    public bool InMaturation { get; set; }
+
+    /// <summary>Percent 0 to 100, one decimal: <c>MaturedWon / Decided</c>; null when <see cref="Decided"/> is 0 (see <see cref="InMaturation"/>).</summary>
     public double? ConversionRate { get; set; }
 
-    /// <summary>Percent, one decimal: <c>Won / Total</c>, ignoring maturity; null when there are no conversations.</summary>
+    /// <summary>Percent 0 to 100, one decimal: <c>Won / Total</c> over the whole cohort, ignoring maturity; null when there are no conversations.</summary>
     public double? WinShareOfAll { get; set; }
 }
 
@@ -95,14 +117,22 @@ public sealed class ConversionRow : ConversionCounts
     public string Name { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// First response of a group. "Unanswered" has one definition everywhere: the customer wrote and nobody replied. While the conversation is
+/// <b>open</b> somebody still can (<see cref="UnansweredOpen"/>, the actionable set, also <c>GET /api/conversations?unanswered=true</c> and the alerts);
+/// once it is <b>closed</b> nobody did (<see cref="UnansweredClosed"/>, a miss that is over).
+/// </summary>
 public class FirstResponseStats
 {
     public int Conversations { get; set; }
 
     public int Answered { get; set; }
 
-    /// <summary>Never counted as zero minutes and never part of the averages.</summary>
-    public int Unanswered { get; set; }
+    /// <summary>Open, with no reply yet. Never counted as zero minutes and never part of the averages.</summary>
+    public int UnansweredOpen { get; set; }
+
+    /// <summary>Closed without any reply. Never part of the averages either.</summary>
+    public int UnansweredClosed { get; set; }
 
     public double? AvgMinutes { get; set; }
 
@@ -114,14 +144,17 @@ public class FirstResponseStats
 
     public int WithinSla { get; set; }
 
-    /// <summary>Answered, plus unanswered whose customer message is older than the SLA: the conversations that have had their chance.</summary>
+    /// <summary>Answered, plus open ones waiting longer than the SLA, plus every closed one: the conversations that have had their chance.</summary>
     public int SlaEligible { get; set; }
 
+    /// <summary>Percent 0 to 100, one decimal; null when <see cref="SlaEligible"/> is 0.</summary>
     public double? AnsweredWithinSlaPercent { get; set; }
 
-    public int UnansweredOverSla { get; set; }
+    /// <summary>Of <see cref="UnansweredOpen"/>, those whose customer message is older than the SLA.</summary>
+    public int UnansweredOpenOverSla { get; set; }
 
-    public double? OldestUnansweredMinutes { get; set; }
+    /// <summary>How long the oldest <b>open</b> unanswered conversation has been waiting; null when there is none. Closed ones never count.</summary>
+    public double? OldestUnansweredOpenMinutes { get; set; }
 }
 
 public sealed class FirstResponseRow : FirstResponseStats
@@ -131,12 +164,29 @@ public sealed class FirstResponseRow : FirstResponseStats
     public string Name { get; set; } = string.Empty;
 }
 
-public sealed record LossReasonShare(string Reason, int Count, double SharePercent);
+/// <param name="SharePercent">Percent 0 to 100, one decimal, of the lost sales whose reason the customer stated (see <see cref="NoResponseLoss"/>); null over an empty set.</param>
+public sealed record LossReasonShare(string Reason, int Count, double? SharePercent);
 
-public sealed record ObjectionShare(string Objection, int Count, double SharePercent);
+/// <summary>
+/// Sales lost because the customer stopped answering. The system inferred it (the conversation closed for inactivity); the customer never said it,
+/// so it is shown on its own line and is not part of the ranking of stated reasons.
+/// </summary>
+/// <param name="SharePercent">Percent 0 to 100, one decimal, of <c>totalLost</c>; null when nothing is lost.</param>
+public sealed record NoResponseLoss(int Count, double? SharePercent);
 
+/// <param name="SharePercent">Percent 0 to 100, one decimal, of the cohort; null when the cohort is empty.</param>
+public sealed record ObjectionShare(string Objection, int Count, double? SharePercent);
+
+/// <param name="TotalLost">Every lost sale of the cohort: <c>statedLost + noResponse.count</c>.</param>
+/// <param name="StatedLost">Lost sales with a reason the customer stated or the classifier read (not inferred from silence).</param>
 public sealed record SummaryResponse(
-    MetricsPeriod Period, ConversionCounts Conversion, FirstResponseStats FirstResponse, int TotalLost, IReadOnlyList<LossReasonShare> TopLossReasons);
+    MetricsPeriod Period,
+    ConversionCounts Conversion,
+    FirstResponseStats FirstResponse,
+    int TotalLost,
+    int StatedLost,
+    NoResponseLoss NoResponse,
+    IReadOnlyList<LossReasonShare> TopLossReasons);
 
 public sealed record ConversionResponse(
     MetricsPeriod Period,
@@ -152,10 +202,16 @@ public sealed record FirstResponseResponse(
     IReadOnlyList<FirstResponseRow> ByAdvisor,
     IReadOnlyList<FirstResponseRow> BySource);
 
+/// <param name="TotalLost">Every lost sale of the cohort: <c>statedLost + noResponse.count</c>.</param>
+/// <param name="StatedLost">Lost sales whose reason is not the silence of the customer; the shares of <paramref name="TopReasons"/> are of this number.</param>
+/// <param name="NoResponse">The silent ones, on their own line.</param>
+/// <param name="OtherCount">What the stated reasons outside the top add up to.</param>
 public sealed record LossReasonsResponse(
     MetricsPeriod Period,
     int Conversations,
     int TotalLost,
+    int StatedLost,
+    NoResponseLoss NoResponse,
     IReadOnlyList<LossReasonShare> TopReasons,
     int OtherCount,
     IReadOnlyList<ObjectionShare> Objections);
@@ -181,6 +237,7 @@ public sealed record UnansweredConversation(
 
 public sealed record UnansweredSummary(int Total, IReadOnlyList<UnansweredConversation> Items);
 
+/// <param name="Unanswered">The <b>open</b> conversations waiting longer than the SLA (the same set as <c>GET /api/conversations?unanswered=true</c> older than the SLA).</param>
 public sealed record AlertsResponse(MetricsPeriod Period, DateTime GeneratedAt, IReadOnlyList<MetricAlert> Alerts, UnansweredSummary Unanswered);
 
 public static class AlertCodes
