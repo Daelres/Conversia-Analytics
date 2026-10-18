@@ -48,17 +48,38 @@ public sealed partial class ClassificationRuleSet
 
     public List<string> Inquiry { get; set; } = [];
 
+    /// <summary>Verbs and phrases that are a request to book. Counted anywhere, questions included ("¿cómo agendo?").</summary>
     public List<string> BookingIntent { get; set; } = [];
+
+    /// <summary>Nouns that hint at a booking ("cita", "cupo"). They count as intent only outside questions: "¿cuánto cuesta la cita?" is a price question.</summary>
+    public List<string> BookingIntentWeak { get; set; } = [];
+
+    /// <summary>Days, dates and hours. A booking proposal or a schedule statement that has none is not concrete.</summary>
+    public List<string> DayTime { get; set; } = [];
 
     public CustomerConfirmationPhrases CustomerConfirmation { get; set; } = new();
 
+    /// <summary>The business offers to book. Counts anywhere in the message.</summary>
     public List<string> BookingProposal { get; set; } = [];
 
+    /// <summary>Generic phrases ("¿te parece?") that are a booking proposal only when a day or an hour comes with them in the same sentence.</summary>
+    public List<string> ProposalCue { get; set; } = [];
+
+    /// <summary>The business says, explicitly, that the booking is made ("quedó agendada", "cita confirmada"). Questions and negations never count.</summary>
     public List<string> AdvisorConfirmation { get; set; } = [];
+
+    /// <summary>"Te esperamos el", "tu cita es el": a confirmation only when a day or an hour is in the same sentence.</summary>
+    public List<string> AdvisorScheduleStatement { get; set; } = [];
 
     public List<string> Refusal { get; set; } = [];
 
-    public List<string> Cancellation { get; set; } = [];
+    /// <summary>"Ya agendé": the customer did it, which is a refusal only when it was done elsewhere (a <see cref="Competitor"/> cue in the same sentence).</summary>
+    public List<string> CompletedElsewhere { get; set; } = [];
+
+    /// <summary>The customer will not go to the booking they have ("no puedo ir"). Only read once a booking is confirmed.</summary>
+    public List<string> Withdrawal { get; set; } = [];
+
+    public CancellationPhrases Cancellation { get; set; } = new();
 
     /// <summary>The rules shipped with the application: Spanish (Colombia), laser hair removal.</summary>
     public static ClassificationRuleSet LoadDefault()
@@ -122,6 +143,8 @@ public sealed partial class ClassificationRuleSet
         Require(CustomerConfirmation.Strong.Count > 0, "customerConfirmation.strong must not be empty.");
         Require(AdvisorConfirmation.Count > 0, "advisorConfirmation must not be empty.");
         Require(Refusal.Count > 0, "refusal must not be empty.");
+        Require(Cancellation.Window is >= 1 and <= 10, "cancellation.window must be between 1 and 10.");
+        Require(Cancellation.Verbs.Count == 0 || Cancellation.Objects.Count > 0, "cancellation.objects must not be empty when cancellation.verbs is not.");
 
         foreach (var (name, list) in new (string, IReadOnlyList<CodedPhrases>)[] { ("services", Services), ("generalServices", GeneralServices), ("interestReasons", InterestReasons) })
         {
@@ -148,7 +171,16 @@ public sealed partial class ClassificationRuleSet
         yield return ("bookingProposal", BookingProposal);
         yield return ("advisorConfirmation", AdvisorConfirmation);
         yield return ("refusal", Refusal);
-        yield return ("cancellation", Cancellation);
+        yield return ("bookingIntentWeak", BookingIntentWeak);
+        yield return ("dayTime", DayTime);
+        yield return ("proposalCue", ProposalCue);
+        yield return ("advisorScheduleStatement", AdvisorScheduleStatement);
+        yield return ("completedElsewhere", CompletedElsewhere);
+        yield return ("withdrawal", Withdrawal);
+        yield return ("cancellation.verbs", Cancellation.Verbs);
+        yield return ("cancellation.objects", Cancellation.Objects);
+        yield return ("cancellation.paymentWords", Cancellation.PaymentWords);
+        yield return ("cancellation.requestCues", Cancellation.RequestCues);
         yield return ("negators", Negators);
         yield return ("clauseBreakers", ClauseBreakers);
         yield return ("objections.price", Objections.Price);
@@ -193,6 +225,27 @@ public sealed partial class ClassificationRuleSet
         public List<string> Pain { get; set; } = [];
 
         public List<string> Other { get; set; } = [];
+    }
+
+    /// <summary>
+    /// A cancellation is a cancel verb next to a booking noun in the same sentence ("cancelar mi cita"). "Cancelar" alone also means "to pay"
+    /// in Colombian Spanish ("ya cancelé el abono"), so a verb without a noun, or a sentence that talks about paying, is not one.
+    /// </summary>
+    public sealed class CancellationPhrases
+    {
+        public List<string> Verbs { get; set; } = [];
+
+        /// <summary>The booking nouns: cita, agenda, reserva, sesión, turno.</summary>
+        public List<string> Objects { get; set; } = [];
+
+        /// <summary>A sentence with one of these is about paying, not about cancelling a booking.</summary>
+        public List<string> PaymentWords { get; set; } = [];
+
+        /// <summary>A question is read as a cancellation only when it is a request ("¿me cancelas la cita?"), not a question about the policy.</summary>
+        public List<string> RequestCues { get; set; } = [];
+
+        /// <summary>How many words may separate the verb from the noun.</summary>
+        public int Window { get; set; } = 5;
     }
 
     public sealed class CustomerConfirmationPhrases

@@ -13,8 +13,10 @@ namespace Conversia.Infrastructure.Classification;
 /// Classifies one waiting conversation at a time. Safe to run in several workers and several API instances at once. One bounded transaction per
 /// conversation (<c>statement_timeout</c>, <c>idle_in_transaction_session_timeout</c> and a total budget):
 /// <list type="number">
-/// <item><b>Claim</b>: <c>SELECT ... FOR UPDATE SKIP LOCKED</c> takes the oldest conversation that is flagged, has been quiet for the debounce,
-/// has failed fewer than <c>MaxFailures</c> times and is not waiting out a retry delay. A row another worker (or a person deciding the outcome,
+/// <item><b>Claim</b>: <c>SELECT ... FOR UPDATE SKIP LOCKED</c> takes the oldest conversation that is flagged, whose request has waited out the
+/// debounce, has failed fewer than <c>MaxFailures</c> times and is not waiting out a retry delay. The debounce counts from when ingestion
+/// <i>requested</i> the classification (<see cref="Conversation.ClassificationRequestedAt"/>, the arrival of the last message), not from the
+/// time written on the message: a message the provider delivers late, or a replayed one, still gets its quiet period. A row another worker (or a person deciding the outcome,
 /// or ingestion adding a message) holds is skipped, never waited for.</item>
 /// <item><b>Read and write</b>: the lock of the conversation row is the lock of "the conversation and its opportunity", so nothing else
 /// changes either while its messages are read and the opportunity is written. The tenant is set on the scope first, and everything after the claim runs
@@ -32,7 +34,10 @@ public sealed class ConversationClassificationRunner(
     ILogger<ConversationClassificationRunner> logger)
 {
     /// <summary>The most messages one classification reads (the latest ones): the work per conversation is bounded.</summary>
-    public const int MaxMessagesPerConversation = 1000;
+    public const int MaxMessagesPerConversation = 200;
+
+    /// <summary>The most characters of a message that are read from the database (the first ones): a message is bounded too.</summary>
+    public const int MaxCharactersPerMessage = 1000;
 
     /// <summary>Returns true when a conversation was claimed (classified, or its failure recorded), false when none was due.</summary>
     public async Task<bool> ProcessNextAsync(CancellationToken cancellationToken = default)
@@ -43,6 +48,7 @@ public sealed class ConversationClassificationRunner(
         budget.CancelAfter(TimeSpan.FromSeconds(options.ProcessingTimeoutSeconds));
 
         Guid? claimedId = null;
+        DateTime? requestedAt = null;
         var tenantId = Guid.Empty;
         try
         {
@@ -57,6 +63,7 @@ public sealed class ConversationClassificationRunner(
             }
 
             claimedId = conversation.Id;
+            requestedAt = conversation.ClassificationRequestedAt;
             tenantId = conversation.TenantId;
             scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(conversation.TenantId);
 
@@ -78,7 +85,7 @@ public sealed class ConversationClassificationRunner(
         }
         catch (Exception ex) when (claimedId is not null)
         {
-            await RecordFailureAsync(claimedId.Value, tenantId, ex);
+            await RecordFailureAsync(claimedId.Value, requestedAt, tenantId, ex);
             return true;
         }
     }
@@ -94,9 +101,9 @@ public sealed class ConversationClassificationRunner(
                 SELECT * FROM "Conversations"
                 WHERE "ClassificationDirty"
                   AND "ClassificationFailures" < {options.MaxFailures}
-                  AND "LastMessageAt" <= {quietSince}
+                  AND COALESCE("ClassificationRequestedAt", "LastMessageAt") <= {quietSince}
                   AND ("ClassificationAttemptedAt" IS NULL OR "ClassificationAttemptedAt" <= {retryFrom})
-                ORDER BY "LastMessageAt"
+                ORDER BY COALESCE("ClassificationRequestedAt", "LastMessageAt")
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
                 """)
@@ -113,7 +120,7 @@ public sealed class ConversationClassificationRunner(
             .Where(m => m.ConversationId == conversation.Id)
             .OrderByDescending(m => m.SentAt).ThenByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id)
             .Take(MaxMessagesPerConversation)
-            .Select(m => new SnapshotMessage(m.Direction, m.Type, m.Text, m.SentAt))
+            .Select(m => new SnapshotMessage(m.Direction, m.Type, m.Text == null ? null : m.Text.Substring(0, MaxCharactersPerMessage), m.SentAt))
             .ToListAsync(cancellationToken);
         messages.Reverse();
 
@@ -180,7 +187,7 @@ public sealed class ConversationClassificationRunner(
 
     // ---- Failure bookkeeping: a fresh scope and transaction, no tenant context (the conversation is addressed by id). Never throws. ----
 
-    private async Task RecordFailureAsync(Guid conversationId, Guid tenantId, Exception exception)
+    internal async Task RecordFailureAsync(Guid conversationId, DateTime? requestedAt, Guid tenantId, Exception exception)
     {
         var error = ClassificationErrors.Describe(exception);
         try
@@ -189,10 +196,21 @@ public sealed class ConversationClassificationRunner(
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var now = UtcNow();
 
-            await db.Conversations.IgnoreQueryFilters().Where(c => c.Id == conversationId)
+            // Only while the request this attempt was made for is still the current one. A message that arrived meanwhile re-requested the
+            // classification with a fresh start (zero failures, no delay): counting this failure would take that start away.
+            var recorded = await db.Conversations.IgnoreQueryFilters()
+                .Where(c => c.Id == conversationId && c.ClassificationRequestedAt == requestedAt)
                 .ExecuteUpdateAsync(set => set
                     .SetProperty(c => c.ClassificationFailures, c => c.ClassificationFailures + 1)
                     .SetProperty(c => c.ClassificationAttemptedAt, now), CancellationToken.None);
+            if (recorded == 0)
+            {
+                logger.LogInformation(
+                    "Classifying conversation {ConversationId} failed, but it was requested again meanwhile: the failure is not counted and it will be read again: {Error}",
+                    conversationId, error);
+                return;
+            }
+
             var failures = await db.Conversations.IgnoreQueryFilters().Where(c => c.Id == conversationId)
                 .Select(c => c.ClassificationFailures).FirstOrDefaultAsync(CancellationToken.None);
 

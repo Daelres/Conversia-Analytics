@@ -5,39 +5,66 @@ internal readonly record struct PhraseHit(int Start, int End, int Sentence);
 
 /// <summary>
 /// A list of phrases compiled for matching on <see cref="TokenizedText"/>. A phrase is a run of words; a trailing <c>*</c> lets its last
-/// word continue (<c>pierna*</c> matches <c>piernas</c>), a leading <c>^</c> makes it start a sentence and a trailing <c>$</c> end one. A
-/// phrase never crosses a sentence boundary.
+/// word continue (<c>pierna*</c> matches <c>piernas</c>), a leading <c>^</c> makes it start a sentence, a trailing <c>$</c> end one and a
+/// trailing <c>,</c> end its clause (<c>mejor no,</c> matches "mejor no, gracias" but not "mejor no rasurarme"). A phrase never crosses a
+/// sentence boundary.
 /// </summary>
 internal sealed class PhraseSet
 {
-    private readonly Phrase[] _phrases;
+    // Phrases whose first word is spelled out, by that word; the (rare) phrases that are a single word with a trailing * are kept apart.
+    private readonly Dictionary<string, Phrase[]> _byFirstWord;
+    private readonly Phrase[] _singleWordPrefixes;
+    private readonly int _count;
 
     public PhraseSet(IEnumerable<string> phrases)
     {
-        _phrases = [.. phrases.Select(Phrase.Parse)];
+        var parsed = phrases.Select(Phrase.Parse).ToArray();
+        _count = parsed.Length;
+        _singleWordPrefixes = [.. parsed.Where(p => p.Words.Length == 1 && p.PrefixOfLast)];
+        _byFirstWord = parsed
+            .Where(p => !(p.Words.Length == 1 && p.PrefixOfLast))
+            .GroupBy(p => p.Words[0], StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.ToArray(), StringComparer.Ordinal);
     }
 
-    public bool IsEmpty => _phrases.Length == 0;
+    public bool IsEmpty => _count == 0;
 
-    /// <summary>Every place a phrase of the set is found, in text order.</summary>
+    /// <summary>Every place a phrase of the set is found, in text order (several phrases may start at the same word).</summary>
     public IEnumerable<PhraseHit> Find(TokenizedText text)
     {
-        foreach (var sentence in text.Sentences.Select((s, i) => (Info: s, Index: i)))
+        if (_count == 0)
         {
-            for (var start = sentence.Info.Start; start < sentence.Info.End; start++)
+            yield break;
+        }
+
+        for (var s = 0; s < text.Sentences.Length; s++)
+        {
+            var sentence = text.Sentences[s];
+            for (var start = sentence.Start; start < sentence.End; start++)
             {
-                foreach (var phrase in _phrases)
+                if (_byFirstWord.TryGetValue(text.Tokens[start].Text, out var candidates))
                 {
-                    if (phrase.MatchesAt(text.Tokens, start, sentence.Info))
+                    foreach (var phrase in candidates)
                     {
-                        yield return new PhraseHit(start, start + phrase.Words.Length, sentence.Index);
+                        if (phrase.MatchesAt(text.Tokens, start, sentence))
+                        {
+                            yield return new PhraseHit(start, start + phrase.Words.Length, s);
+                        }
+                    }
+                }
+
+                foreach (var phrase in _singleWordPrefixes)
+                {
+                    if (phrase.MatchesAt(text.Tokens, start, sentence))
+                    {
+                        yield return new PhraseHit(start, start + 1, s);
                     }
                 }
             }
         }
     }
 
-    private sealed record Phrase(string[] Words, bool PrefixOfLast, bool StartsSentence, bool EndsSentence)
+    private sealed record Phrase(string[] Words, bool PrefixOfLast, bool StartsSentence, bool EndsSentence, bool EndsClause)
     {
         public static Phrase Parse(string raw)
         {
@@ -54,6 +81,12 @@ internal sealed class PhraseSet
                 text = text[..^1];
             }
 
+            var endsClause = !ends && text.EndsWith(',');
+            if (endsClause)
+            {
+                text = text[..^1];
+            }
+
             var prefix = text.EndsWith('*');
             if (prefix)
             {
@@ -66,13 +99,18 @@ internal sealed class PhraseSet
                 throw new InvalidOperationException("A phrase of the classification rules is empty once normalized.");
             }
 
-            return new Phrase(words, prefix, starts, ends);
+            return new Phrase(words, prefix, starts, ends, endsClause);
         }
 
         public bool MatchesAt(Token[] tokens, int start, Sentence sentence)
         {
             var end = start + Words.Length;
             if (end > sentence.End || (StartsSentence && start != sentence.Start) || (EndsSentence && end != sentence.End))
+            {
+                return false;
+            }
+
+            if (EndsClause && end != sentence.End && tokens[end].Clause == tokens[end - 1].Clause)
             {
                 return false;
             }

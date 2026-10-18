@@ -281,7 +281,7 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Classification:Enabled` | API | `true` | Runs the background worker that classifies conversations (service, reason, objection, outcome). `false`: conversations stay flagged. See `docs/CLASSIFICATION.md`. |
 | `Classification:Provider` | API | `Rules` | The classifier behind the port: only `Rules` (rule-based Spanish) exists; any other value stops the API at startup. |
 | `Classification:RulesPath` | API | *(embedded rules)* | Path of a JSON file with the classifier's dictionaries (another vertical or country). Validated at startup. |
-| `Classification:DebounceSeconds` | API | `60` | A conversation is classified once its last message is at least this old. 0 to 86400. |
+| `Classification:DebounceSeconds` | API | `60` | A conversation is classified once its classification request (the arrival of its last message) is at least this old. 0 to 86400. |
 | `Classification:PollIntervalMilliseconds` | API | `2000` | Pause of the classification worker when nothing is due. 10 to 600000. |
 | `Classification:BatchSize` | API | `20` | Conversations classified per cycle. 1 to 1000. |
 | `Classification:MaxFailures` | API | `5` | Consecutive failures after which a conversation is no longer tried, until a new message arrives. 1 to 100. |

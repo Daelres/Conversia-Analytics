@@ -145,6 +145,62 @@ public class ConversationClassificationTests
     }
 
     [Fact]
+    public async Task TheQuietPeriodCountsFromTheArrivalOfTheRequest_NotFromTheTimeWrittenOnTheMessage()
+    {
+        // A message the provider delivers late (or replays) carries an old SentAt: the conversation must still wait for the debounce from now.
+        using var f = await NewTenantAsync();
+        var start = NewEra();
+        var seeded = await SeedAsync(f, start);
+        var arrival = start.AddDays(10);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var tracked = await db.Conversations.IgnoreQueryFilters().SingleAsync(c => c.Id == seeded.ConversationId);
+            tracked.RequestClassification(arrival);
+            await db.SaveChangesAsync();
+        }
+
+        var clock = new FixedTimeProvider(arrival.AddSeconds(59));
+        var runner = Runner(clock);
+
+        Assert.False(await runner.ProcessNextAsync()); // the last message is ten days old, but it arrived 59 s ago
+        clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.True(await runner.ProcessNextAsync());
+        Assert.False((await LoadAsync(_factory.Services, seeded.ConversationId)).Conversation.ClassificationDirty);
+    }
+
+    [Fact]
+    public async Task AFailureIsCountedOnlyForTheRequestItWasMadeFor()
+    {
+        using var f = await NewTenantAsync();
+        var start = NewEra();
+        var seeded = await SeedAsync(f, start);
+        var claimed = (await LoadAsync(_factory.Services, seeded.ConversationId)).Conversation.ClassificationRequestedAt;
+        var runner = Runner(new FixedTimeProvider(start.AddDays(1)));
+
+        // A new message re-requests the classification (zero failures, no delay) while the attempt for the old request is failing.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var tracked = await db.Conversations.IgnoreQueryFilters().SingleAsync(c => c.Id == seeded.ConversationId);
+            tracked.RequestClassification(start.AddHours(2));
+            await db.SaveChangesAsync();
+        }
+
+        await runner.RecordFailureAsync(seeded.ConversationId, claimed, f.TenantId, new InvalidOperationException("late failure"));
+
+        var untouched = (await LoadAsync(_factory.Services, seeded.ConversationId)).Conversation;
+        Assert.Equal((true, 0, (DateTime?)null), (untouched.ClassificationDirty, untouched.ClassificationFailures, untouched.ClassificationAttemptedAt));
+
+        // The failure of the current request is counted as always.
+        await runner.RecordFailureAsync(seeded.ConversationId, untouched.ClassificationRequestedAt, f.TenantId, new InvalidOperationException("current failure"));
+
+        var counted = (await LoadAsync(_factory.Services, seeded.ConversationId)).Conversation;
+        Assert.Equal(1, counted.ClassificationFailures);
+        Assert.NotNull(counted.ClassificationAttemptedAt);
+    }
+
+    [Fact]
     public async Task TheWorker_WritesWhatItReadToTheOpportunity_AndClearsTheFlag()
     {
         using var f = await NewTenantAsync();

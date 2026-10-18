@@ -85,10 +85,20 @@ public class RuleBasedConversationClassifierTests
     }
 
     [Fact]
-    public void ARefusalAfterTheBooking_TurnsItIntoLost_AndARequestToBookAfterARefusalUndoesIt()
+    public void ACourtesyRefusalAfterTheBooking_KeepsIt_AndARequestToBookAfterARefusalUndoesTheRefusal()
     {
-        Assert.Equal(ClassificationOutcome.Lost, Read("C: Quiero agendar axilas\nA: Quedó agendada para el sábado\nC: Mejor no, gracias").Outcome);
+        // "Mejor no, gracias" to "¿algo más?" is courtesy: after a confirmed booking only a cancellation or a withdrawal ends it.
+        Assert.Equal(ClassificationOutcome.Won, Read("C: Quiero agendar axilas\nA: Quedó agendada para el sábado\nC: Mejor no, gracias").Outcome);
         Assert.Equal(ClassificationOutcome.InFollowUp, Read("C: No me interesa\nA: ¿Segura? Hay promo\nC: Bueno, quiero agendar").Outcome);
+    }
+
+    [Fact]
+    public void ARefusalBeforeTheBooking_IsNotUndoneByTheBusinessConfirmingAlone()
+    {
+        // The customer said no and never asked again: a confirmation from the business does not make a sale.
+        var result = Read("C: Quiero agendar axilas\nC: No gracias, mejor no\nA: Listo, quedó agendada para el sábado a las 10");
+
+        Assert.Equal(ClassificationOutcome.Lost, result.Outcome);
     }
 
     [Fact]
@@ -162,15 +172,20 @@ public class RuleBasedConversationClassifierTests
     }
 
     [Fact]
-    public void AVeryLongConversation_IsClassifiedWithoutTrouble()
+    public void AVeryLongConversation_IsReadFromItsLatestMessages()
     {
-        var script = new StringBuilder("C: Hola quiero agendar axilas\n");
+        var script = new StringBuilder();
         for (var i = 0; i < 1500; i++)
         {
             script.Append(i % 2 == 0 ? "A: Seguimos atentos a tu respuesta\n" : "C: Estoy viendo gracias\n");
         }
 
-        Assert.Equal(ClassificationOutcome.InFollowUp, Read(script.ToString()).Outcome);
+        script.Append("C: Hola quiero agendar axilas\n");
+
+        var result = Read(script.ToString());
+
+        Assert.Equal(ClassificationOutcome.InFollowUp, result.Outcome);
+        Assert.Equal("axilas", result.ServiceInterest);
     }
 
     [Fact]
@@ -280,14 +295,5 @@ public class RuleBasedConversationClassifierTests
         }
     }
 
-    private static string FindDefaultRulesFile()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Conversia.slnx")))
-        {
-            directory = directory.Parent;
-        }
-
-        return Path.Combine(directory!.FullName, "src", "Conversia.Application", "Classification", "Rules", "ClassificationRules.es-CO.json");
-    }
+    private static string FindDefaultRulesFile() => RulesFile.Path;
 }

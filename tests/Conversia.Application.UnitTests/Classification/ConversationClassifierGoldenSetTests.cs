@@ -8,6 +8,7 @@ namespace Conversia.Application.UnitTests.Classification;
 /// in each. It covers accents and their absence, caps, stretched letters, emoji, abbreviations, negations and ambiguous chats. The rule for
 /// the ambiguous ones is the point of the product: <b>never a confident wrong Won</b> — when in doubt the answer is InFollowUp or
 /// Undetermined. Every case also checks the invariants of any result (confidence in 0..1, codes only, no customer words in the output).
+/// The guarantee itself ("Won only with the business confirming") is verified in <see cref="ClassifierGuaranteeTests"/>, not by the list of cases.
 /// </summary>
 public class ConversationClassifierGoldenSetTests
 {
@@ -117,16 +118,60 @@ public class ConversationClassifierGoldenSetTests
         new("lost: cheaper elsewhere", "C: En otra clínica me cobran menos, no gracias", Lost, ObjectionType.Price, LossReason.Competitor),
         new("lost: cancels a booking", "C: Quiero agendar cita para axilas\nA: Quedó agendada para el sábado 10 am, te esperamos\nC: Hola, necesito cancelar la cita", Lost, Loss: LossReason.Other, Service: "axilas"),
         new("lost: refusal undone by a request to book", "C: No gracias\nA: Entiendo. ¿Y si te cuento de la promo 2x1?\nC: Ah, ¿desde cuándo está la promo? Quiero agendar", Follow, Reason: "precio_promocion"),
+
+        // ---- Probes of the code review: the classifier once gave a confident wrong Won (or Lost) on each of these ----------------
+        // Never a Won from the customer's words alone: a question, a deferral or a confirmation with no confirmation of the business.
+        new("probe 1: a question about the booking is not a booking", "C: ¿Mi cita ya está confirmada?", Follow),
+        new("probe 2: asking whether the booking can be confirmed later", "C: Hola, ¿puedo confirmar la cita más tarde?", Follow, ObjectionType.Timing),
+        new("probe 3: quedamos asi, yo te aviso", "C: ¿Hay citas el sábado?\nA: Sí, hay cupo\nC: Quedamos así, yo te aviso cuando pueda", Follow, ObjectionType.Timing),
+        new("probe 4: no puedo, nos vemos el proximo mes", "C: Quiero agendar piernas\nA: ¿Te agendo el sábado?\nC: no puedo, nos vemos el próximo mes", Follow, ObjectionType.Timing, Service: "piernas"),
+        new("probe 5: the advisor says your appointment is whenever you want", "C: ¿Cuánto cuesta la cita de valoración?\nA: Es gratis, tu cita es cuando quieras", Follow),
+        new("probe 6: a coupon is not a cupo", "C: Tengo un cupón de descuento, ¿lo aceptan?\nA: Sí claro, te esperamos el sábado a las 3", Follow, ObjectionType.Price, Reason: "precio_promocion"),
+        new("probe 7: confirmo after a price, nobody books", "A: 60 mil la sesión, ¿te parece?\nC: Confirmo", Follow),
+        new("probe 7b: confirmo after a price, the business books afterwards", "A: 60 mil la sesión, ¿te parece?\nC: Confirmo\nA: Perfecto, quedó agendada para el sábado a las 3", Won),
+        // A confirmed booking followed by a courtesy refusal stays Won.
+        new("probe 8: no gracias to anything else", "C: Quiero agendar axilas el sábado\nA: Listo, quedó agendada para el sábado a las 10. ¿Algo más?\nC: No gracias", Won, Service: "axilas"),
+        new("probe 8b: no gracias, the booking has no day in the text", "C: Quiero agendar axilas el sábado\nA: Listo, quedó agendada. ¿Algo más?\nC: No gracias", Won, Service: "axilas"),
+        new("probe 9: yes to a proposal, then no gracias to the reminder", "A: ¿Te agendo el sábado?\nC: Sí\nA: Listo, quedó agendada. ¿Quieres recordatorio por correo?\nC: No gracias", Won),
+        // Never a Lost from words that mean something else.
+        new("probe 10: cancele el abono is paying", "C: Ya cancelé el abono", Follow),
+        new("probe 11: cancelar con tarjeta is paying", "C: Quiero agendar piernas. ¿Puedo cancelar con tarjeta?", Follow, Service: "piernas"),
+        new("probe 12: paid at the branch", "C: Ya pagué en la sede, ahí estaré", Follow),
+        new("probe 13: booked on the web page", "C: Ya agendé en la página web, ¿me confirman?", Follow),
+        new("probe 13b: booked at another branch of the same business", "C: Ya agendé en otra sede, ¿me confirman?", Follow),
+        new("probe 14: es mejor no rasurarme", "C: Es mejor no rasurarme, cuánto cuestan las axilas?", Follow, Service: "axilas", Reason: "comodidad"),
+        new("probe 15: not interested in the full body, only the armpits", "C: No me interesa el cuerpo completo, solo las axilas. ¿Cuánto cuestan?", Follow, Service: "axilas"),
+        // Words that look like others.
+        new("ingles is the language, not the groin", "C: Estudio inglés, ¿cuánto cuesta?", Follow),
+        new("las ingles are the groin", "C: Cuánto cuesta depilar las ingles", Follow, Service: "bikini"),
+        new("quincena is a pay period, not a party", "C: Con la quincena me alcanza, ¿cuánto cuesta?", Follow),
+        new("agenda is a diary, not a booking", "C: Reviso mi agenda y te cuento", Undetermined),
+        new("a quote request is not a price objection", "C: ¿Me pueden enviar un presupuesto de las axilas?", Follow, Service: "axilas"),
+        new("manchas alone is not distrust", "C: Tengo manchas en las piernas, ¿se pueden depilar?", Follow, Service: "piernas"),
+        new("an explicit budget limit is a price objection", "C: Se sale de mi presupuesto", Follow, ObjectionType.Price),
+        // The booking, in order: what happens after it is confirmed.
+        new("confirmed, then paid the deposit: cancele el abono keeps the booking", "C: Quiero agendar axilas\nA: Quedó agendada para el sábado a las 10\nC: Ya cancelé el abono", Won, Service: "axilas"),
+        new("confirmed, then a question about the cancellation policy keeps the booking", "C: Quiero agendar axilas\nA: Quedó agendada para el sábado a las 10\nC: ¿Puedo cancelar la cita si me enfermo?", Won, Service: "axilas"),
+        new("confirmed, then a request to cancel it", "C: Quiero agendar axilas\nA: Quedó agendada para el sábado a las 10\nC: ¿Me cancelas la cita por favor?", Lost, Loss: LossReason.Other, Service: "axilas"),
+        new("confirmed, then no voy a poder ir", "C: Quiero agendar axilas\nA: Quedó agendada para el sábado a las 10\nC: Ya no voy a poder ir", Lost, ObjectionType.Timing, LossReason.Timing, Service: "axilas"),
+        new("confirmed, then cancel and another date", "C: Quiero agendar axilas\nA: Quedó agendada para el sábado a las 10\nC: Necesito cancelar la cita, ¿puedo otra fecha?", Follow, Service: "axilas"),
+        new("said yes, then put it off: no longer a booking", "A: ¿Te agendo el sábado a las 3?\nC: Sí\nC: Mejor lo pienso y te aviso", Follow, ObjectionType.Timing),
+        new("a refusal the same message takes back", "C: No me interesa, ¿cuánto cuestan las piernas?", Follow, Service: "piernas"),
+        new("a refusal inside a question is not a refusal", "C: ¿Y si no me interesa después, me devuelven la plata?", Follow),
+        new("ya no quiero rasurarme is not a refusal", "C: Ya no quiero rasurarme, cuánto cuestan las axilas", Follow, Service: "axilas"),
     ];
 
     private static readonly Dictionary<string, Case> ByName = Cases.ToDictionary(c => c.Name);
 
+    /// <summary>The chats of the set, for the tests that apply a property to all of them.</summary>
+    internal static IEnumerable<(string Name, string Chat, ClassificationOutcome Outcome)> AllChats => Cases.Select(c => (c.Name, c.Chat, c.Outcome));
+
     public static TheoryData<string> CaseNames => new(Cases.Select(c => c.Name));
 
     [Fact]
-    public void TheGoldenSet_HasAtLeastSixtyCases_WithUniqueNames()
+    public void TheGoldenSet_HasAtLeastNinetyCases_WithUniqueNames()
     {
-        Assert.True(Cases.Length >= 60, $"only {Cases.Length} cases");
+        Assert.True(Cases.Length >= 90, $"only {Cases.Length} cases");
         Assert.Equal(Cases.Length, ByName.Count);
     }
 
@@ -207,17 +252,5 @@ public class ConversationClassifierGoldenSetTests
         Assert.DoesNotContain(Marker, output, StringComparison.OrdinalIgnoreCase);
         Assert.All(result.RuleCodes, code => Assert.Contains(CodePrefixes, prefix => code.StartsWith(prefix, StringComparison.Ordinal)));
         Assert.Equal(Classifier.Classify(plain).Outcome, result.Outcome); // an unknown word changes nothing
-    }
-
-    [Fact]
-    public void NoAmbiguousCaseOfTheSetEndsAsWon()
-    {
-        var wrong = Cases
-            .Where(c => c.Outcome != Won)
-            .Where(c => Classifier.Classify(ChatScript.Snapshot(c.Chat)).Outcome == Won)
-            .Select(c => c.Name)
-            .ToList();
-
-        Assert.Empty(wrong);
     }
 }

@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Conversia.Infrastructure.UnitTests" />
+    <InternalsVisibleTo Include="Conversia.IntegrationTests" />
   </ItemGroup>
 
   <PropertyGroup>
