@@ -165,6 +165,9 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ChannelId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("ContactId")
                         .HasColumnType("uuid");
 
@@ -213,6 +216,10 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ChannelId");
 
+                    b.HasIndex("LastMessageAt")
+                        .HasDatabaseName("IX_Conversations_LastMessageAt_Open")
+                        .HasFilter("\"Status\" = 'Open'");
+
                     b.HasIndex("TenantId");
 
                     b.HasIndex("AdvisorId", "StartedAt");
@@ -223,7 +230,14 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("\"Status\" = 'Open'");
 
-                    b.ToTable("Conversations", (string)null);
+                    b.HasIndex("TenantId", "StartedAt");
+
+                    b.HasIndex("TenantId", "Status", "LastMessageAt");
+
+                    b.ToTable("Conversations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Conversations_ClosedAt", "(\"Status\" = 'Closed') = (\"ClosedAt\" IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Conversia.Domain.Entities.ErrorLog", b =>
@@ -429,22 +443,35 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("InterestReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("LossDetail")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
                     b.Property<string>("LossReason")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("Objection")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("ServiceInterest")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Stage")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("StageChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("StageSource")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
@@ -463,7 +490,7 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.HasIndex("ConversationId")
                         .IsUnique();
 
-                    b.HasIndex("TenantId", "Stage");
+                    b.HasIndex("TenantId", "Stage", "ClosedAt");
 
                     b.ToTable("Opportunities", (string)null);
                 });

@@ -14,6 +14,7 @@ public static class ProblemTexts
     public const string BranchNotFoundTitle = "Sucursal no encontrada";
     public const string AdvisorNotFoundTitle = "Asesor no encontrado";
     public const string ChannelNotFoundTitle = "Canal no encontrado";
+    public const string ConversationNotFoundTitle = "Conversación no encontrada";
     public const string DuplicateBranchNameTitle = "Sucursal duplicada";
     public const string InvalidRequestTitle = "Solicitud no válida";
 

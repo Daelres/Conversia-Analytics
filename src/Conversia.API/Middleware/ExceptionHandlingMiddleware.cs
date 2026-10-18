@@ -76,6 +76,10 @@ public class ExceptionHandlingMiddleware
         {
             await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.ChannelNotFoundTitle, ex.Message);
         }
+        catch (ConversationNotFoundException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.ConversationNotFoundTitle, ex.Message);
+        }
         catch (DuplicateBranchNameException ex)
         {
             await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.DuplicateBranchNameTitle, ex.Message);

@@ -90,6 +90,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         // worker tests that need the real hosted service start a host of their own.
         builder.UseSetting("Webhooks:Processing:Enabled", "false");
         builder.UseSetting("Webhooks:Retention:Enabled", "false");
+        // Background jobs of the conversations are driven by hand in the tests that need them (their runners are called directly).
+        builder.UseSetting("Conversations:AutoCloseEnabled", "false");
         // Every call from the in-process client shares one address; the webhook rate-limit tests use a derived host with a small budget.
         builder.UseSetting("Webhooks:FailedAuthRateLimitPerMinute", "1000000");
         builder.UseSetting("Webhooks:ChannelRateLimitPerMinute", "1000000");

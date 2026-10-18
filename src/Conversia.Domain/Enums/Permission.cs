@@ -13,4 +13,6 @@ public enum Permission
     ProductsManage = 4,
     OrganizationView = 5,
     OrganizationManage = 6,
+    ConversationsView = 7,
+    ConversationsManage = 8,
 }

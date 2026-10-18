@@ -188,7 +188,10 @@ Rules applied when a message is stored:
   if the message has a referral, else `Organic`. A new conversation always gets
   one `Opportunity` (`Stage = New`). The database allows at most one open
   conversation per contact and channel, and one opportunity per conversation.
-  Nothing closes a conversation yet.
+  A **closed** conversation takes no more messages: the customer's next message opens a
+  new conversation (and a new opportunity), see [Closing](#closing-conversations). The
+  open conversation is looked up with `SELECT ... FOR UPDATE`, so the job that closes idle
+  conversations (which skips locked rows) can never close one a message is being added to.
 - **Message**: unique on `(ChannelId, ProviderMessageId)`. A message that is already
   stored (the same message inside another delivery) is skipped.
 - **Times** are recomputed from the stored message times once per conversation after a
@@ -244,10 +247,28 @@ runs of 7 or more masked, because database errors can quote values such as phone
   channels (`POST /api/channels/{id}/deactivate`) or set `Webhooks:Processing:Enabled=false`:
   deliveries keep being stored (when the endpoint is up) and are processed later.
 
+## Closing conversations
+
+`ConversationLifecycleService` (`Conversations:AutoCloseEnabled`, on by default) closes, once at startup and
+then every `Conversations:AutoCloseIntervalMinutes` (15), every **open** conversation whose last message is
+older than `Conversations:AutoCloseAfterDays` (7). It works across tenants, in batches of
+`Conversations:AutoCloseBatchSize` (200), one short transaction per batch with `FOR UPDATE SKIP LOCKED`: a row an
+ingestion or a person is holding is skipped and met again on the next run. A failing run is logged (masked
+description, no raw exception) and retried at the next one.
+
+- **Reopen policy**: a message that arrives after the close always starts a *new* conversation. There is no
+  "reopen window": it would need a rule for the opportunity of the closed conversation (Won? Lost?) and for
+  messages that arrive late and out of order, and nothing in the pilot asks for it yet. `Conversation.Reopen()`
+  exists in the domain for a person who closed one by mistake; no endpoint uses it.
+- **Opportunity**: when the last message of the closed conversation is the business's, and the customer had
+  written before (the customer went silent), the opportunity becomes `Lost` / `NoResponse` (`StageSource = Auto`).
+  Nothing changes when the stage is already `Won` or `Lost`, when a person decided it (`StageSource = Manual`), or when the
+  customer spoke last (or at the same second as the business: when unclear, it is not given up for lost).
+
 ## Configuration
 
 See the README configuration table: `Webhooks:MaxBodyBytes`,
-`Webhooks:FailedAuthRateLimitPerMinute`, `Webhooks:ChannelRateLimitPerMinute`, `ForwardedHeaders:*`, `Webhooks:Processing:*`, `Webhooks:Retention:*`, `Webhooks:Health:*` and
+`Webhooks:FailedAuthRateLimitPerMinute`, `Webhooks:ChannelRateLimitPerMinute`, `ForwardedHeaders:*`, `Webhooks:Processing:*`, `Webhooks:Retention:*`, `Webhooks:Health:*`, `Conversations:*` and
 `Dialog360:ApiKey` (bound, not used yet). Invalid values stop the API at startup naming the key.
 
 ## Logs

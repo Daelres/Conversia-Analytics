@@ -16,6 +16,8 @@ public class PermissionCatalogTests
     [InlineData(Permission.ProductsManage, 4)]
     [InlineData(Permission.OrganizationView, 5)]
     [InlineData(Permission.OrganizationManage, 6)]
+    [InlineData(Permission.ConversationsView, 7)]
+    [InlineData(Permission.ConversationsManage, 8)]
     public void CatalogValues_KeepTheirPersistedNumbers(Permission permission, int persistedValue)
     {
         Assert.Equal(persistedValue, (int)permission);
@@ -23,10 +25,10 @@ public class PermissionCatalogTests
     }
 
     [Fact]
-    public void Catalog_ContainsExactlyTheSixDocumentedPermissions()
+    public void Catalog_ContainsExactlyTheDocumentedPermissions()
     {
         Assert.Equal(
-            new[] { "OrganizationManage", "OrganizationView", "ProductsManage", "ProductsView", "UsersManage", "UsersView" },
+            new[] { "ConversationsManage", "ConversationsView", "OrganizationManage", "OrganizationView", "ProductsManage", "ProductsView", "UsersManage", "UsersView" },
             Enum.GetNames<Permission>().Order().ToArray());
     }
 

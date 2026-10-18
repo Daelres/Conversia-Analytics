@@ -29,6 +29,8 @@
     <Compile Include="..\Shared\EnglishLeaks.cs" Link="Shared\EnglishLeaks.cs" />
     <!-- Sample webhook deliveries, shared by the parser unit tests and the integration tests. -->
     <Compile Include="..\Shared\Dialog360Samples.cs" Link="Shared\Dialog360Samples.cs" />
+    <!-- A clock the tests set, so no rule depends on the day the suite runs. -->
+    <Compile Include="..\Shared\FixedTimeProvider.cs" Link="Shared\FixedTimeProvider.cs" />
   </ItemGroup>
 
 </Project>

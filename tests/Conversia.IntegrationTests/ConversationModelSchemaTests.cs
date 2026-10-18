@@ -84,7 +84,7 @@ public class ConversationModelSchemaTests
 
         await using (Scope(out var db))
         {
-            await db.Database.ExecuteSqlAsync($"UPDATE \"Conversations\" SET \"Status\" = 'Closed' WHERE \"ContactId\" = {g.Contact.Id}");
+            await db.Database.ExecuteSqlAsync($"UPDATE \"Conversations\" SET \"Status\" = 'Closed', \"ClosedAt\" = {T0} WHERE \"ContactId\" = {g.Contact.Id}");
             db.Add(NewConversation(g));
             await db.SaveChangesAsync();
         }
@@ -182,12 +182,59 @@ public class ConversationModelSchemaTests
         await using var scope = Scope(out var db);
 
         var indexes = await db.Database.SqlQuery<string>(
-            $"SELECT indexname AS \"Value\" FROM pg_indexes WHERE tablename IN ('Conversations', 'Messages', 'WebhookEvents')").ToListAsync();
+            $"SELECT indexname AS \"Value\" FROM pg_indexes WHERE tablename IN ('Conversations', 'Messages', 'WebhookEvents', 'Opportunities')").ToListAsync();
 
         Assert.Contains("IX_Conversations_BranchId_StartedAt", indexes);
         Assert.Contains("IX_Conversations_AdvisorId_StartedAt", indexes);
+        Assert.Contains("IX_Conversations_TenantId_StartedAt", indexes);
+        Assert.Contains("IX_Conversations_TenantId_Status_LastMessageAt", indexes);
+        Assert.Contains("IX_Conversations_LastMessageAt_Open", indexes);
         Assert.Contains("IX_Messages_ConversationId_SentAt", indexes);
         Assert.Contains("IX_Messages_ChannelId_ProviderMessageId", indexes);
         Assert.Contains("IX_WebhookEvents_ChannelId_BodyHash", indexes);
+        Assert.Contains("IX_Opportunities_TenantId_Stage_ClosedAt", indexes);
+    }
+
+    [Fact]
+    public async Task AConversationIsClosedExactlyWhenItHasAClosingTime()
+    {
+        var g = await SeedGraphAsync();
+        var conversation = NewConversation(g);
+        await using (Scope(out var db))
+        {
+            db.Add(conversation);
+            await db.SaveChangesAsync();
+        }
+
+        await using (Scope(out var db))
+        {
+            var closedWithoutTime = await Assert.ThrowsAsync<Npgsql.PostgresException>(
+                () => db.Database.ExecuteSqlAsync($"UPDATE \"Conversations\" SET \"Status\" = 'Closed' WHERE \"Id\" = {conversation.Id}"));
+            Assert.Equal("23514", closedWithoutTime.SqlState);
+        }
+
+        await using (Scope(out var db))
+        {
+            var openWithTime = await Assert.ThrowsAsync<Npgsql.PostgresException>(
+                () => db.Database.ExecuteSqlAsync($"UPDATE \"Conversations\" SET \"ClosedAt\" = {T0} WHERE \"Id\" = {conversation.Id}"));
+            Assert.Equal("23514", openWithTime.SqlState);
+        }
+    }
+
+    [Fact]
+    public async Task TheOpportunityEnumsAreStoredByName_AndTheTextsFitTheirLimits()
+    {
+        var g = await SeedGraphAsync();
+        var conversation = NewConversation(g);
+        var opportunity = Opportunity.Open(g.TenantId, conversation.Id);
+        opportunity.SetManualOutcome(OpportunityStage.Lost, LossReason.NoResponse, new string('x', Opportunity.DetailMaxLength), T0);
+        await using var scope = Scope(out var db);
+        db.AddRange(conversation, opportunity);
+        await db.SaveChangesAsync();
+
+        var row = await db.Database.SqlQuery<string>(
+            $"SELECT concat_ws('|', \"Stage\", \"StageSource\", \"Objection\", \"LossReason\", length(\"LossDetail\")) AS \"Value\" FROM \"Opportunities\" WHERE \"ConversationId\" = {conversation.Id}").SingleAsync();
+
+        Assert.Equal("Lost|Manual|None|NoResponse|500", row);
     }
 }

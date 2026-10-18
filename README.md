@@ -43,7 +43,7 @@ is for your own machine only: its accounts have a publicly known password.
   with a missing, short (< 32 bytes) or placeholder signing key.
 - **Permission-based authorization** — one policy per `Permission` enum
   value (`UsersView`, `UsersManage`, `ProductsView`, `ProductsManage`,
-  `OrganizationView`, `OrganizationManage`);
+  `OrganizationView`, `OrganizationManage`, `ConversationsView`, `ConversationsManage`);
   owners bypass checks inside their own tenant. Permissions are read from the database on every request,
   so a revoke applies immediately.
 - **User creation and permission grant/revoke** — owners and
@@ -273,6 +273,11 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Webhooks:Retention:FailedRetentionDays` | API | `60` | Failed webhook events older than this are deleted (kept longer to investigate and requeue). 1 to 3650. |
 | `Webhooks:Health:MaxPendingAgeMinutes` | API | `10` | `GET /health` reports Degraded when the oldest pending event has waited longer. 1 to 10080. |
 | `Webhooks:Health:MaxFailedPerHour` | API | `5` | `GET /health` reports Degraded when more events than this became Failed in the last hour. Whole number >= 0. |
+| `Conversations:AutoCloseEnabled` | API | `true` | Runs the job that closes conversations nobody has written in for a while. |
+| `Conversations:AutoCloseAfterDays` | API | `7` | A conversation whose last message is older than this is closed (the customer's next message then opens a new one). 1 to 365. |
+| `Conversations:AutoCloseIntervalMinutes` | API | `15` | How often the job runs (it also runs once at startup). 1 to 1440. |
+| `Conversations:AutoCloseBatchSize` | API | `200` | Conversations closed per transaction. 1 to 5000. |
+| `Metrics:TimeZone` | API | `America/Bogota` | IANA time zone of the business: date ranges of the conversation list and the metrics are local dates of this zone. Must be known to the machine, otherwise the API will not start. |
 | `Demo:Enabled` | API | `false` | Opt-in demo data seeded at startup (see `docs/USERS_TENANTS_PERMISSIONS.md`, "Demo data"). Only allowed in the `Development` and `Demo` environments; `true` anywhere else, or a value that is not `true`/`false`, stops the API at startup. |
 | `Demo:Password` | API | `Demo-Pass-2026!` | Password of every demo account. Must satisfy the registration password policy, otherwise the API will not start. Only read when `Demo:Enabled` is `true`. |
 | `Demo:ShowAccounts` | Web | `false` | Shows the demo accounts and their password on `/demo` and as sign-in shortcuts on `/login`. Only allowed in the `Development` and `Demo` environments; `true` anywhere else, or a value that is not `true`/`false`, stops the Web at startup. |
@@ -313,6 +318,10 @@ policy in their own tenant.
 | POST | `/api/channels/{id}/deactivate`, `/activate` | `OrganizationManage` | `200` channel (webhook answers 401 while inactive) | `401`, `403`, `404` |
 | POST | `/api/channels/{id}/rotate-secret` | `OrganizationManage` | `200` channel + the NEW `webhookSecret` (once); the old one stops at once | `401`, `403`, `404` |
 | POST | `/api/channels` | `OrganizationManage` | `201` channel + `webhookSecret` (shown only once) | `400` (also unknown branch), `401`, `403` |
+| GET | `/api/conversations` | `ConversationsView` | `200` page of conversations, newest first (filters `branchId`, `advisorId`, `unassigned`, `stage`, `source`, `status`, `from`, `to`, `unanswered`; page size 1 to 100); no message text | `400`, `401`, `403` |
+| GET | `/api/conversations/{id}` | `ConversationsView` | `200` conversation + opportunity + messages (text included) | `401`, `403`, `404` unknown or other-tenant conversation |
+| PUT | `/api/conversations/{id}/advisor` | `ConversationsManage` | `200` conversation (`{"advisorId": null}` unassigns) | `400` unknown/other-tenant/inactive advisor or one from another branch, `401`, `403`, `404` |
+| PUT | `/api/conversations/{id}/opportunity` | `ConversationsManage` | `200` opportunity; a manual `Won`, `Lost` (needs `lossReason`) or `InFollowUp`, which the classifier never overwrites | `400`, `401`, `403`, `404` |
 | POST | `/api/webhooks/360dialog/{channelKey}` | anonymous; header `X-Webhook-Secret` (the channel's secret); rate limited (`docs/WEBHOOKS.md`) | `200` (also for a body already received) | `400` not a JSON object, `401` unknown/inactive channel or wrong secret (same answer), `413`, `429` |
 | GET | `/health` | anonymous | `200` `Healthy` / `Degraded`, `503` `Unhealthy` (webhook queue; status word only) | |
 | POST | `/api/diagnostics/errors` | header `X-Error-Report-Key`, rate limited; off without `ErrorLogging:ReportKey` | `201` `{code,persisted}` | `400`, `401`, `404` (off), `413` over 64 KB, `429` (`Retry-After`) |

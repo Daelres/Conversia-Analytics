@@ -90,6 +90,8 @@ public sealed class TestApiFactory : WebApplicationFactory<ApiHost::Program>, IA
         builder.UseSetting("Demo:Enabled", "true");
         builder.UseSetting("Webhooks:Processing:Enabled", "false"); // the Web tests never send a webhook
         builder.UseSetting("Webhooks:Retention:Enabled", "false");
+        // Background jobs of the conversations are driven by hand in the tests that need them (their runners are called directly).
+        builder.UseSetting("Conversations:AutoCloseEnabled", "false");
 
         builder.ConfigureServices(services =>
         {

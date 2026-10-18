@@ -36,7 +36,8 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
 {
     public void Configure(EntityTypeBuilder<Conversation> builder)
     {
-        builder.ToTable("Conversations");
+        // A conversation is closed exactly when it has a closing time.
+        builder.ToTable("Conversations", t => t.HasCheckConstraint("CK_Conversations_ClosedAt", "(\"Status\" = 'Closed') = (\"ClosedAt\" IS NOT NULL)"));
         builder.HasKey(c => c.Id);
 
         builder.Property(c => c.TenantId).IsRequired();
@@ -48,6 +49,7 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.StartedAt).IsRequired();
         builder.Property(c => c.LastMessageAt).IsRequired();
         builder.Property(c => c.Status).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(c => c.ClosedAt);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.UpdatedAt);
 
@@ -62,6 +64,15 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
             .HasFilter("\"Status\" = 'Open'");
 
         builder.HasIndex(c => c.TenantId);
+
+        // The conversation list and the metrics read a tenant's conversations by the day they started and by whether they are still open.
+        builder.HasIndex(c => new { c.TenantId, c.StartedAt });
+        builder.HasIndex(c => new { c.TenantId, c.Status, c.LastMessageAt });
+
+        // The close-by-inactivity job looks for the idle open conversations of every tenant at once: only open ones are indexed.
+        builder.HasIndex(c => c.LastMessageAt)
+            .HasDatabaseName("IX_Conversations_LastMessageAt_Open")
+            .HasFilter("\"Status\" = 'Open'");
 
         builder.HasOne<Tenant>().WithMany().HasForeignKey(c => c.TenantId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Contact>().WithMany().HasForeignKey(c => c.ContactId).OnDelete(DeleteBehavior.Restrict);
@@ -113,16 +124,23 @@ public class OpportunityConfiguration : IEntityTypeConfiguration<Opportunity>
         builder.Property(o => o.TenantId).IsRequired();
         builder.Property(o => o.ConversationId).IsRequired();
         builder.Property(o => o.Stage).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.StageSource).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.StageChangedAt);
         builder.Property(o => o.ServiceInterest).HasMaxLength(Opportunity.ServiceInterestMaxLength);
-        builder.Property(o => o.InterestReason).HasMaxLength(Opportunity.ReasonMaxLength);
-        builder.Property(o => o.Objection).HasMaxLength(Opportunity.ReasonMaxLength);
-        builder.Property(o => o.LossReason).HasMaxLength(Opportunity.ReasonMaxLength);
+        builder.Property(o => o.InterestReason).HasMaxLength(Opportunity.InterestReasonMaxLength);
+        builder.Property(o => o.Objection).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.LossReason).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.LossDetail).HasMaxLength(Opportunity.DetailMaxLength);
+        builder.Property(o => o.ClosedAt);
+        builder.Property(o => o.ClassifiedAt);
         builder.Property(o => o.CreatedAt).IsRequired();
         builder.Property(o => o.UpdatedAt);
 
         // Phase 1: exactly one opportunity per conversation.
         builder.HasIndex(o => o.ConversationId).IsUnique();
-        builder.HasIndex(o => new { o.TenantId, o.Stage });
+
+        // The funnel by stage, and the outcomes closed in a period.
+        builder.HasIndex(o => new { o.TenantId, o.Stage, o.ClosedAt });
 
         builder.HasOne<Tenant>().WithMany().HasForeignKey(o => o.TenantId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Conversation>().WithMany().HasForeignKey(o => o.ConversationId).OnDelete(DeleteBehavior.Restrict);

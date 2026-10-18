@@ -57,9 +57,20 @@ public class ContactRepository(ApplicationDbContext dbContext) : IContactReposit
 
 public class ConversationRepository(ApplicationDbContext dbContext) : IConversationRepository
 {
-    public Task<Conversation?> FindOpenAsync(Guid contactId, Guid channelId, CancellationToken cancellationToken = default)
-        => dbContext.Conversations.FirstOrDefaultAsync(
-            c => c.ContactId == contactId && c.ChannelId == channelId && c.Status == ConversationStatus.Open, cancellationToken);
+    public async Task<Conversation?> FindOpenAsync(Guid contactId, Guid channelId, CancellationToken cancellationToken = default)
+    {
+        // FOR UPDATE: held until the caller's transaction ends (the worker processes a delivery in one). The close-by-inactivity job takes the
+        // same lock (SKIP LOCKED), so a conversation that receives a message is never closed underneath it. If the job got there first, the
+        // locked row no longer satisfies Status = 'Open' once this waits for it, and the caller opens a new conversation.
+        var found = await dbContext.Conversations
+            .FromSql($"""
+                SELECT * FROM "Conversations"
+                WHERE "ContactId" = {contactId} AND "ChannelId" = {channelId} AND "Status" = 'Open'
+                FOR UPDATE
+                """)
+            .ToListAsync(cancellationToken);
+        return found.FirstOrDefault();
+    }
 
     public async Task AddAsync(Conversation conversation, Opportunity opportunity, CancellationToken cancellationToken = default)
     {
@@ -70,6 +81,31 @@ public class ConversationRepository(ApplicationDbContext dbContext) : IConversat
 
     public Task UpdateAsync(Conversation conversation, CancellationToken cancellationToken = default)
         => dbContext.SaveChangesAsync(cancellationToken);
+
+    public Task<Conversation?> GetForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
+        => dbContext.Conversations.FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
+
+    public async Task<Opportunity?> ChangeOpportunityAsync(
+        Guid conversationId, Action<Conversation, Opportunity> change, CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        // The conversation row is the lock of "the conversation and its opportunity": the classifier and the inactivity job take it first too.
+        var locked = await dbContext.Conversations
+            .FromSql($"""SELECT * FROM "Conversations" WHERE "Id" = {conversationId} FOR UPDATE""")
+            .ToListAsync(cancellationToken);
+        if (locked.Count == 0)
+        {
+            return null;
+        }
+
+        var opportunity = await dbContext.Opportunities.SingleAsync(o => o.ConversationId == conversationId, cancellationToken);
+        change(locked[0], opportunity);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return opportunity;
+    }
 }
 
 public class MessageRepository(ApplicationDbContext dbContext) : IMessageRepository

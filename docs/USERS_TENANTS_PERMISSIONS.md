@@ -60,6 +60,8 @@ public enum Permission
     ProductsManage = 4,
     OrganizationView = 5,
     OrganizationManage = 6,
+    ConversationsView = 7,
+    ConversationsManage = 8,
 }
 ```
 
@@ -71,8 +73,10 @@ public enum Permission
 | `ProductsManage` | 4 | `POST`, `PUT` and `DELETE` on `/api/products` |
 | `OrganizationView` | 5 | `GET` on `/api/branches`, `/api/advisors` and `/api/channels` |
 | `OrganizationManage` | 6 | `POST` on `/api/branches`, `/api/advisors` and `/api/channels` |
+| `ConversationsView` | 7 | `GET /api/conversations` and `GET /api/conversations/{id}` (the detail includes message text) |
+| `ConversationsManage` | 8 | `PUT /api/conversations/{id}/advisor` and `PUT /api/conversations/{id}/opportunity` |
 
-(`Organization*` gate the Conversia branches, advisors and WhatsApp channels.
+(`Organization*` gate the Conversia branches, advisors and WhatsApp channels; `Conversations*` the conversations captured from them.
 `Products*` belong to the reference feature that demonstrates the
 tenant-scoped pattern. Client projects add their own values as they add
 features — e.g. `OrdersView`, `OrdersManage`.)

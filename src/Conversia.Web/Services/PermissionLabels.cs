@@ -16,6 +16,8 @@ public static class PermissionLabels
         [Permission.ProductsManage] = "Gestionar productos",
         [Permission.OrganizationView] = "Ver organización",
         [Permission.OrganizationManage] = "Gestionar organización",
+        [Permission.ConversationsView] = "Ver conversaciones",
+        [Permission.ConversationsManage] = "Gestionar conversaciones",
     };
 
     public static string For(Permission permission)

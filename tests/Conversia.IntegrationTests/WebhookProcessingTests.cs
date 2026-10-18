@@ -1,4 +1,6 @@
 using Conversia.Domain.Enums;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Conversia.Infrastructure.Webhooks;
 using Conversia.Tests.Shared;
 using static Conversia.IntegrationTests.TestHelpers;
@@ -411,6 +413,37 @@ public class WebhookProcessingTests : IAsyncLifetime
         await DeliverAsync(_client, f, Dialog360Samples.InboundText(phoneNumberId: "anything"));
 
         Assert.Single((await ProcessAsync(f)).Messages);
+    }
+
+    // ---- A closed conversation takes no more messages -------------------------------------------------------------
+
+    [Fact]
+    public async Task AMessageAfterTheConversationWasClosed_OpensANewConversation_WithItsOwnOpportunity()
+    {
+        using var f = await NewChannelAsync();
+        await DeliverAsync(_client, f, Dialog360Samples.InboundText("wamid.BEFORE", T0));
+        await DeliverAsync(_client, f, Dialog360Samples.OutboundEcho("wamid.ECHO", T0 + 60));
+        var before = Assert.Single((await ProcessAsync(f)).Conversations);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Conversia.Infrastructure.Persistence.ApplicationDbContext>();
+            await db.Database.ExecuteSqlAsync($"UPDATE \"Conversations\" SET \"Status\" = 'Closed', \"ClosedAt\" = {before.LastMessageAt} WHERE \"Id\" = {before.Id}");
+        }
+
+        await DeliverAsync(_client, f, Dialog360Samples.InboundText("wamid.AFTER", T0 + 86_400, text: "Hola, sigo interesada"));
+        var s = await ProcessAsync(f);
+
+        Assert.Equal(2, s.Conversations.Count);
+        var closed = s.Conversations.Single(c => c.Id == before.Id);
+        var reopened = s.Conversations.Single(c => c.Id != before.Id);
+        Assert.Equal(ConversationStatus.Closed, closed.Status);
+        Assert.Equal((ConversationStatus.Open, At(T0 + 86_400), At(T0 + 86_400), (DateTime?)null), (reopened.Status, reopened.StartedAt, reopened.FirstInboundAt, reopened.FirstResponseAt));
+        Assert.Equal(["wamid.BEFORE", "wamid.ECHO"], s.Messages.Where(m => m.ConversationId == closed.Id).Select(m => m.ProviderMessageId));
+        Assert.Equal(["wamid.AFTER"], s.Messages.Where(m => m.ConversationId == reopened.Id).Select(m => m.ProviderMessageId));
+        Assert.Single(s.Contacts); // the same customer
+        Assert.Equal(2, s.Opportunities.Count);
+        Assert.All(s.Opportunities, o => Assert.Equal(OpportunityStage.New, o.Stage));
+        Assert.Equal(closed.LastMessageAt, At(T0 + 60)); // the closed one did not take the late message
     }
 
     // ---- Tenant isolation --------------------------------------------------------------------------------------

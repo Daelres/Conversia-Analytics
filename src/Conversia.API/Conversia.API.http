@@ -114,6 +114,28 @@ Content-Type: application/json
 GET {{host}}/api/branches
 Authorization: Bearer {{token}}
 
+### List conversations (ConversationsView), newest first. Filters: branchId, advisorId, unassigned, stage, source, status, from, to, unanswered
+GET {{host}}/api/conversations?pageSize=20&stage=InFollowUp
+Authorization: Bearer {{token}}
+
+### One conversation with its messages
+# GET {{host}}/api/conversations/<conversationId>
+# Authorization: Bearer {{token}}
+
+### Assign an advisor of the conversation's branch (ConversationsManage); { "advisorId": null } unassigns
+# PUT {{host}}/api/conversations/<conversationId>/advisor
+# Authorization: Bearer {{token}}
+# Content-Type: application/json
+#
+# { "advisorId": "<advisorId>" }
+
+### Decide the outcome by hand: Won, InFollowUp, or Lost with a lossReason (Unknown, Price, Availability, Location, Timing, Competitor, NoResponse, NotInterested, Other)
+# PUT {{host}}/api/conversations/<conversationId>/opportunity
+# Authorization: Bearer {{token}}
+# Content-Type: application/json
+#
+# { "stage": "Lost", "lossReason": "Price", "detail": "Le pareció caro el paquete" }
+
 ### Deliver a 360dialog message to a channel (anonymous; the secret comes from the channel creation answer)
 # Use the webhookPath and webhookSecret returned by POST /api/channels. Always answers 200 for a JSON object; the worker processes it a moment later.
 # POST {{host}}/api/webhooks/360dialog/<channelKey>

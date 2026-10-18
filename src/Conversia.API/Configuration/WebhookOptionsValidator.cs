@@ -1,4 +1,3 @@
-using System.Globalization;
 using Conversia.Infrastructure.Configuration;
 
 namespace Conversia.API.Configuration;
@@ -59,30 +58,8 @@ public static class WebhookOptionsValidator
     }
 
     private static bool ReadBool(IConfiguration configuration, string key, bool defaultValue)
-    {
-        var raw = configuration[key];
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return defaultValue;
-        }
-
-        return bool.TryParse(raw, out var value) ? value : throw new InvalidOperationException($"{key} must be 'true' or 'false'.");
-    }
+        => ConfigurationReader.ReadBool(configuration, key, defaultValue);
 
     private static int ReadInt(IConfiguration configuration, string key, int defaultValue, int min, int max)
-    {
-        var raw = configuration[key];
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return defaultValue;
-        }
-
-        if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) || value < min || value > max)
-        {
-            var range = max == int.MaxValue ? $"at least {min}" : $"between {min} and {max}";
-            throw new InvalidOperationException($"{key} must be a whole number {range}.");
-        }
-
-        return value;
-    }
+        => ConfigurationReader.ReadInt(configuration, key, defaultValue, min, max);
 }

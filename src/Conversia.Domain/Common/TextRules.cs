@@ -4,7 +4,7 @@ namespace Conversia.Domain.Common;
 
 /// <summary>
 /// The one definition of the free-text rule shared by every entity and by the request validation: the trimmed value is within
-/// its length and holds no U+0000 (PostgreSQL text cannot store it).
+/// its length, holds no U+0000 (PostgreSQL text cannot store it) and no unpaired UTF-16 surrogate (Npgsql refuses to write it).
 /// </summary>
 public static class TextRules
 {
@@ -13,11 +13,34 @@ public static class TextRules
         => (required ? "es obligatorio, " : "es opcional, ")
            + $"no puede superar los {maxLength} caracteres ni contener caracteres nulos (se ignoran los espacios al principio y al final)";
 
-    /// <summary>True when the value, once trimmed, is not empty, at most <paramref name="maxLength"/> long and free of U+0000.</summary>
+    /// <summary>True when the value, once trimmed, is not empty, at most <paramref name="maxLength"/> long and free of U+0000 and unpaired surrogates.</summary>
     public static bool IsValidRequired(string? value, int maxLength)
     {
         var trimmed = value?.Trim();
-        return !string.IsNullOrEmpty(trimmed) && trimmed.Length <= maxLength && !trimmed.Contains('\0');
+        return !string.IsNullOrEmpty(trimmed) && trimmed.Length <= maxLength && !trimmed.Contains('\0') && !HasUnpairedSurrogate(trimmed);
+    }
+
+    /// <summary>True when the text holds a high surrogate without its low one, or a low one without its high one.</summary>
+    public static bool HasUnpairedSurrogate(string text)
+    {
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (char.IsHighSurrogate(text[i]))
+            {
+                if (i + 1 >= text.Length || !char.IsLowSurrogate(text[i + 1]))
+                {
+                    return true;
+                }
+
+                i++;
+            }
+            else if (char.IsLowSurrogate(text[i]))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Like <see cref="IsValidRequired"/>, but null or blank is fine too.</summary>

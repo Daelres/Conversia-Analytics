@@ -43,3 +43,14 @@ public class DuplicateBranchNameException : Exception
     {
     }
 }
+
+/// <summary>A conversation that does not exist, or exists in another tenant. The API layer maps this to 404.</summary>
+public class ConversationNotFoundException : Exception
+{
+    public const string DefaultMessage = "Conversación no encontrada.";
+
+    public ConversationNotFoundException()
+        : base(DefaultMessage)
+    {
+    }
+}

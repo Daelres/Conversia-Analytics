@@ -41,6 +41,9 @@ public class Conversation : BaseEntity
 
     public ConversationStatus Status { get; private set; } = ConversationStatus.Open;
 
+    /// <summary>When the conversation was closed; null exactly while it is open.</summary>
+    public DateTime? ClosedAt { get; private set; }
+
     // Required by EF Core for materialization.
     private Conversation()
     {
@@ -69,6 +72,45 @@ public class Conversation : BaseEntity
     }
 
     public void AssignAdvisor(Guid advisorId) => AdvisorId = TextRules.RequiredId(advisorId, "El asesor es obligatorio.");
+
+    public void UnassignAdvisor() => AdvisorId = null;
+
+    /// <summary>
+    /// Closes an open conversation. A closed conversation takes no more messages: the next one from the customer opens a new conversation.
+    /// The closing time cannot precede the last message.
+    /// </summary>
+    public void Close(DateTime closedAt)
+    {
+        if (Status == ConversationStatus.Closed)
+        {
+            throw new DomainException("La conversación ya está cerrada.");
+        }
+
+        var at = UtcTime.Normalize(closedAt);
+        if (at < LastMessageAt)
+        {
+            throw new DomainException("La fecha de cierre no puede ser anterior al último mensaje de la conversación.");
+        }
+
+        Status = ConversationStatus.Closed;
+        ClosedAt = at;
+    }
+
+    /// <summary>
+    /// Opens a closed conversation again. Not used by ingestion (a message after the close starts a new conversation, see docs/WEBHOOKS.md);
+    /// it exists for a person who closed one by mistake. The database allows one open conversation per contact and channel, so reopening
+    /// while the contact has another open one fails there.
+    /// </summary>
+    public void Reopen()
+    {
+        if (Status == ConversationStatus.Open)
+        {
+            throw new DomainException("La conversación ya está abierta.");
+        }
+
+        Status = ConversationStatus.Open;
+        ClosedAt = null;
+    }
 
     /// <summary>
     /// A referral on any message of the conversation marks it as coming from an ad. A conversation that is already an ad keeps its

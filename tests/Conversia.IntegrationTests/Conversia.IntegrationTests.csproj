@@ -37,6 +37,8 @@
     <Compile Include="..\Shared\Dialog360Samples.cs" Link="Shared\Dialog360Samples.cs" />
     <!-- The error registry's limits and code shape: one definition for the API and the Web suites. -->
     <Compile Include="..\Shared\ErrorLimits.cs" Link="Shared\ErrorLimits.cs" />
+    <!-- A clock the tests set, so no rule depends on the day the suite runs. -->
+    <Compile Include="..\Shared\FixedTimeProvider.cs" Link="Shared\FixedTimeProvider.cs" />
   </ItemGroup>
 
 </Project>
