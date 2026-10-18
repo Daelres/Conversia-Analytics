@@ -218,14 +218,28 @@ runs of 7 or more masked, because database errors can quote values such as phone
 ## Configuration
 
 See the README configuration table: `Webhooks:MaxBodyBytes`,
-`Webhooks:RateLimitPerMinute`, `Webhooks:Processing:*` and `Dialog360:ApiKey` (bound,
-not used yet). Invalid values stop the API at startup naming the key.
+`Webhooks:RateLimitPerMinute`, `Webhooks:Processing:*`, `Webhooks:Retention:*`, `Webhooks:Health:*` and
+`Dialog360:ApiKey` (bound, not used yet). Invalid values stop the API at startup naming the key.
+
+## Health and backlog
+
+`GET /health` is anonymous and answers only a status word with `200` (`Healthy`, `Degraded`) or
+`503` (`Unhealthy`, the queue cannot be read). It is **Degraded** when the oldest pending event has
+waited longer than `Webhooks:Health:MaxPendingAgeMinutes` (10) or more than
+`Webhooks:Health:MaxFailedPerHour` (5) events became `Failed` in the last hour. It says nothing about
+tenants, events or errors. The worker also logs the backlog at Information once a minute at most
+(pending count, age of the oldest, failures in the last hour). No metrics system is involved: point an
+uptime probe or the platform's health probe at `/health`.
 
 ## Privacy and retention
 
 `WebhookEvents.RawPayload` holds the delivery as received: customers' phone numbers,
-names and message text, besides what is also stored normalized. **There is no retention
-policy or purge job yet** (open item in `docs/decisiones.md`); the Ley 1581 de 2012
-purposes, retention period and deletion requests must be decided before real customer
-traffic is stored. Secrets never reach the repository: the webhook secret is stored as
-a hash, the 360dialog key only comes from configuration.
+names and message text, besides what is also stored normalized. `WebhookEventRetentionService`
+(modeled on the error-log retention) deletes, at startup and then every 24 hours, **Processed**
+events older than `Webhooks:Retention:RetentionDays` (14) and **Failed** events older than
+`Webhooks:Retention:FailedRetentionDays` (60, longer because an operator may still want to look at
+or requeue them); `Pending` events are never purged. It can be turned off with
+`Webhooks:Retention:Enabled=false`. The stored contacts, conversations and messages are *not* covered
+by this purge: their retention, the Ley 1581 de 2012 purposes and deletion requests remain open
+(`docs/decisiones.md`). Secrets never reach the repository: the webhook secret is stored as a hash,
+the 360dialog key only comes from configuration.

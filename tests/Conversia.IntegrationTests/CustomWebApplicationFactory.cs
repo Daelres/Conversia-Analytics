@@ -89,6 +89,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         // The tests drive the webhook worker by hand (WebhookEventRunner), so they decide when events are processed; the
         // worker tests that need the real hosted service start a host of their own.
         builder.UseSetting("Webhooks:Processing:Enabled", "false");
+        builder.UseSetting("Webhooks:Retention:Enabled", "false");
         // Every call from the in-process client shares one address; the webhook rate-limit tests use a derived host with a small budget.
         builder.UseSetting("Webhooks:RateLimitPerMinute", "1000000");
 

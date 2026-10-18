@@ -265,6 +265,11 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Webhooks:Processing:MaxMessagesPerDelivery` | API | `500` | A delivery with more messages is `Failed` at once, without retries. 1 to 100000. |
 | `Webhooks:Processing:TenantBusyDelaySeconds` | API | `10` | Wait (jittered) of an event whose tenant another worker is processing; it does not use up an attempt. 1 to 3600. |
 | `Webhooks:Processing:TenantLockWaitMilliseconds` | API | `2000` | How long a worker spins trying to get the tenant lock before deferring the event. 0 to 60000. |
+| `Webhooks:Retention:Enabled` | API | `true` | Runs the purge of old webhook events (they hold customers' phone numbers and message text). |
+| `Webhooks:Retention:RetentionDays` | API | `14` | Processed webhook events older than this are deleted. 1 to 3650. |
+| `Webhooks:Retention:FailedRetentionDays` | API | `60` | Failed webhook events older than this are deleted (kept longer to investigate and requeue). 1 to 3650. |
+| `Webhooks:Health:MaxPendingAgeMinutes` | API | `10` | `GET /health` reports Degraded when the oldest pending event has waited longer. 1 to 10080. |
+| `Webhooks:Health:MaxFailedPerHour` | API | `5` | `GET /health` reports Degraded when more events than this became Failed in the last hour. Whole number >= 0. |
 | `Demo:Enabled` | API | `false` | Opt-in demo data seeded at startup (see `docs/USERS_TENANTS_PERMISSIONS.md`, "Demo data"). Only allowed in the `Development` and `Demo` environments; `true` anywhere else, or a value that is not `true`/`false`, stops the API at startup. |
 | `Demo:Password` | API | `Demo-Pass-2026!` | Password of every demo account. Must satisfy the registration password policy, otherwise the API will not start. Only read when `Demo:Enabled` is `true`. |
 | `Demo:ShowAccounts` | Web | `false` | Shows the demo accounts and their password on `/demo` and as sign-in shortcuts on `/login`. Only allowed in the `Development` and `Demo` environments; `true` anywhere else, or a value that is not `true`/`false`, stops the Web at startup. |
@@ -304,6 +309,7 @@ policy in their own tenant.
 | GET | `/api/channels`, `/api/channels/{id}` | `OrganizationView` | `200` WhatsApp channels (key and webhook path, never the secret) | `401`, `403`, `404` |
 | POST | `/api/channels` | `OrganizationManage` | `201` channel + `webhookSecret` (shown only once) | `400` (also unknown branch), `401`, `403` |
 | POST | `/api/webhooks/360dialog/{channelKey}` | anonymous; header `X-Webhook-Secret` (the channel's secret); rate limited (`docs/WEBHOOKS.md`) | `200` (also for a body already received) | `400` not a JSON object, `401` unknown/inactive channel or wrong secret (same answer), `413`, `429` |
+| GET | `/health` | anonymous | `200` `Healthy` / `Degraded`, `503` `Unhealthy` (webhook queue; status word only) | |
 | POST | `/api/diagnostics/errors` | header `X-Error-Report-Key`, rate limited; off without `ErrorLogging:ReportKey` | `201` `{code,persisted}` | `400`, `401`, `404` (off), `413` over 64 KB, `429` (`Retry-After`) |
 
 The Web exposes `/`, `/login`, `/register`, `/users`, `/products`

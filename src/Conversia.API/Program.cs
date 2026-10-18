@@ -114,6 +114,9 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Anonymous and minimal on purpose: the status word only (Healthy, Degraded or Unhealthy), nothing about tenants, events or errors.
+app.MapHealthChecks("/health");
+
 app.MapControllers();
 
 app.Run();

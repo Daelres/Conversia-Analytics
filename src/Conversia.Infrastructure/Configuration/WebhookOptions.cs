@@ -52,3 +52,24 @@ public sealed class Dialog360Options
 
     public override string ToString() => $"Dialog360Options {{ ApiKeyConfigured = {!string.IsNullOrEmpty(ApiKey)} }}";
 }
+
+/// <summary>The validated <c>Webhooks:Retention</c> section: how long processed and failed webhook events (which hold customers' phone numbers and message text) are kept.</summary>
+public sealed record WebhookRetentionOptions(bool Enabled, int RetentionDays, int FailedRetentionDays)
+{
+    public const string SectionName = "Webhooks:Retention";
+    public const string EnabledKey = SectionName + ":Enabled";
+    public const string RetentionDaysKey = SectionName + ":RetentionDays";
+    public const string FailedRetentionDaysKey = SectionName + ":FailedRetentionDays";
+
+    public static WebhookRetentionOptions Default { get; } = new(Enabled: true, RetentionDays: 14, FailedRetentionDays: 60);
+}
+
+/// <summary>The validated <c>Webhooks:Health</c> section: when the queue is reported as degraded by <c>GET /health</c>.</summary>
+public sealed record WebhookHealthOptions(int MaxPendingAgeMinutes, int MaxFailedPerHour)
+{
+    public const string SectionName = "Webhooks:Health";
+    public const string MaxPendingAgeMinutesKey = SectionName + ":MaxPendingAgeMinutes";
+    public const string MaxFailedPerHourKey = SectionName + ":MaxFailedPerHour";
+
+    public static WebhookHealthOptions Default { get; } = new(MaxPendingAgeMinutes: 10, MaxFailedPerHour: 5);
+}

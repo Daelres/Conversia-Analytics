@@ -39,6 +39,23 @@ public static class WebhookOptionsValidator
             TenantLockWaitMilliseconds: ReadInt(configuration, WebhookProcessingOptions.TenantLockWaitMillisecondsKey, defaults.TenantLockWaitMilliseconds, 0, 60_000));
     }
 
+    public static WebhookRetentionOptions GetValidatedRetentionOptions(IConfiguration configuration)
+    {
+        var defaults = WebhookRetentionOptions.Default;
+        return new WebhookRetentionOptions(
+            Enabled: ReadBool(configuration, WebhookRetentionOptions.EnabledKey, defaults.Enabled),
+            RetentionDays: ReadInt(configuration, WebhookRetentionOptions.RetentionDaysKey, defaults.RetentionDays, 1, 3650),
+            FailedRetentionDays: ReadInt(configuration, WebhookRetentionOptions.FailedRetentionDaysKey, defaults.FailedRetentionDays, 1, 3650));
+    }
+
+    public static WebhookHealthOptions GetValidatedHealthOptions(IConfiguration configuration)
+    {
+        var defaults = WebhookHealthOptions.Default;
+        return new WebhookHealthOptions(
+            MaxPendingAgeMinutes: ReadInt(configuration, WebhookHealthOptions.MaxPendingAgeMinutesKey, defaults.MaxPendingAgeMinutes, 1, 10_080),
+            MaxFailedPerHour: ReadInt(configuration, WebhookHealthOptions.MaxFailedPerHourKey, defaults.MaxFailedPerHour, 0, int.MaxValue));
+    }
+
     private static bool ReadBool(IConfiguration configuration, string key, bool defaultValue)
     {
         var raw = configuration[key];

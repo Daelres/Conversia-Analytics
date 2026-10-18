@@ -89,6 +89,7 @@ public sealed class TestApiFactory : WebApplicationFactory<ApiHost::Program>, IA
         builder.UseSetting("RateLimiting:Login:WindowSeconds", "60");
         builder.UseSetting("Demo:Enabled", "true");
         builder.UseSetting("Webhooks:Processing:Enabled", "false"); // the Web tests never send a webhook
+        builder.UseSetting("Webhooks:Retention:Enabled", "false");
 
         builder.ConfigureServices(services =>
         {

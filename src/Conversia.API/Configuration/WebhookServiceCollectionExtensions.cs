@@ -22,10 +22,14 @@ public static class WebhookServiceCollectionExtensions
     {
         var endpoint = WebhookOptionsValidator.GetValidatedEndpointOptions(configuration);
         var processing = WebhookOptionsValidator.GetValidatedProcessingOptions(configuration);
+        var retention = WebhookOptionsValidator.GetValidatedRetentionOptions(configuration);
+        var health = WebhookOptionsValidator.GetValidatedHealthOptions(configuration);
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(endpoint);
         services.AddSingleton(processing);
+        services.AddSingleton(retention);
+        services.AddSingleton(health);
         services.AddSingleton(configuration.GetSection(Dialog360Options.SectionName).Get<Dialog360Options>() ?? new Dialog360Options());
         services.AddWebhookRateLimiting(endpoint);
 
@@ -38,6 +42,15 @@ public static class WebhookServiceCollectionExtensions
         services.AddSingleton(new WebhookIngestionLimits(processing.MaxMessagesPerDelivery));
         services.AddSingleton<WebhookEventRunner>();
         services.AddScoped<IWebhookEventMaintenance, WebhookEventMaintenance>();
+        services.AddSingleton<IWebhookQueueMonitor, WebhookQueueMonitor>();
+        services.AddSingleton<WebhookQueueBacklogReporter>();
+        services.AddScoped<WebhookEventPurger>();
+        services.AddHealthChecks().AddCheck<WebhookQueueHealthCheck>("webhook-queue");
+
+        if (retention.Enabled)
+        {
+            services.AddHostedService<WebhookEventRetentionService>();
+        }
 
         if (processing.Enabled)
         {

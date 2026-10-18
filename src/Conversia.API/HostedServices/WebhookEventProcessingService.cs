@@ -14,6 +14,7 @@ namespace Conversia.API.HostedServices;
 internal sealed class WebhookEventProcessingService(
     WebhookEventRunner runner,
     WebhookProcessingOptions options,
+    WebhookQueueBacklogReporter backlog,
     ILogger<WebhookEventProcessingService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -55,6 +56,8 @@ internal sealed class WebhookEventProcessingService(
                     "The webhook worker cycle failed ({Failures} in a row); next try in {Delay:0.#} s. Is the database reachable and migrated? {Error}",
                     failures, wait.TotalSeconds, WebhookErrors.Describe(ex));
             }
+
+            await backlog.ReportIfDueAsync(stoppingToken);
 
             if (wait > TimeSpan.Zero)
             {
