@@ -131,7 +131,7 @@ public class ProductSecurityTests(TestApiFactory api)
         var sku = ApiProducts.UniqueSku("JOURNEY");
         using var host = WebTestHost.Create(api);
         using var session = host.NewSession();
-        (await WebFlows.RegisterAsync(session, ApiSeed.UniqueTenantName("journey"), email, ApiSeed.StrongPassword)).ShouldRedirectTo("/");
+        (await WebFlows.RegisterAsync(session, ApiSeed.UniqueTenantName("journey"), email, ApiSeed.StrongPassword)).ShouldRedirectTo("/panel");
 
         var created = await ProductFlows.CreateAsync(session, sku, "Journey item", 9.99m, 9);
         var id = Assert.Single(ProductFlows.Rows(created)).Id;

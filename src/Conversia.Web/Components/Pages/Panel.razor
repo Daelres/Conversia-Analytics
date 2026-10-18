@@ -1,0 +1,407 @@
+@page "/panel"
+@attribute [Authorize]
+@using System.Globalization
+@using Conversia.Application.DTOs.Metrics
+@using Conversia.Application.DTOs.Users
+@using Conversia.Domain.Enums
+@using Conversia.Web.Components.Dashboard
+@inherits AuthenticatedPageBase
+@using Conversia.Web.Time
+@using Conversia.Application.Time
+@inject DashboardLoader Loader
+@inject TenantTimeZone TimeZone
+
+<PageTitle>Panel - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <StatusView DataPage="forbidden" Code="403" Title="Sin acceso al panel" Art="locked"
+                Hint="Pide acceso a la persona propietaria de tu espacio de trabajo.">
+        <ChildContent>Tu cuenta no tiene el permiso «@PermissionLabels.For(Permission.MetricsView)». Con él verás aquí cómo van las ventas por WhatsApp.</ChildContent>
+        <Actions>
+            <a class="btn btn--primary" href="/"><Icon Name="home" />Ir al inicio</a>
+        </Actions>
+    </StatusView>
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="panel">
+        <PageHeader Eyebrow="Panel ejecutivo" EyebrowIcon="bar-chart" Title="Panel"
+                    Description="Cómo van tus ventas por WhatsApp de un vistazo: qué requiere atención y dónde se está ganando o perdiendo." />
+
+        <form method="get" action="/panel" class="filters" role="search" aria-label="Filtros del panel" data-testid="panel-filters">
+            <div class="field">
+                <label for="period" class="field__label">Periodo</label>
+                <select id="period" name="period" class="input">
+                    @foreach (var preset in PeriodPresets.All)
+                    {
+                        <option value="@PeriodPresets.Code(preset)" selected="@(preset == Preset)">@PeriodPresets.Label(preset)</option>
+                    }
+                </select>
+            </div>
+            @if (_data?.Branches is { Count: > 0 } branches)
+            {
+                <div class="field">
+                    <label for="branch" class="field__label">Sucursal</label>
+                    <select id="branch" name="branch" class="input">
+                        <option value="" selected="@(BranchId is null)">Todas las sucursales</option>
+                        @foreach (var branch in branches)
+                        {
+                            <option value="@branch.Id" selected="@(branch.Id == BranchId)">@branch.Name@(branch.IsActive ? "" : " (inactiva)")</option>
+                        }
+                    </select>
+                </div>
+            }
+            else if (BranchId is { } selected)
+            {
+                <input type="hidden" name="branch" value="@selected" />
+            }
+            <button type="submit" class="btn btn--secondary"><Icon Name="filter" />Aplicar</button>
+        </form>
+        <div class="range-row">
+            <p class="range" data-testid="panel-range">@RangeText</p>
+            @if (_data is not null)
+            {
+                <p class="range" data-testid="panel-updated">Actualizado a las @MetricsFormat.Clock(TimeZone.ToLocal(_data.Alerts.GeneratedAt)).</p>
+            }
+            <a class="btn btn--ghost btn--sm" href="@PanelUrl()" data-testid="panel-refresh"><Icon Name="refresh" Class="icon--sm" />Actualizar</a>
+        </div>
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_data is not null)
+        {
+            @if (_data.Summary.Conversion.Total == 0)
+            {
+                <EmptyState Title="Aún no hay conversaciones en este periodo" Art="search"
+                            Text="@(_canManageOrganization ? "Conecta un número de WhatsApp y las conversaciones aparecerán aquí con sus métricas." : "Cuando lleguen conversaciones de clientes, verás aquí cómo van las ventas. También puedes probar con otro periodo.")">
+                    <Actions>
+                        @if (_canManageOrganization)
+                        {
+                            <a class="btn btn--primary" href="/organizacion"><Icon Name="building" />Conectar un número</a>
+                        }
+                        <a class="btn btn--secondary" href="@PanelUrl(("period", PeriodPresets.Code(PeriodPreset.Last90Days)))"><Icon Name="refresh" />Ver los últimos 90 días</a>
+                    </Actions>
+                </EmptyState>
+            }
+            else
+            {
+                <section class="stack" aria-labelledby="panel-alerts">
+                    <h2 id="panel-alerts" class="section-title"><Icon Name="alert-triangle" />Qué requiere atención</h2>
+                    <AlertList Alerts="_data.Alerts.Alerts" LinkFor="AlertLinkFor" />
+                    @if (_data.Alerts.Unanswered.Total > 0)
+                    {
+                        <UnansweredList Summary="_data.Alerts.Unanswered" OpenUrl="@(_canViewConversations ? ConversationLinks.Detail : null)" />
+                    }
+                </section>
+
+                <section class="stack" aria-labelledby="panel-kpis">
+                    <h2 id="panel-kpis" class="section-title"><Icon Name="activity" />Indicadores</h2>
+                    <div class="kpi-grid" data-testid="kpis">
+                        <KpiCard Kpi="conversations" Label="Conversaciones" IconName="message"
+                                 Value="@MetricsFormat.Whole(_kpis.Conversations)" RawValue="@_kpis.Conversations.ToString(CultureInfo.InvariantCulture)"
+                                 Help="Chats en los que el cliente escribió al menos una vez." />
+
+                        <KpiCard Kpi="conversion" Label="Tasa de conversión" IconName="trending-up"
+                                 Value="@(_kpis.InMaturation ? MaturingText : MetricsFormat.Percent(_kpis.ConversionRate))" RawValue="@Raw(_kpis.ConversionRate)"
+                                 Help="@ConversionHelp">
+                            <Detail>
+                                <ul class="kpi__chips" aria-label="Conversaciones por resultado">
+                                    <li><Chip Tone="ChipTone.Success" IconName="check-circle" data-testid="kpi-won">@MetricsFormat.Whole(_kpis.Won) @(_kpis.Won == 1 ? "ganada" : "ganadas")</Chip></li>
+                                    <li><Chip Tone="ChipTone.Danger" IconName="x-circle" data-testid="kpi-lost">@MetricsFormat.Whole(_kpis.Lost) @(_kpis.Lost == 1 ? "perdida" : "perdidas")</Chip></li>
+                                    <li><Chip Tone="ChipTone.Brand" IconName="clock" data-testid="kpi-following">@MetricsFormat.Whole(_kpis.Following) en seguimiento</Chip></li>
+                                </ul>
+                                @if (_kpis.Immature > 0 && !_kpis.InMaturation)
+                                {
+                                    <p class="kpi__note" data-testid="kpi-maturing">@MaturingNote</p>
+                                }
+                            </Detail>
+                        </KpiCard>
+
+                        <KpiCard Kpi="first-response" Label="Primera respuesta" IconName="clock"
+                                 Value="@MetricsFormat.Duration(_kpis.MedianFirstResponseMinutes)" RawValue="@Raw(_kpis.MedianFirstResponseMinutes)"
+                                 Help="Cuánto tardan en contestar el primer mensaje del cliente (mediana).">
+                            <Detail>
+                                <p>@SlaText</p>
+                            </Detail>
+                        </KpiCard>
+
+                        <KpiCard Kpi="unanswered" Label="Sin responder" IconName="@(_kpis.UnansweredOpen > 0 ? "alert-circle" : "check-circle")"
+                                 Tone="@(_kpis.UnansweredOpen > 0 ? ChipTone.Danger : ChipTone.Success)"
+                                 Value="@MetricsFormat.Whole(_kpis.UnansweredOpen)" RawValue="@_kpis.UnansweredOpen.ToString(CultureInfo.InvariantCulture)"
+                                 Help="Clientes que escribieron y nadie les ha contestado todavía.">
+                            <Detail>
+                                <p>@UnansweredText</p>
+                                @if (_kpis.UnansweredClosed > 0)
+                                {
+                                    <p class="kpi__note" data-testid="kpi-unanswered-closed">@UnansweredClosedText</p>
+                                }
+                            </Detail>
+                        </KpiCard>
+
+                        <KpiCard Kpi="loss-reason" Label="Motivo principal de no cierre" IconName="tag"
+                                 Value="@(_kpis.TopLossReason is null ? MetricsFormat.NoData : ConversationLabels.LossReason(_kpis.TopLossReason))" RawValue="@_kpis.TopLossReason"
+                                 Help="La razón que más repiten los clientes que no compraron.">
+                            <Detail>
+                                <p>@LossText</p>
+                                @if (_kpis.NoResponseCount > 0)
+                                {
+                                    <p class="kpi__note" data-testid="kpi-no-response">@NoResponseText</p>
+                                }
+                            </Detail>
+                        </KpiCard>
+
+                        <KpiCard Kpi="variation" Label="Variación frente al periodo anterior" IconName="@TrendIcon"
+                                 Value="@VariationValue" RawValue="@Raw(_kpis.DeltaPoints)"
+                                 Tone="@TrendTone"
+                                 Help="Cuántos puntos subió o bajó la conversión respecto a los mismos días justo antes.">
+                            <Detail>
+                                <p data-testid="kpi-trend" data-trend="@_kpis.Trend.ToString().ToLowerInvariant()" data-delta="@Raw(_kpis.DeltaPoints)">@TrendText</p>
+                            </Detail>
+                        </KpiCard>
+                    </div>
+                </section>
+
+                <section class="stack" aria-labelledby="panel-breakdown">
+                    <h2 id="panel-breakdown" class="section-title"><Icon Name="layers" />Dónde se gana y dónde se pierde</h2>
+                    <BreakdownTable Key="branch" Title="Por sucursal" NameLabel="Sucursal" IconName="building" Rows="_branchRows" Sort="@SortBranch"
+                                    Subtitle="Compara tus sucursales: la conversión y la rapidez de respuesta de cada una."
+                                    SortUrl="@SortBranchUrl" />
+                    <BreakdownTable Key="advisor" Title="Por asesor" NameLabel="Asesor" IconName="users" Rows="_advisorRows" Sort="@SortAdvisor"
+                                    Subtitle="Las conversaciones sin asesor aparecen como «Sin asignar»."
+                                    SortUrl="@SortAdvisorUrl" />
+                    <BreakdownTable Key="source" Title="Por origen" NameLabel="Origen" IconName="globe" Rows="_sourceRows" Sort="@SortSource"
+                                    Subtitle="Si el cliente llegó por un anuncio, por su cuenta o no se sabe."
+                                    SortUrl="@SortSourceUrl" />
+                </section>
+
+                <section class="panel-split" aria-label="Motivos de no cierre y volumen">
+                    <Card Title="Por qué no se cierran las ventas" Subtitle="@LossSubtitle" IconName="x-circle" data-testid="loss-reasons">
+                        @if (_lossItems.Count == 0)
+                        {
+                            <p class="muted">No hay ventas perdidas con un motivo conocido en este periodo.</p>
+                        }
+                        else
+                        {
+                            <BarList Items="_lossItems" Label="Principales motivos de no cierre" />
+                            @if (_data.Summary.TopLossReasons.Count > 0 && OtherLossCount > 0)
+                            {
+                                <p class="muted" data-testid="loss-other">Y @MetricsFormat.Whole(OtherLossCount) más con otros motivos.</p>
+                            }
+                        }
+                        @if (_data.Summary.NoResponse.Count > 0)
+                        {
+                            <p class="loss-silent" data-testid="loss-no-response">
+                                <Icon Name="clock" />
+                                <span><strong>Dejaron de responder: @MetricsFormat.Whole(_data.Summary.NoResponse.Count)</strong>@(_data.Summary.NoResponse.SharePercent is { } share ? $" ({MetricsFormat.Percent(share)} de las perdidas)" : "").
+                                    Es una inferencia del silencio del cliente, no un motivo que haya dado, por eso va aparte.</span>
+                            </p>
+                        }
+                    </Card>
+                    <Card Title="Conversaciones por día" Subtitle="Cuántos clientes nuevos escriben cada día." IconName="bar-chart">
+                        <VolumeChart Days="_data.Volume.ByDay" />
+                    </Card>
+                </section>
+
+                <Card Title="Cuándo escriben tus clientes" Subtitle="Conversaciones nuevas por día de la semana y hora (hora local): útil para repartir al equipo." IconName="clock">
+                    <Heatmap Cells="_data.Volume.ByHourOfWeek" />
+                </Card>
+            }
+        }
+    </div>
+}
+
+@code {
+    private DashboardData? _data;
+    private DashboardKpis _kpis = default!;
+    private IReadOnlyList<BreakdownRow> _branchRows = [];
+    private IReadOnlyList<BreakdownRow> _advisorRows = [];
+    private IReadOnlyList<BreakdownRow> _sourceRows = [];
+    private IReadOnlyList<BarList.BarItem> _lossItems = [];
+    private bool _canViewConversations;
+    private bool _canManageOrganization;
+
+    [SupplyParameterFromQuery(Name = "period")]
+    public string? PeriodCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "branch")]
+    public string? BranchText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "sortBranch")]
+    public string? SortBranchText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "sortAdvisor")]
+    public string? SortAdvisorText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "sortSource")]
+    public string? SortSourceText { get; set; }
+
+    private PeriodPreset Preset => PeriodPresets.Parse(PeriodCode);
+
+    private Guid? BranchId => Guid.TryParse(BranchText, out var id) ? id : null;
+
+    private string? SortBranch => BreakdownRow.ValidSort(SortBranchText);
+
+    private string? SortAdvisor => BreakdownRow.ValidSort(SortAdvisorText);
+
+    private string? SortSource => BreakdownRow.ValidSort(SortSourceText);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        var profileResult = await Api.GetMyProfileAsync(Token!);
+        if (await TryFailAsync(profileResult))
+        {
+            return;
+        }
+
+        var profile = profileResult.Value!;
+        Shell.Remember(profile);
+        if (!profile.Can(Permission.MetricsView))
+        {
+            Deny();
+            return;
+        }
+
+        _canViewConversations = profile.Can(Permission.ConversationsView);
+        _canManageOrganization = profile.Can(Permission.OrganizationManage);
+
+        var load = await Loader.LoadAsync(Token!, Preset, BranchId);
+        if (load.Failure is { } failure)
+        {
+            await TryFailAsync(failure);
+            if (failure.Status == ApiResultStatus.RateLimited)
+            {
+                Message = $"Pediste demasiados datos en poco tiempo. {(failure.RetryAfterSeconds is { } wait ? $"Espera {UiMessages.Seconds(wait)}" : "Espera un momento")} y pulsa «Actualizar».";
+            }
+
+            return;
+        }
+
+        _data = load.Data;
+        _kpis = DashboardKpis.From(_data!);
+        _branchRows = BreakdownRow.Sorted(BreakdownRow.ByBranch(_data!), SortBranch);
+        _advisorRows = BreakdownRow.Sorted(BreakdownRow.ByAdvisor(_data!), SortAdvisor);
+        _sourceRows = BreakdownRow.Sorted(BreakdownRow.BySource(_data!), SortSource);
+        _lossItems = _data!.Summary.TopLossReasons
+            .Select(reason => new BarList.BarItem(reason.Reason, ConversationLabels.LossReason(reason.Reason), reason.Count, reason.SharePercent))
+            .ToList();
+    }
+
+    private string RangeText => _data is { } data
+        ? $"{PeriodPresets.Label(Preset)}: del {MetricsFormat.Date(data.Range.From)} al {MetricsFormat.Date(data.Range.To.AddDays(-1))} ({data.Range.Days} {(data.Range.Days == 1 ? "día" : "días")})."
+        : PeriodPresets.Label(Preset) + ".";
+
+    private int OtherLossCount => Math.Max(0, _kpis.StatedLost - _data!.Summary.TopLossReasons.Sum(reason => reason.Count));
+
+    private const string MaturingText = "En maduración";
+
+    private string ConversionHelp => _kpis.InMaturation
+        ? "Las conversaciones del periodo son muy recientes para saber cuántas se cerrarán: aún no hay una tasa que mostrar."
+        : "De las conversaciones ya definidas, cuántas terminaron en venta.";
+
+    private string MaturingNote
+        => $"{MetricsFormat.Conversations(_kpis.Immature)} {(_kpis.Immature == 1 ? "sigue" : "siguen")} en maduración y todavía no {(_kpis.Immature == 1 ? "cuenta" : "cuentan")} en la tasa.";
+
+    private string SlaText => _kpis.WithinSlaPercent is { } percent
+        ? $"{MetricsFormat.Percent(percent)} responde dentro de {MetricsFormat.Duration(_kpis.SlaMinutes)}."
+        : $"Aún no hay conversaciones para medir el plazo de {MetricsFormat.Duration(_kpis.SlaMinutes)}.";
+
+    private string UnansweredText => _kpis.UnansweredOpen == 0
+        ? "Todos los clientes tienen respuesta."
+        : _kpis.UnansweredOpenOverSla > 0
+            ? $"{MetricsFormat.Whole(_kpis.UnansweredOpenOverSla)} {(_kpis.UnansweredOpenOverSla == 1 ? "lleva" : "llevan")} más de {MetricsFormat.Duration(_kpis.SlaMinutes)} esperando; la más antigua, {MetricsFormat.Duration(_kpis.OldestUnansweredOpenMinutes)}. Responde primero a esas."
+            : $"Todavía están dentro del plazo de {MetricsFormat.Duration(_kpis.SlaMinutes)}; la más antigua espera {MetricsFormat.Duration(_kpis.OldestUnansweredOpenMinutes)}.";
+
+    private string UnansweredClosedText
+        => $"Además, {MetricsFormat.Conversations(_kpis.UnansweredClosed)} se {(_kpis.UnansweredClosed == 1 ? "cerró" : "cerraron")} sin respuesta.";
+
+    private string LossText => _kpis.TopLossReason is null
+        ? "No hay ventas perdidas con un motivo declarado en este periodo."
+        : $"{MetricsFormat.Whole(_kpis.TopLossCount)} de {MetricsFormat.Whole(_kpis.StatedLost)} {(_kpis.StatedLost == 1 ? "perdida" : "perdidas")} con motivo conocido ({MetricsFormat.Percent(_kpis.TopLossSharePercent)}).";
+
+    private string NoResponseText
+        => $"Aparte, {MetricsFormat.Conversations(_kpis.NoResponseCount)} se {(_kpis.NoResponseCount == 1 ? "perdió" : "perdieron")} porque el cliente dejó de responder; el sistema lo infiere del silencio y va por separado.";
+
+    private string LossSubtitle => _kpis.StatedLost == 0
+        ? "Las razones más repetidas entre las ventas perdidas."
+        : $"{MetricsFormat.Whole(_kpis.StatedLost)} {(_kpis.StatedLost == 1 ? "venta perdida" : "ventas perdidas")} con un motivo conocido.";
+
+    private string TrendIcon => _kpis.Trend switch
+    {
+        TrendDirection.Up => "trending-up",
+        TrendDirection.Down => "trending-down",
+        _ => "minus",
+    };
+
+    private ChipTone TrendTone => _kpis.Trend switch
+    {
+        TrendDirection.Up => ChipTone.Success,
+        TrendDirection.Down => ChipTone.Danger,
+        _ => ChipTone.Neutral,
+    };
+
+    private string VariationValue => _kpis.DeltaPoints is { } delta ? MetricsFormat.SignedPoints(delta) : MetricsFormat.NoData;
+
+    private string TrendText => _kpis.Trend switch
+    {
+        TrendDirection.Up => $"Subió {MetricsFormat.Points(_kpis.DeltaPoints!.Value)}: de {MetricsFormat.Percent(_kpis.PreviousConversionRate)} a {MetricsFormat.Percent(_kpis.ConversionRate)}.",
+        TrendDirection.Down => $"Bajó {MetricsFormat.Points(_kpis.DeltaPoints!.Value)}: de {MetricsFormat.Percent(_kpis.PreviousConversionRate)} a {MetricsFormat.Percent(_kpis.ConversionRate)}.",
+        TrendDirection.Flat => $"Sin cambios: se mantiene en {MetricsFormat.Percent(_kpis.ConversionRate)}.",
+        _ => _kpis.InMaturation
+            ? "Aún no se puede comparar: la conversión de este periodo está en maduración."
+            : "Aún no hay datos suficientes en uno de los dos periodos para comparar.",
+    };
+
+    private static string? Raw(double? value) => value?.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private AlertList.AlertLink? AlertLinkFor(MetricAlert alert)
+    {
+        switch (alert.Code)
+        {
+            case AlertCodes.UnansweredOverSla when _canViewConversations:
+                return new(ConversationLinks.List(_data!.Range, BranchId, unanswered: true), "Ver las conversaciones sin responder");
+            case AlertCodes.ConversionDrop when _canViewConversations:
+                return new(ConversationLinks.List(_data!.Range, BranchId, stage: "Lost"), "Ver las ventas perdidas");
+            case AlertCodes.BranchBelowAverage:
+                return AlertList.GuidValue(alert, "branchId") is { } branch
+                    ? new(PanelUrl(("branch", branch.ToString())), "Ver esa sucursal")
+                    : null;
+            default:
+                return null;
+        }
+    }
+
+    // The address of this page with the current state (period, branch, sorts), except for what the caller changes.
+    private string PanelUrl(params (string Name, string? Value)[] changes)
+    {
+        var state = new Dictionary<string, string?>
+        {
+            ["period"] = PeriodCode is null ? null : PeriodPresets.Code(Preset),
+            ["branch"] = BranchId?.ToString(),
+            ["sortBranch"] = SortBranch,
+            ["sortAdvisor"] = SortAdvisor,
+            ["sortSource"] = SortSource,
+        };
+        foreach (var (name, value) in changes)
+        {
+            state[name] = value;
+        }
+
+        var query = string.Join('&', state.Where(entry => !string.IsNullOrEmpty(entry.Value)).Select(entry => $"{entry.Key}={Uri.EscapeDataString(entry.Value!)}"));
+        return query.Length == 0 ? "/panel" : $"/panel?{query}";
+    }
+
+    private string SortBranchUrl(string column) => SortUrl("sortBranch", SortBranch, column, "tabla-branch");
+
+    private string SortAdvisorUrl(string column) => SortUrl("sortAdvisor", SortAdvisor, column, "tabla-advisor");
+
+    private string SortSourceUrl(string column) => SortUrl("sortSource", SortSource, column, "tabla-source");
+
+    private string SortUrl(string parameter, string? current, string column, string fragment)
+        => $"{PanelUrl((parameter, BreakdownRow.NextSort(current, column)))}#{fragment}";
+}

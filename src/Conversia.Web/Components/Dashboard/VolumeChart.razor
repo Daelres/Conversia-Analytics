@@ -1,0 +1,97 @@
+@using System.Globalization
+@using Conversia.Application.DTOs.Metrics
+@* Conversations per day as bars drawn with plain SVG (no chart library, no request). The chart has a text twin: the sentence above it and the table in "Ver los datos". *@
+<div class="chart" data-testid="volume-chart" data-days="@Days.Count" data-total="@Total" data-max="@Max">
+    @if (Days.Count == 0 || Total == 0)
+    {
+        <p class="muted">No hubo conversaciones nuevas en este periodo.</p>
+    }
+    else
+    {
+        <p class="chart__summary" id="@SummaryId">@Summary</p>
+        <svg class="chart__svg" viewBox="0 0 @Width @Height" preserveAspectRatio="none" role="img" aria-labelledby="@SummaryId" focusable="false">
+            <line class="chart__grid" x1="0" y1="@Top" x2="@Width" y2="@Top" />
+            <line class="chart__grid" x1="0" y1="@Middle" x2="@Width" y2="@Middle" />
+            <line class="chart__axis" x1="0" y1="@Baseline" x2="@Width" y2="@Baseline" />
+            @foreach (var (day, index) in Days.Select((day, index) => (day, index)))
+            {
+                var barHeight = BarHeight(day.Conversations);
+                <rect class="@(day.Conversations == Max ? "chart__bar chart__bar--peak" : "chart__bar")" x="@X(index)" y="@Y(barHeight)" width="@BarWidth" height="@Num(barHeight)">
+                    <title>@DayLabel(day.Date): @MetricsFormat.Conversations(day.Conversations)</title>
+                </rect>
+            }
+        </svg>
+        <div class="chart__axis-labels" aria-hidden="true">
+            <span>@DayLabel(Days[0].Date)</span>
+            <span>@DayLabel(Days[^1].Date)</span>
+        </div>
+        <details class="chart__data">
+            <summary>Ver los datos por día</summary>
+            <div class="table-wrap" role="region" aria-label="Conversaciones por día" tabindex="0">
+                <table class="table">
+                    <caption class="sr-only">Conversaciones nuevas por día</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Día</th>
+                            <th scope="col" data-align="end">Conversaciones</th>
+                            <th scope="col" data-align="end">Mensajes recibidos</th>
+                            <th scope="col" data-align="end">Mensajes enviados</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var day in Days)
+                        {
+                            <tr data-testid="volume-day" data-date="@day.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">
+                                <th scope="row">@DayLabel(day.Date)</th>
+                                <td data-align="end">@MetricsFormat.Whole(day.Conversations)</td>
+                                <td data-align="end">@MetricsFormat.Whole(day.InboundMessages)</td>
+                                <td data-align="end">@MetricsFormat.Whole(day.OutboundMessages)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    }
+</div>
+
+@code {
+    private const int Width = 600;
+    private const int Height = 160;
+    private const int Top = 4;
+    private const int Baseline = 156;
+    private const int Middle = (Top + Baseline) / 2;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<DayVolume> Days { get; set; } = [];
+
+    private int Total => Days.Sum(day => day.Conversations);
+
+    private int Max => Days.Count == 0 ? 0 : Days.Max(day => day.Conversations);
+
+    private string SummaryId { get; } = "volume-summary";
+
+    private double Slot => Days.Count == 0 ? Width : (double)Width / Days.Count;
+
+    private string BarWidth => Num(Math.Max(1, Slot * 0.72));
+
+    private string Summary
+    {
+        get
+        {
+            var peak = Days.First(day => day.Conversations == Max);
+            return $"{MetricsFormat.Conversations(Total)} entre el {DayLabel(Days[0].Date)} y el {DayLabel(Days[^1].Date)}. "
+                   + $"El día con más movimiento fue el {DayLabel(peak.Date)}, con {MetricsFormat.Conversations(Max)}.";
+        }
+    }
+
+    private double BarHeight(int value) => Max == 0 ? 0 : value * (double)(Baseline - Top) / Max;
+
+    private string X(int index) => Num(index * Slot + (Slot - Math.Max(1, Slot * 0.72)) / 2);
+
+    private string Y(double barHeight) => Num(Baseline - barHeight);
+
+    private static string Num(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string DayLabel(DateOnly date) => MetricsFormat.Day(date);
+}

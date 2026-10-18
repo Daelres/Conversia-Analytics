@@ -1,0 +1,80 @@
+@using System.Globalization
+@using Conversia.Application.DTOs.Metrics
+@* When the conversations start: 7 days by 24 hours, one table. Intensity is a single-hue scale in five steps, and every cell carries its number as hidden text and a tooltip, so colour is never the only way to read it. *@
+<div class="heat" data-testid="heatmap" data-max="@Max">
+    @if (Max == 0)
+    {
+        <p class="muted">No hay conversaciones para repartir por hora en este periodo.</p>
+    }
+    else
+    {
+        <p class="chart__summary" id="heat-summary">@Summary</p>
+        <div class="heat__scroll" role="region" aria-label="Conversaciones por día de la semana y hora" tabindex="0">
+            <table class="heat__table">
+                <caption class="sr-only">Conversaciones nuevas por día de la semana y hora (hora local)</caption>
+                <thead>
+                    <tr>
+                        <th scope="col"><span class="sr-only">Día</span></th>
+                        @for (var hour = 0; hour < 24; hour++)
+                        {
+                            <th scope="col" class="@(hour % 3 == 0 ? "heat__hour" : "heat__hour heat__hour--minor")">@hour</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (var day = 1; day <= 7; day++)
+                    {
+                        <tr>
+                            <th scope="row" class="heat__day">@DayNames[day - 1]</th>
+                            @for (var hour = 0; hour < 24; hour++)
+                            {
+                                var count = CountAt(day, hour);
+                                <td class="heat__cell" data-level="@LevelOf(count)" data-day="@day" data-hour="@hour" data-count="@count"
+                                    title="@DayNames[day - 1], @HourRange(hour): @MetricsFormat.Conversations(count)"><span class="sr-only">@count</span></td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="heat__legend" aria-hidden="true">
+            <span>Menos</span>
+            @for (var level = 0; level <= 4; level++)
+            {
+                <span class="heat__swatch" data-level="@level"></span>
+            }
+            <span>Más (hasta @MetricsFormat.Conversations(Max) en una hora)</span>
+        </div>
+    }
+</div>
+
+@code {
+    private static readonly string[] DayNames = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+
+    /// <summary>The 168 cells of the grid (the API sends every one); a missing cell counts as zero.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<HourVolume> Cells { get; set; } = [];
+
+    private Dictionary<(int Day, int Hour), int> _counts = new();
+
+    private int Max => _counts.Count == 0 ? 0 : _counts.Values.Max();
+
+    protected override void OnParametersSet()
+        => _counts = Cells.GroupBy(cell => (cell.DayOfWeek, cell.Hour)).ToDictionary(group => group.Key, group => group.Sum(cell => cell.Conversations));
+
+    private int CountAt(int day, int hour) => _counts.TryGetValue((day, hour), out var count) ? count : 0;
+
+    /// <summary>0 for none, then four equal steps up to the busiest hour.</summary>
+    private int LevelOf(int count) => count <= 0 || Max == 0 ? 0 : Math.Clamp((int)Math.Ceiling(4.0 * count / Max), 1, 4);
+
+    private static string HourRange(int hour) => $"{hour:00}:00 a {hour:00}:59";
+
+    private string Summary
+    {
+        get
+        {
+            var peak = _counts.OrderByDescending(entry => entry.Value).ThenBy(entry => entry.Key.Day).ThenBy(entry => entry.Key.Hour).First();
+            return $"La hora con más conversaciones nuevas es el {DayNames[peak.Key.Day - 1].ToLowerInvariant()} de {HourRange(peak.Key.Hour)}, con {MetricsFormat.Conversations(peak.Value)}.";
+        }
+    }
+}

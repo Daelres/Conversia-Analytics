@@ -40,7 +40,7 @@ public class RegisterPageTests(TestApiFactory api)
 
         var response = await WebFlows.RegisterAsync(session, tenantName, email, ApiSeed.StrongPassword);
 
-        response.ShouldRedirectTo("/");
+        response.ShouldRedirectTo("/panel");
         WebFlows.AssertNotCacheable(response);
         Assert.True(session.HasAuthCookie);
 

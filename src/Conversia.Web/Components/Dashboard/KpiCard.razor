@@ -1,0 +1,49 @@
+@* One headline number with its plain-language meaning. The tone is never the only signal: the card says what it asks of you in words and an icon. *@
+<article class="@CssClass" data-testid="kpi-card" data-kpi="@Kpi" data-value="@RawValue" @attributes="Attributes">
+    <div class="kpi__head">
+        <span class="kpi__icon"><Icon Name="@IconName" /></span>
+        <h3 class="kpi__label">@Label</h3>
+    </div>
+    <p class="kpi__value" data-testid="kpi-value">@Value</p>
+    @if (Detail is not null)
+    {
+        <div class="kpi__detail" data-testid="kpi-detail">@Detail</div>
+    }
+    <p class="kpi__help">@Help</p>
+</article>
+
+@code {
+    /// <summary>The <c>data-kpi</c> hook: conversations, conversion, first-response, unanswered, loss-reason or previous.</summary>
+    [Parameter, EditorRequired]
+    public string Kpi { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>The number, already formatted.</summary>
+    [Parameter, EditorRequired]
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>The unformatted number for tests and scripts (<c>data-value</c>); empty when the card has no number to give.</summary>
+    [Parameter]
+    public string? RawValue { get; set; }
+
+    /// <summary>One line, in plain words, of what this number means.</summary>
+    [Parameter, EditorRequired]
+    public string Help { get; set; } = string.Empty;
+
+    [Parameter]
+    public string IconName { get; set; } = "activity";
+
+    [Parameter]
+    public ChipTone Tone { get; set; } = ChipTone.Neutral;
+
+    /// <summary>What goes under the number: the counts behind it, or what to do about it.</summary>
+    [Parameter]
+    public RenderFragment? Detail { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public Dictionary<string, object>? Attributes { get; set; }
+
+    private string CssClass => Tone == ChipTone.Neutral ? "kpi" : $"kpi kpi--{Tone.ToString().ToLowerInvariant()}";
+}

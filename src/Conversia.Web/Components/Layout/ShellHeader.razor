@@ -15,6 +15,10 @@
     <div class="shell-panel">
         <nav aria-label="Navegación principal">
             <ul class="nav-list">
+                @if (SignedIn)
+                {
+                    <NavItem Href="/panel" Label="Panel" IconName="bar-chart" />
+                }
                 <NavItem Href="/" Label="Inicio" IconName="home" Exact="true" />
                 <NavItem Href="/demo" Label="Recorrido" IconName="compass" />
                 @if (SignedIn)

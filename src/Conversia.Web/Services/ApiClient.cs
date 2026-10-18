@@ -2,6 +2,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Conversia.Application.DTOs.Auth;
+using Conversia.Application.DTOs.Metrics;
+using Conversia.Application.DTOs.Organization;
 using Conversia.Application.DTOs.Products;
 using Conversia.Application.DTOs.Users;
 using System.Net.Sockets;
@@ -69,6 +71,24 @@ public sealed class ApiClient : IApiClient
 
     public Task<ApiResult<Unit>> DeleteProductAsync(string token, Guid id, CancellationToken cancellationToken = default)
         => SendAsync<Unit>(HttpMethod.Delete, $"api/products/{id}", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<SummaryResponse>> GetMetricsSummaryAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default)
+        => SendAsync<SummaryResponse>(HttpMethod.Get, "api/metrics/summary" + MetricsQueryString.Build(query), token, body: null, r => r.Conversion is not null && r.FirstResponse is not null && r.Period is not null, cancellationToken);
+
+    public Task<ApiResult<ConversionResponse>> GetMetricsConversionAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default)
+        => SendAsync<ConversionResponse>(HttpMethod.Get, "api/metrics/conversion" + MetricsQueryString.Build(query), token, body: null, r => r.Totals is not null && r.ByBranch is not null && r.ByAdvisor is not null && r.BySource is not null, cancellationToken);
+
+    public Task<ApiResult<FirstResponseResponse>> GetMetricsFirstResponseAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default)
+        => SendAsync<FirstResponseResponse>(HttpMethod.Get, "api/metrics/first-response" + MetricsQueryString.Build(query), token, body: null, r => r.Totals is not null && r.ByBranch is not null && r.ByAdvisor is not null && r.BySource is not null, cancellationToken);
+
+    public Task<ApiResult<VolumeResponse>> GetMetricsVolumeAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default)
+        => SendAsync<VolumeResponse>(HttpMethod.Get, "api/metrics/volume" + MetricsQueryString.Build(query), token, body: null, r => r.ByDay is not null && r.ByHourOfWeek is not null, cancellationToken);
+
+    public Task<ApiResult<AlertsResponse>> GetMetricsAlertsAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default)
+        => SendAsync<AlertsResponse>(HttpMethod.Get, "api/metrics/alerts" + MetricsQueryString.Build(query), token, body: null, r => r.Alerts is not null && r.Unanswered is not null, cancellationToken);
+
+    public Task<ApiResult<IReadOnlyList<BranchResponse>>> GetBranchesAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<BranchResponse>>(HttpMethod.Get, "api/branches", token, body: null, isUsable: null, cancellationToken);
 
     private static string ProductListPath(int page, int pageSize, string? search)
     {

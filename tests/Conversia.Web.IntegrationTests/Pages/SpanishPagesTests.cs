@@ -526,7 +526,7 @@ public class SpanishPagesTests(TestApiFactory api)
                 services.Remove(descriptor);
             }
 
-            services.AddSingleton<Conversia.Web.Services.IApiClient>(new ThrowingApiClient(secret));
+            services.AddSingleton(ThrowingApiClient.Create(secret));
         });
         var report = new SpanishUiReport();
 
@@ -563,33 +563,18 @@ public class SpanishPagesTests(TestApiFactory api)
         report.AssertClean();
     }
 
-    /// <summary>Stands in for the API client and fails the way a bug would (not a transport error, which the real client turns into "unavailable").</summary>
-    private sealed class ThrowingApiClient(string secret) : Conversia.Web.Services.IApiClient
+    /// <summary>Stands in for the API client and fails the way a bug would (not a transport error, which the real client turns into "unavailable"). A proxy, so a new API call needs no change here.</summary>
+    public class ThrowingApiClient : System.Reflection.DispatchProxy
     {
-        private Exception Boom() => new InvalidOperationException(secret);
+        public string Secret { get; set; } = string.Empty;
 
-        public Task<Conversia.Web.Services.ApiResult<Conversia.Application.DTOs.Auth.AuthResponse>> LoginAsync(Conversia.Application.DTOs.Auth.LoginRequest request, CancellationToken cancellationToken = default) => throw Boom();
+        protected override object? Invoke(System.Reflection.MethodInfo? targetMethod, object?[]? args) => throw new InvalidOperationException(Secret);
 
-        public Task<Conversia.Web.Services.ApiResult<Conversia.Application.DTOs.Auth.AuthResponse>> RegisterTenantAsync(Conversia.Application.DTOs.Auth.RegisterTenantRequest request, CancellationToken cancellationToken = default) => throw Boom();
-
-        public Task<Conversia.Web.Services.ApiResult<Conversia.Application.DTOs.Users.UserProfileResponse>> GetMyProfileAsync(string token, CancellationToken cancellationToken = default) => throw Boom();
-
-        public Task<Conversia.Web.Services.ApiResult<IReadOnlyList<Conversia.Application.DTOs.Users.UserSummaryResponse>>> GetUsersAsync(string token, CancellationToken cancellationToken = default) => throw Boom();
-
-        public Task<Conversia.Web.Services.ApiResult<Conversia.Application.DTOs.Users.UserSummaryResponse>> CreateUserAsync(string token, Conversia.Application.DTOs.Users.CreateUserRequest request, CancellationToken cancellationToken = default) => throw Boom();
-
-        public Task<Conversia.Web.Services.ApiResult<Conversia.Web.Services.Unit>> AssignPermissionAsync(string token, Guid userId, Permission permission, CancellationToken cancellationToken = default) => throw Boom();
-
-        public Task<Conversia.Web.Services.ApiResult<Conversia.Web.Services.Unit>> RevokePermissionAsync(string token, Guid userId, Permission permission, CancellationToken cancellationToken = default) => throw Boom();
-
-        public Task<Conversia.Web.Services.ApiResult<Conversia.Application.DTOs.Products.PagedResponse<Conversia.Application.DTOs.Products.ProductResponse>>> GetProductsAsync(string token, int page, int pageSize, string? search, CancellationToken cancellationToken = default) => throw Boom();
-
-        public Task<Conversia.Web.Services.ApiResult<Conversia.Application.DTOs.Products.ProductResponse>> GetProductAsync(string token, Guid id, CancellationToken cancellationToken = default) => throw Boom();
-
-        public Task<Conversia.Web.Services.ApiResult<Conversia.Application.DTOs.Products.ProductResponse>> CreateProductAsync(string token, Conversia.Application.DTOs.Products.CreateProductRequest request, CancellationToken cancellationToken = default) => throw Boom();
-
-        public Task<Conversia.Web.Services.ApiResult<Conversia.Application.DTOs.Products.ProductResponse>> UpdateProductAsync(string token, Guid id, Conversia.Application.DTOs.Products.UpdateProductRequest request, CancellationToken cancellationToken = default) => throw Boom();
-
-        public Task<Conversia.Web.Services.ApiResult<Conversia.Web.Services.Unit>> DeleteProductAsync(string token, Guid id, CancellationToken cancellationToken = default) => throw Boom();
+        public static Conversia.Web.Services.IApiClient Create(string secret)
+        {
+            var proxy = Create<Conversia.Web.Services.IApiClient, ThrowingApiClient>();
+            ((ThrowingApiClient)(object)proxy).Secret = secret;
+            return proxy;
+        }
     }
 }

@@ -1,0 +1,108 @@
+@using Conversia.Web.Dashboard
+@* Conversion and first response of one dimension (branch, advisor or source), sortable by its headers (plain links, so it works without scripts and a sorted view can be shared). *@
+<Card Title="@Title" Subtitle="@Subtitle" IconName="@IconName" id="@TableId" data-testid="breakdown" data-breakdown="@Key">
+    @if (Rows.Count == 0)
+    {
+        <p class="muted">No hay datos para mostrar en este periodo.</p>
+    }
+    else
+    {
+        <div class="table-wrap table-wrap--flat" role="region" aria-label="@Title" tabindex="0">
+            <table class="table">
+                <caption class="sr-only">@Title: conversión y primera respuesta</caption>
+                <thead>
+                    <tr>
+                        @foreach (var column in Columns)
+                        {
+                            <th scope="col" data-align="@(column.Name == "name" ? null : "end")" aria-sort="@AriaSort(column.Name)">
+                                <a class="sort-link" href="@SortUrl(column.Name)">@column.Label<span class="sort-link__mark" aria-hidden="true">@Mark(column.Name)</span></a>
+                            </th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in Rows)
+                    {
+                        <tr data-testid="breakdown-row" data-key="@row.Key" data-low-sample="@(row.LowSample ? "true" : "false")">
+                            <th scope="row">
+                                <span class="breakdown__name">@row.Name</span>
+                                @if (row.LowSample)
+                                {
+                                    <Chip Tone="ChipTone.Warning" IconName="info" data-testid="low-sample" title="@LowSampleHint">Muestra baja</Chip>
+                                }
+                            </th>
+                            <td data-align="end" data-field="total">@MetricsFormat.Whole(row.Total)</td>
+                            <td data-align="end" data-field="conversion" data-value="@Raw(row.ConversionRate)" data-maturing="@(row.InMaturation ? "true" : null)">@(row.InMaturation ? "En maduración" : MetricsFormat.Percent(row.ConversionRate))</td>
+                            <td data-align="end" data-field="response" data-value="@Raw(row.MedianMinutes)">@MetricsFormat.Duration(row.MedianMinutes)</td>
+                            <td data-align="end" data-field="sla" data-value="@Raw(row.WithinSlaPercent)">@MetricsFormat.Percent(row.WithinSlaPercent)</td>
+                            <td data-align="end" data-field="unanswered">@MetricsFormat.Whole(row.UnansweredOpen)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</Card>
+
+@code {
+    private sealed record Column(string Name, string Label);
+
+    /// <summary>The <c>data-breakdown</c> hook: branch, advisor or source.</summary>
+    [Parameter, EditorRequired]
+    public string Key { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Subtitle { get; set; }
+
+    [Parameter]
+    public string IconName { get; set; } = "layers";
+
+    /// <summary>The header of the first column: "Sucursal", "Asesor", "Origen".</summary>
+    [Parameter, EditorRequired]
+    public string NameLabel { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<BreakdownRow> Rows { get; set; } = [];
+
+    /// <summary>The current order: a column name, with a leading "-" for descending; empty keeps the API's order (most conversations first).</summary>
+    [Parameter]
+    public string? Sort { get; set; }
+
+    /// <summary>The address of this page ordered by a column.</summary>
+    [Parameter, EditorRequired]
+    public Func<string, string> SortUrl { get; set; } = _ => string.Empty;
+
+    private static string LowSampleHint { get; } = $"Menos de {BreakdownRow.LowSampleDecided} conversaciones definidas: la tasa puede cambiar mucho con pocas más.";
+
+    private string TableId => $"tabla-{Key}";
+
+    private IReadOnlyList<Column> Columns => new Column[]
+    {
+        new("name", NameLabel),
+        new("total", "Conversaciones"),
+        new("conversion", "Conversión"),
+        new("response", "Primera respuesta"),
+        new("sla", "Dentro del plazo"),
+        new("unanswered", "Sin responder"),
+    };
+
+    private string? AriaSort(string column)
+    {
+        var (current, descending) = Parse(Sort);
+        return current != column ? null : descending ? "descending" : "ascending";
+    }
+
+    private string Mark(string column)
+    {
+        var (current, descending) = Parse(Sort);
+        return current != column ? string.Empty : descending ? " ▼" : " ▲";
+    }
+
+    private static (string? Column, bool Descending) Parse(string? sort)
+        => string.IsNullOrEmpty(sort) ? (null, false) : sort[0] == '-' ? (sort[1..], true) : (sort, false);
+
+    private static string? Raw(double? value) => value?.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+}

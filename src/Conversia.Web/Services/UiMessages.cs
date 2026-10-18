@@ -14,6 +14,7 @@ public static class UiMessages
     public const string EmailTaken = "Ese correo ya está registrado.";
     public const string UserNotFound = "Usuario no encontrado.";
     public const string InvalidRequest = "La solicitud no es válida.";
+    public const string NotFound = "No encontramos lo que buscas.";
     public const string ProductNotFound = "Producto no encontrado.";
     public const string ProductSkuTaken = "Ya existe un producto con ese SKU.";
     public const string ProductModified = "Otra persona modificó este producto. Recarga la página para ver la última versión.";

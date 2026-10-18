@@ -20,7 +20,7 @@ public class SecurityTests(TestApiFactory api)
         using var host = WebTestHost.Create(api);
         using var session = host.NewSession();
 
-        (await WebFlows.RegisterAsync(session, ApiSeed.UniqueTenantName("journey"), email, ApiSeed.StrongPassword)).ShouldRedirectTo("/");
+        (await WebFlows.RegisterAsync(session, ApiSeed.UniqueTenantName("journey"), email, ApiSeed.StrongPassword)).ShouldRedirectTo("/panel");
         (await session.GetAsync("/")).ShouldBe(HttpStatusCode.OK);
         var users = await WebFlows.UsersAsync(session);
         var create = FormModel.From(users, users.FindPasswordForm()).Set("email", memberEmail).Set("password", memberPassword);

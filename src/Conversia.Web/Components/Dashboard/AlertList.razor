@@ -1,0 +1,46 @@
+@using System.Text.Json
+@using Conversia.Application.DTOs.Metrics
+@* The things that need someone today, or a calm "all in order". Each alert carries its own message (Spanish, from the API) and a link to what it is about. *@
+@if (Alerts.Count == 0)
+{
+    <Alert Kind="AlertKind.Success" Title="Todo en orden" data-testid="alerts-calm">No hay alertas activas: nadie espera una respuesta fuera de plazo y la conversión se mantiene.</Alert>
+}
+else
+{
+    <ul class="alert-list" data-testid="alerts" aria-label="Alertas activas">
+        @foreach (var alert in Alerts)
+        {
+            var link = LinkFor?.Invoke(alert);
+            <li data-testid="alert" data-code="@alert.Code" data-severity="@alert.Severity">
+                <Alert Kind="KindOf(alert)" Title="@TitleOf(alert)">
+                    <ChildContent>@alert.Message</ChildContent>
+                    <Actions>
+                        @if (link is not null)
+                        {
+                            <a class="btn btn--secondary btn--sm" href="@link.Href">@link.Text<Icon Name="arrow-right" Class="icon--sm" /></a>
+                        }
+                    </Actions>
+                </Alert>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<MetricAlert> Alerts { get; set; } = [];
+
+    /// <summary>Where an alert leads, or null when the caller may not follow it.</summary>
+    [Parameter]
+    public Func<MetricAlert, AlertLink?>? LinkFor { get; set; }
+
+    public sealed record AlertLink(string Href, string Text);
+
+    private static AlertKind KindOf(MetricAlert alert) => alert.Severity == AlertSeverities.Critical ? AlertKind.Danger : AlertKind.Warning;
+
+    private static string TitleOf(MetricAlert alert) => alert.Severity == AlertSeverities.Critical ? "Crítica" : "Atención";
+
+    /// <summary>A value of an alert (<c>branchId</c>, <c>count</c>); the API sends them as loose JSON.</summary>
+    public static Guid? GuidValue(MetricAlert alert, string name)
+        => alert.Values.TryGetValue(name, out var value) && value is JsonElement { ValueKind: JsonValueKind.String } element && element.TryGetGuid(out var id) ? id : null;
+}

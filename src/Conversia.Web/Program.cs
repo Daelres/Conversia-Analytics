@@ -1,11 +1,13 @@
 using Conversia.Domain.Common;
 using Conversia.Web.Authentication;
 using Conversia.Web.Components;
+using Conversia.Web.Dashboard;
 using Conversia.Web.Demo;
 using Conversia.Web.ErrorReporting;
 using Conversia.Web.Endpoints;
 using Conversia.Web.Http;
 using Conversia.Web.Services;
+using Conversia.Web.Time;
 using Microsoft.AspNetCore.Localization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,6 +18,8 @@ builder.Services.AddApiClient();
 builder.Services.AddWebErrorReporting();
 builder.Services.AddDemoAccounts(builder.Configuration, builder.Environment);
 builder.Services.AddScoped<ShellState>();
+builder.Services.AddTenantTimeZone(builder.Configuration);
+builder.Services.AddScoped<DashboardLoader>();
 
 var app = builder.Build();
 

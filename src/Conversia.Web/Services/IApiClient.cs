@@ -1,4 +1,6 @@
 using Conversia.Application.DTOs.Auth;
+using Conversia.Application.DTOs.Metrics;
+using Conversia.Application.DTOs.Organization;
 using Conversia.Application.DTOs.Products;
 using Conversia.Application.DTOs.Users;
 using Conversia.Domain.Enums;
@@ -36,4 +38,20 @@ public interface IApiClient
     Task<ApiResult<ProductResponse>> UpdateProductAsync(string token, Guid id, UpdateProductRequest request, CancellationToken cancellationToken = default);
 
     Task<ApiResult<Unit>> DeleteProductAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    // ---- metrics (MetricsView) ----
+
+    Task<ApiResult<SummaryResponse>> GetMetricsSummaryAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ConversionResponse>> GetMetricsConversionAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<FirstResponseResponse>> GetMetricsFirstResponseAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<VolumeResponse>> GetMetricsVolumeAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AlertsResponse>> GetMetricsAlertsAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
+
+    // ---- organization (OrganizationView) ----
+
+    Task<ApiResult<IReadOnlyList<BranchResponse>>> GetBranchesAsync(string token, CancellationToken cancellationToken = default);
 }

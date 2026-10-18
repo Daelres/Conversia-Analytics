@@ -1,0 +1,30 @@
+@* A ranked list as horizontal bars. Every bar comes with its count and share in words: the length is the picture, the text is the data. *@
+<ul class="barlist" data-testid="barlist" aria-label="@Label">
+    @foreach (var item in Items)
+    {
+        <li class="barlist__item" data-testid="barlist-item" data-key="@item.Key" data-count="@item.Count">
+            <div class="barlist__head">
+                <span class="barlist__name">@item.Name</span>
+                <span class="barlist__value">@MetricsFormat.Whole(item.Count) · @MetricsFormat.Percent(item.SharePercent)</span>
+            </div>
+            <svg class="barlist__bar" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+                <rect class="barlist__track" x="0" y="0" width="100" height="6" />
+                <rect class="barlist__fill" x="0" y="0" width="@Width(item)" height="6" />
+            </svg>
+        </li>
+    }
+</ul>
+
+@code {
+    public sealed record BarItem(string Key, string Name, int Count, double? SharePercent);
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<BarItem> Items { get; set; } = [];
+
+    /// <summary>The accessible name of the list.</summary>
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    private static string Width(BarItem item)
+        => Math.Clamp(item.SharePercent ?? 0, 0, 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+}

@@ -38,7 +38,7 @@ public class LoginPageTests(TestApiFactory api)
 
         var response = await WebFlows.LoginAsync(session, owner.Email, ApiSeed.StrongPassword);
 
-        response.ShouldRedirectTo("/");
+        response.ShouldRedirectTo("/panel");
         WebFlows.AssertNotCacheable(response);
 
         // A profile fetch after sign-in would be fine; the login POST itself must happen exactly once.
@@ -102,7 +102,7 @@ public class LoginPageTests(TestApiFactory api)
 
         var response = await WebFlows.LoginAsync(session, owner.Email, ApiSeed.StrongPassword, returnUrl);
 
-        response.ShouldRedirectTo("/");
+        response.ShouldRedirectTo("/panel");
         Assert.True(session.HasAuthCookie);
     }
 
@@ -197,7 +197,7 @@ public class LoginPageTests(TestApiFactory api)
         using var host = WebTestHost.Create(api, throttledApi);
 
         using var first = host.NewSession();
-        (await WebFlows.LoginAsync(first, owner.Email, ApiSeed.StrongPassword)).ShouldRedirectTo("/");
+        (await WebFlows.LoginAsync(first, owner.Email, ApiSeed.StrongPassword)).ShouldRedirectTo("/panel");
 
         using var second = host.NewSession();
         var throttled = await WebFlows.LoginAsync(second, owner.Email, ApiSeed.StrongPassword);

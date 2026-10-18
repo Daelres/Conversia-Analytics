@@ -1,0 +1,53 @@
+@using Conversia.Application.DTOs.Metrics
+@* The customers who wrote and are still waiting, longest wait first. Only branch, advisor and the wait: never a name, a number or a message. *@
+<Card Title="Esperando respuesta" Subtitle="@Subtitle" IconName="clock" data-testid="unanswered-list">
+    <div class="table-wrap" role="region" aria-label="Conversaciones esperando respuesta" tabindex="0">
+        <table class="table">
+            <caption class="sr-only">Las conversaciones sin responder que llevan más tiempo esperando</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Sucursal</th>
+                    <th scope="col">Asesor</th>
+                    <th scope="col" data-align="end">Espera</th>
+                    @if (OpenUrl is not null)
+                    {
+                        <th scope="col"><span class="sr-only">Acciones</span></th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in Items)
+                {
+                    <tr data-testid="unanswered-row" data-conversation-id="@item.ConversationId">
+                        <td>@(item.BranchName ?? "—")</td>
+                        <td>@(item.AdvisorName ?? BreakdownRow.UnassignedName)</td>
+                        <td data-align="end">@MetricsFormat.Duration(item.WaitingMinutes)</td>
+                        @if (OpenUrl is not null)
+                        {
+                            <td class="table__cell-actions">
+                                <a class="btn btn--ghost btn--sm" href="@OpenUrl(item.ConversationId)">Abrir<Icon Name="arrow-right" Class="icon--sm" /></a>
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</Card>
+
+@code {
+    public const int MaxRows = 5;
+
+    [Parameter, EditorRequired]
+    public UnansweredSummary Summary { get; set; } = new(0, []);
+
+    /// <summary>The link to a conversation; null when the caller may not open conversations.</summary>
+    [Parameter]
+    public Func<Guid, string>? OpenUrl { get; set; }
+
+    private IEnumerable<UnansweredConversation> Items => Summary.Items.Take(MaxRows);
+
+    private string Subtitle => Summary.Total > MaxRows
+        ? $"Las {MaxRows} que llevan más tiempo, de {MetricsFormat.Whole(Summary.Total)} en total."
+        : "Clientes que escribieron y todavía no reciben respuesta.";
+}

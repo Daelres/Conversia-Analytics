@@ -110,7 +110,7 @@ src/
   Conversia.Application/     # referencia Domain
   Conversia.Infrastructure/  # referencia Application; EF Core + Npgsql, migraciones en Persistence/Migrations
   Conversia.API/             # controllers; referencia Application e Infrastructure
-  Conversia.Web/             # Blazor Web; referencia Application y habla con la API por HTTP
+  Conversia.Web/             # Blazor Web; referencia Application y habla con la API por HTTP. `/panel` es el tablero ejecutivo (aterrizaje tras iniciar sesión); sus piezas viven en Components/Dashboard y Dashboard/
 tests/
   Conversia.Domain.UnitTests/, Conversia.Application.UnitTests/, Conversia.Infrastructure.UnitTests/   # xUnit
   Conversia.IntegrationTests/      # API contra PostgreSQL real (Testcontainers; requiere Docker)

@@ -37,7 +37,7 @@ public class MultiUserIsolationTests(TestApiFactory api)
         {
             using var session = host.NewSession();
             var login = await WebFlows.LoginAsync(session, tenant.Owner.Email, ApiSeed.StrongPassword);
-            login.ShouldRedirectTo("/");
+            login.ShouldRedirectTo("/panel");
 
             var foreignEmails = tenants.Where(t => t != tenant).SelectMany(t => t.Emails).ToList();
             var foreignTenantIds = tenants.Where(t => t != tenant).Select(t => t.Owner.TenantId.ToString()).ToList();

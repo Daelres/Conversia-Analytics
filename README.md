@@ -70,6 +70,10 @@ is for your own machine only: its accounts have a publicly known password.
   `POST /api/auth/login`, `429` + `Retry-After` when exceeded.
 - **Blazor UI** (`Conversia.Web`) — static server-side rendering with
   cookie authentication: landing page, `/login`, `/register`,
+  `/panel` (the executive dashboard, where people land after signing in: six headline
+  numbers, alerts, breakdowns by branch, advisor and source, loss reasons, volume by day
+  and a day-by-hour heat map, all drawn with inline SVG/CSS and driven by the query string,
+  `docs/METRICS.md`),
   `/users` (user list, create user, grant/revoke permissions),
   `/products` (the reference feature: list, search, create, edit, delete;
   prices are shown the Spanish way, `1.234,50`, and typed with a comma or a dot)
@@ -277,7 +281,7 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Conversations:AutoCloseAfterDays` | API | `7` | A conversation whose last message is older than this is closed (the customer's next message then opens a new one). 1 to 365. |
 | `Conversations:AutoCloseIntervalMinutes` | API | `15` | How often the job runs (it also runs once at startup). 1 to 1440. |
 | `Conversations:AutoCloseBatchSize` | API | `200` | Conversations closed per transaction. 1 to 5000. |
-| `Metrics:TimeZone` | API | `America/Bogota` | IANA time zone of the business: date ranges of the conversation list and the metrics (`docs/METRICS.md`) are local dates of this zone, and days and hours are grouped in it. Must be known to the machine, otherwise the API will not start. |
+| `Metrics:TimeZone` | API, Web | `America/Bogota` | IANA time zone of the business: date ranges of the conversation list and the metrics (`docs/METRICS.md`) are local dates of this zone, and days and hours are grouped in it. Must be known to the machine, otherwise the API (or the Web, which reads the same key to know what "today" is for the dashboard's periods) will not start. |
 | `Classification:Enabled` | API | `true` | Runs the background worker that classifies conversations (service, reason, objection, outcome). `false`: conversations stay flagged. See `docs/CLASSIFICATION.md`. |
 | `Classification:Provider` | API | `Rules` | The classifier behind the port: only `Rules` (rule-based Spanish) exists; any other value stops the API at startup. |
 | `Classification:RulesPath` | API | *(embedded rules)* | Path of a JSON file with the classifier's dictionaries (another vertical or country). Validated at startup. |

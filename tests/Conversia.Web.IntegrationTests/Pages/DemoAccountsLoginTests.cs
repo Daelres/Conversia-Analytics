@@ -83,7 +83,7 @@ public class DemoAccountsLoginTests(TestApiFactory api)
 
         var response = await WebFlows.LoginAsync(session, owner.Email, ApiSeed.StrongPassword);
 
-        response.ShouldRedirectTo("/");
+        response.ShouldRedirectTo("/panel");
         Assert.True(session.HasAuthCookie);
         var wrong = await WebFlows.LoginAsync(host.NewSession(), owner.Email, "Wr0ng-Pass-Value-123");
         Assert.Contains(SpanishText.InvalidCredentials, wrong.Text);
@@ -105,7 +105,7 @@ public class DemoAccountsLoginTests(TestApiFactory api)
 
         var response = await session.SubmitAsync(form);
 
-        response.ShouldRedirectTo("/");
+        response.ShouldRedirectTo("/panel");
         WebFlows.AssertNotCacheable(response);
         DemoFlows.AssertHardenedAuthCookies(response);
         Assert.True(session.HasAuthCookie);
@@ -143,9 +143,9 @@ public class DemoAccountsLoginTests(TestApiFactory api)
     [Theory]
     [InlineData("/products", "/products")]
     [InlineData("/users?page=2", "/users?page=2")]
-    [InlineData("//evil.example", "/")]
-    [InlineData("https://evil.example/", "/")]
-    [InlineData("/\\evil.example", "/")]
+    [InlineData("//evil.example", "/panel")]
+    [InlineData("https://evil.example/", "/panel")]
+    [InlineData("/\\evil.example", "/panel")]
     public async Task A_shortcut_follows_the_same_return_url_rules_as_the_login_form(string returnUrl, string expected)
     {
         using var host = WebTestHost.CreateDemo(api);
