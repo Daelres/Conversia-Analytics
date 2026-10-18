@@ -66,6 +66,11 @@ ASP.NET Core.
   are `Interfaces/IErrorRegistry` and `IErrorLogPurger`; its DTOs
   `DTOs/Diagnostics/` (`ErrorReport`, `ErrorRegistration`, and the
   `ReportErrorRequest`/`ReportErrorResponse` of the report endpoint).
+- `Ingestion/` — `Dialog360PayloadParser` (the only class that knows the
+  360dialog payload shape; pure) and `WebhookEventProcessor` (one stored delivery
+  into contacts, conversations, messages and opportunities, idempotently).
+  `Services/WebhookIngestionService` is the request side: authenticate by
+  channel secret, validate, store.
 - `Demo/` — `DemoAccounts`, the single list of demo accounts (emails,
   short descriptions, permissions, default password) as pure constants.
   The API's demo-data seeder and the Web's demo pages both read it, so
@@ -97,6 +102,9 @@ Everything that talks to the outside world.
   `ErrorLogRetentionService` (`BackgroundService`: purge at startup, then every
   24 h). `ErrorLogs` is an operations table: no tenant query filter.
 - `Seeding/` — opt-in demo data (`DemoDataSeeder`, `DemoDataset`).
+- `Webhooks/` — `WebhookEventRunner`, the queue worker's unit of work: claims one
+  pending `WebhookEvents` row with `FOR UPDATE SKIP LOCKED`, processes it in a
+  savepoint and records failures with exponential back-off.
 - `Repositories/` — concrete repository implementations of the
   `Domain.Interfaces` contracts.
 - `Services/` — infrastructure-backed service implementations
@@ -127,7 +135,12 @@ project grows.
   `DemoDataOptionsValidator`, `ErrorLoggingOptionsValidator`) that refuse to boot on unsafe or invalid
   settings, plus the `AddDemoData` and `AddErrorLogging` registration extensions.
 - `HostedServices/` — startup work (`DemoDataHostedService` runs the
-  demo data seeder before the first request).
+  demo data seeder before the first request) and background work
+  (`WebhookEventProcessingService` drains the webhook queue,
+  [docs/WEBHOOKS.md](WEBHOOKS.md)).
+- `Controllers/WebhooksController` — the one anonymous endpoint besides
+  login/registration: the provider webhook, authenticated by a per-channel
+  secret instead of a JWT.
 - `RateLimiting/` — rate-limiter policy registration
   (`AddLoginRateLimiting`, `AddErrorReportRateLimiting`) and the one 429
   rejection answer they share.
@@ -282,7 +295,10 @@ requests are seen as https and the cookie is marked `Secure`.
 Tenant isolation is enforced with an EF Core global query filter on
 every tenant-scoped entity, keyed off the current request's tenant
 (resolved from a claim in the JWT — see
-`docs/USERS_TENANTS_PERMISSIONS.md`). New business entities added by a
+`docs/USERS_TENANTS_PERMISSIONS.md`). Code that runs without a JWT sets the
+tenant of its DI scope explicitly through `ITenantContext`, and only after it
+knows it from something it verified: the anonymous webhook request after the
+channel's secret matched, and the background worker after claiming an event. New business entities added by a
 client project must apply the same global query filter pattern; do not
 rely on remembering to add a `WHERE TenantId = ...` manually in every
 query.

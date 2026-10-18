@@ -167,6 +167,7 @@ public class ErrorLoggingConfigurationTests
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseSetting("Jwt:SigningKey", TestJwtSettings.SigningKey);
+            builder.UseSetting("Webhooks:Processing:Enabled", "false"); // no queue worker: these hosts assert on database traffic and logs
             builder.UseSetting("RateLimiting:Login:PermitLimit", CustomWebApplicationFactory.UnthrottledPermitLimit);
             builder.UseSetting("ConnectionStrings:DefaultConnection", DemoHostSettings.UnreachableConnectionString);
             builder.UseSetting("hostBuilder:reloadConfigOnChange", "false");

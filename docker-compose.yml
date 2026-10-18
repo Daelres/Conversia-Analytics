@@ -58,6 +58,8 @@ services:
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env (copy .env.example). It must be at least 32 bytes.}
       # Optional. Unset: the report endpoint is off (404). The Web gets the same value as ErrorReporting__ApiKey.
       ErrorLogging__ReportKey: ${ERROR_REPORT_KEY:-}
+      # Optional. The 360dialog API key (configuration Dialog360:ApiKey). Nothing calls 360dialog yet; this only passes the value through.
+      Dialog360__ApiKey: ${D360_API_KEY:-}
     ports:
       - "${API_PORT:-5030}:8080"
     depends_on:

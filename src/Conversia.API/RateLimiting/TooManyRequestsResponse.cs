@@ -33,7 +33,12 @@ internal static class TooManyRequestsResponse
     private static string DetailFor(HttpContext httpContext)
     {
         var policy = httpContext.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
-        return policy == ErrorReportRateLimitingExtensions.PolicyName ? ProblemTexts.TooManyReportsDetail : ProblemTexts.TooManyLoginsDetail;
+        return policy switch
+        {
+            ErrorReportRateLimitingExtensions.PolicyName => ProblemTexts.TooManyReportsDetail,
+            WebhookRateLimitingExtensions.PolicyName => ProblemTexts.TooManyWebhooksDetail,
+            _ => ProblemTexts.TooManyLoginsDetail,
+        };
     }
 
     private static int RetryAfterSeconds(RateLimitLease lease)

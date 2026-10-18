@@ -277,6 +277,7 @@ internal sealed class DemoHost : WebApplicationFactory<Program>
         builder.UseEnvironment(_settings.Environment);
         NoFileWatchers(builder);
         builder.UseSetting("Jwt:SigningKey", TestJwtSettings.SigningKey);
+        builder.UseSetting("Webhooks:Processing:Enabled", "false"); // no queue worker: these hosts assert on database traffic and logs
         builder.UseSetting("RateLimiting:Login:PermitLimit", CustomWebApplicationFactory.UnthrottledPermitLimit);
         builder.UseSetting("RateLimiting:Login:WindowSeconds", "60");
 

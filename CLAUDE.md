@@ -102,6 +102,7 @@ README.md                    # de la plantilla DR.Template
 docs/
   decisiones.md              # registro de decisiones del proyecto
   ARCHITECTURE.md, EXTENDING.md, WORKFLOW.md, DEMO.md, ERRORS.md, USERS_TENANTS_PERMISSIONS.md   # de la plantilla
+  WEBHOOKS.md                # ingesta del webhook de 360dialog (endpoint, mapeo, reintentos, formato no verificado)
 src/
   Conversia.Domain/          # sin dependencias
   Conversia.Application/     # referencia Domain

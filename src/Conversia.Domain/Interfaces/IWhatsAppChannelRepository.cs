@@ -11,4 +11,10 @@ public interface IWhatsAppChannelRepository
     Task<IReadOnlyList<WhatsAppChannel>> ListAsync(CancellationToken cancellationToken = default);
 
     Task AddAsync(WhatsAppChannel channel, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Untracked lookup by the public key of the webhook URL, <b>across all tenants</b>: the anonymous webhook request has no tenant
+    /// until the channel (and its secret) identifies it. The only repository method that ignores the tenant filter on purpose.
+    /// </summary>
+    Task<WhatsAppChannel?> GetByChannelKeyAsync(string channelKey, CancellationToken cancellationToken = default);
 }

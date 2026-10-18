@@ -48,6 +48,16 @@ public class Contact : BaseEntity
         }
     }
 
+    /// <summary>A message older than the first one seen moves <see cref="FirstSeenAt"/> back (webhooks can arrive out of order).</summary>
+    public void ObserveAt(DateTime sentAt)
+    {
+        var observed = UtcTime.Normalize(sentAt);
+        if (observed < FirstSeenAt)
+        {
+            FirstSeenAt = observed;
+        }
+    }
+
     /// <summary>The digits of <paramref name="waId"/> when they form a plausible id (5 to 20 digits), otherwise null.</summary>
     public static string? NormalizeWaId(string? waId)
     {

@@ -29,6 +29,7 @@ public class LoginRateLimitConfigurationTests
         {
             // appsettings.json ships a placeholder signing key the API refuses to boot with.
             builder.UseSetting("Jwt:SigningKey", TestJwtSettings.SigningKey);
+            builder.UseSetting("Webhooks:Processing:Enabled", "false"); // no queue worker: these hosts assert on database traffic and logs
 
             if (withoutAppSettingsFile)
             {

@@ -22,7 +22,10 @@ public static class ProblemTexts
 
     public const string TooManyRequestsTitle = "Demasiadas solicitudes";
     public const string TooManyLoginsDetail = "Demasiados intentos de inicio de sesión. Inténtalo de nuevo más tarde.";
-    public const string TooManyReportsDetail = "Demasiados reportes de errores desde esta dirección. Inténtalo de nuevo más tarde.";
+    public const string TooManyWebhooksDetail = "Demasiadas llamadas al webhook desde esta dirección. Inténtalo de nuevo más tarde.";
+    public const string WebhookUnauthorizedTitle = "Webhook no autorizado";
+    public const string WebhookUnauthorizedDetail = "El canal o el secreto del webhook no son válidos.";
+    public const string TooManyReportsDetail ="Demasiados reportes de errores desde esta dirección. Inténtalo de nuevo más tarde.";
 
     // A request the server could not read as HTTP (BadHttpRequestException): wrong framing, too slow, too big.
     public const string MalformedRequestDetail = "La solicitud está mal formada o incompleta.";

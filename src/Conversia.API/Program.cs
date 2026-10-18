@@ -30,6 +30,7 @@ builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddLoginRateLimiting(builder.Configuration);
 builder.Services.AddErrorLogging(builder.Configuration);
+builder.Services.AddWebhookIngestion(builder.Configuration);
 builder.Services.AddDemoData(builder.Configuration, builder.Environment);
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -49,7 +50,10 @@ builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IOrganizationService, OrganizationService>();
-builder.Services.AddScoped<ICurrentTenantService, CurrentTenantService>();
+// One instance per scope under both interfaces: the tenant a webhook request or the worker sets is the one the DbContext filters by.
+builder.Services.AddScoped<CurrentTenantService>();
+builder.Services.AddScoped<ICurrentTenantService>(sp => sp.GetRequiredService<CurrentTenantService>());
+builder.Services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<CurrentTenantService>());
 builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();

@@ -27,6 +27,8 @@
   <ItemGroup>
     <!-- One denylist for every project that checks "all user-facing text is Spanish". -->
     <Compile Include="..\Shared\EnglishLeaks.cs" Link="Shared\EnglishLeaks.cs" />
+    <!-- Sample webhook deliveries, shared by the parser unit tests and the integration tests. -->
+    <Compile Include="..\Shared\Dialog360Samples.cs" Link="Shared\Dialog360Samples.cs" />
   </ItemGroup>
 
 </Project>
