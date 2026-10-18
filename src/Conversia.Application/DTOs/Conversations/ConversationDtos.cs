@@ -164,6 +164,12 @@ public class OpportunityResponse
 
     public DateTime? ClassifiedAt { get; set; }
 
+    /// <summary>How sure the classifier was, 0 to 1; null until the conversation has been classified.</summary>
+    public decimal? ClassificationConfidence { get; set; }
+
+    /// <summary>Comma-separated codes of the rules behind the last classification (<c>outcome.lost.refusal,objection.price</c>); never customer text.</summary>
+    public string? ClassificationRules { get; set; }
+
     public static OpportunityResponse From(Opportunity opportunity) => new()
     {
         Stage = opportunity.Stage.ToString(),
@@ -176,6 +182,8 @@ public class OpportunityResponse
         LossDetail = opportunity.LossDetail,
         ClosedAt = opportunity.ClosedAt,
         ClassifiedAt = opportunity.ClassifiedAt,
+        ClassificationConfidence = opportunity.ClassificationConfidence,
+        ClassificationRules = opportunity.ClassificationRules,
     };
 }
 

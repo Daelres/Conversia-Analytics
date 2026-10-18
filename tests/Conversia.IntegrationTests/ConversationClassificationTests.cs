@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net.Http.Json;
 using Conversia.API.Configuration;
 using Conversia.Application.Classification;
 using Conversia.Domain.Enums;
@@ -159,6 +160,25 @@ public class ConversationClassificationTests
         Assert.Equal(("axilas", ObjectionType.None, now, now, now), (opportunity.ServiceInterest, opportunity.Objection, opportunity.ClassifiedAt, opportunity.ClosedAt, opportunity.StageChangedAt));
         Assert.InRange(opportunity.ClassificationConfidence!.Value, 0.5m, 1m);
         Assert.Contains("outcome.lost.refusal", opportunity.ClassificationRules!);
+    }
+
+    [Fact]
+    public async Task TheApiShowsWhatTheClassifierConcluded_WithoutCustomerText()
+    {
+        using var f = await NewTenantAsync();
+        var start = NewEra();
+        var seeded = await SeedAsync(f, start);
+        var before = (await f.Tenant.Owner.Client.GetFromJsonAsync<Conversia.Application.DTOs.Conversations.ConversationDetailResponse>($"/api/conversations/{seeded.ConversationId}"))!.Opportunity;
+        Assert.Equal((null, null, null), (before.ClassificationConfidence, before.ClassificationRules, before.ClassifiedAt));
+
+        await DrainClassificationAsync(Runner(new FixedTimeProvider(start.AddHours(1))));
+
+        var opportunity = (await f.Tenant.Owner.Client.GetFromJsonAsync<Conversia.Application.DTOs.Conversations.ConversationDetailResponse>($"/api/conversations/{seeded.ConversationId}"))!.Opportunity;
+        Assert.Equal(("Lost", "Auto", "NotInterested", "axilas"), (opportunity.Stage, opportunity.StageSource, opportunity.LossReason, opportunity.ServiceInterest));
+        Assert.InRange(opportunity.ClassificationConfidence!.Value, 0.5m, 1m);
+        Assert.Contains("outcome.lost.refusal", opportunity.ClassificationRules!);
+        Assert.DoesNotContain("gracias", opportunity.ClassificationRules!, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(start.AddHours(1), opportunity.ClassifiedAt);
     }
 
     [Fact]
