@@ -138,14 +138,14 @@ public class Dialog360PayloadParserTests
     }
 
     [Fact]
-    public void TimestampAsNumber_AndSeparatorsInTheWaId_AreAccepted()
+    public void ATimestampAsANumberAndAPlusInTheWaId_AreAccepted()
     {
-        var json = $$"""{ "messages": [ { "from": "+57 300 555-0101", "id": "a", "timestamp": {{Dialog360Samples.T0}}, "type": "text", "text": { "body": "x" } } ] }""";
+        var json = $$"""{ "messages": [ { "from": "+573005550101", "id": "a", "timestamp": {{Dialog360Samples.T0}}, "type": "text", "text": { "body": "x" } } ] }""";
 
         var message = Assert.Single(Dialog360PayloadParser.Parse(json).Messages);
 
         Assert.Equal(T0, message.SentAt);
-        Assert.Equal("+57 300 555-0101", message.ContactWaId); // normalized later, by the contact rules
+        Assert.Equal("573005550101", message.ContactWaId); // normalized by the contact rules
     }
 
     [Fact]
@@ -178,5 +178,199 @@ public class Dialog360PayloadParserTests
         var json = $$"""{ "messages": [ { "from": "573005550101", "id": "a", "timestamp": "{{Dialog360Samples.T0}}", "type": "interactive", "interactive": { "type": "button_reply", "button_reply": { "id": "1", "title": "Sí, agendar" } } } ] }""";
 
         Assert.Equal("Sí, agendar", Assert.Single(Dialog360PayloadParser.Parse(json).Messages).Text);
+    }
+
+    // ---- Identifiers: a BSUID is not a phone number ---------------------------------------------------------
+
+    [Theory]
+    [InlineData("CO.13491208655302741918")]
+    [InlineData("US.123456")]
+    [InlineData("CA.123456")]
+    [InlineData("+57 300 555 0101")]
+    [InlineData("57300-555-0101")]
+    public void AnInboundMessageWithoutAWhatsAppPhoneNumber_IsSkippedAndCounted_NeverTurnedIntoAFakeNumber(string from)
+    {
+        var parsed = Dialog360PayloadParser.Parse(Dialog360Samples.InboundFrom(from));
+
+        Assert.Empty(parsed.Messages);
+        Assert.Equal(1, parsed.SkippedCount);
+    }
+
+    // ---- Timestamps -------------------------------------------------------------------------------------------
+
+    private static ParsedWebhook ParseWithTimestamp(string timestampJson, DateTime? now = null)
+        => Dialog360PayloadParser.Parse(
+            $$"""{ "messages": [ { "from": "573005550101", "id": "a", "timestamp": {{timestampJson}}, "type": "text", "text": { "body": "x" } } ] }""",
+            now ?? T0.AddHours(1));
+
+    [Theory]
+    [InlineData("\"1792324800\"")]
+    [InlineData("1792324800")]
+    [InlineData("\"1792324800.0\"")]
+    [InlineData("1792324800.0")]
+    [InlineData("1792324800.9")] // truncated to the second
+    [InlineData("1.7923248e9")]
+    [InlineData("\"1.7923248E9\"")]
+    public void TimestampsInAnyNumericSpelling_AreTruncatedToTheSecond(string timestamp)
+        => Assert.Equal(T0, Assert.Single(ParseWithTimestamp(timestamp).Messages).SentAt);
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("\"3600\"")] // 1970
+    [InlineData("1419984000")] // 2014-12-31
+    [InlineData("100000000000")] // year 5138
+    [InlineData("-1792324800")]
+    [InlineData("\"\"")]
+    [InlineData("\"NaN\"")]
+    [InlineData("\"1e400\"")]
+    [InlineData("true")]
+    [InlineData("null")]
+    public void ImplausibleTimestamps_AreSkippedAndCounted(string timestamp)
+    {
+        var parsed = ParseWithTimestamp(timestamp);
+
+        Assert.Empty(parsed.Messages);
+        Assert.Equal(1, parsed.SkippedCount);
+    }
+
+    [Fact]
+    public void TheWindowIsFrom2015UntilADayAfterNow()
+    {
+        var now = T0;
+
+        Assert.Single(ParseWithTimestamp("1420070400", now).Messages); // 2015-01-01T00:00:00Z
+        Assert.Empty(ParseWithTimestamp("1420070399", now).Messages);
+        Assert.Single(ParseWithTimestamp((Dialog360Samples.T0 + 86_400).ToString(), now).Messages); // tolerated clock skew
+        Assert.Empty(ParseWithTimestamp((Dialog360Samples.T0 + 86_401).ToString(), now).Messages);
+    }
+
+    // ---- Who the customer of an outbound message is ---------------------------------------------------------------
+
+    private static string EchoWithoutTo(string contacts) => $$"""
+        { "entry": [ { "changes": [ { "value": {
+          "metadata": { "display_phone_number": "{{Dialog360Samples.BusinessNumber}}", "phone_number_id": "1" },
+          {{contacts}}
+          "message_echoes": [ { "from": "{{Dialog360Samples.BusinessNumber}}", "id": "wamid.E", "timestamp": "{{Dialog360Samples.T0}}", "type": "text", "text": { "body": "hola" } } ]
+        } } ] } ] }
+        """;
+
+    private const string OneContact = "\"contacts\": [ { \"profile\": { \"name\": \"Laura\" }, \"wa_id\": \"573005550101\" } ],";
+
+    [Fact]
+    public void AnOutboundWithoutARecipient_BelongsToTheOnlyContactOfTheDelivery()
+    {
+        var message = Assert.Single(Dialog360PayloadParser.Parse(EchoWithoutTo(OneContact)).Messages);
+
+        Assert.Equal("573005550101", message.ContactWaId);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\"contacts\": [ { \"wa_id\": \"573005550101\" }, { \"wa_id\": \"573005550102\" } ],")]
+    public void AnOutboundWithoutARecipient_AndNotExactlyOneContact_IsSkippedAndCounted_NeverGuessed(string contacts)
+    {
+        var parsed = Dialog360PayloadParser.Parse(EchoWithoutTo(contacts));
+
+        Assert.Empty(parsed.Messages);
+        Assert.Equal(1, parsed.SkippedCount);
+    }
+
+    [Fact]
+    public void ABusinessSenderWithoutARecipient_FollowsTheSameRule()
+    {
+        var json = $$"""
+            { "messages": [ { "from": "{{Dialog360Samples.BusinessNumber}}", "id": "a", "timestamp": "{{Dialog360Samples.T0}}", "type": "text" } ],
+              "metadata": { "display_phone_number": "{{Dialog360Samples.BusinessNumber}}" },
+              "contacts": [ { "wa_id": "573005550101" }, { "wa_id": "573005550102" } ] }
+            """;
+
+        var parsed = Dialog360PayloadParser.Parse(json);
+
+        Assert.Empty(parsed.Messages);
+        Assert.Equal(1, parsed.SkippedCount);
+    }
+
+    // ---- What is not a conversation message ---------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("\"group_id\": \"120363000000000000@g.us\",")]
+    [InlineData("\"recipient_type\": \"group\",")]
+    public void GroupMessages_AreSkippedAndCounted(string marker)
+    {
+        var json = $$"""{ "messages": [ { {{marker}} "from": "573005550101", "id": "a", "timestamp": "{{Dialog360Samples.T0}}", "type": "text", "text": { "body": "x" } } ] }""";
+
+        var parsed = Dialog360PayloadParser.Parse(json);
+
+        Assert.Empty(parsed.Messages);
+        Assert.Equal(1, parsed.SkippedCount);
+    }
+
+    [Theory]
+    [InlineData("reaction")]
+    [InlineData("system")]
+    [InlineData("Reaction")]
+    public void ReactionsAndSystemMessages_AreIgnoredNotStored_AndNotCountedAsSkipped(string type)
+    {
+        var json = $$"""{ "messages": [ { "from": "573005550101", "id": "a", "timestamp": "{{Dialog360Samples.T0}}", "type": "{{type}}" } ] }""";
+
+        var parsed = Dialog360PayloadParser.Parse(json);
+
+        Assert.Empty(parsed.Messages);
+        Assert.Equal((0, 1), (parsed.SkippedCount, parsed.IgnoredCount));
+    }
+
+    // ---- Ad reference ---------------------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("""{ "headline": "", "source_url": "https://fb.me/ad" }""", "https://fb.me/ad")]
+    [InlineData("""{ "headline": "   ", "source_url": "", "source_id": "123" }""", "123")]
+    [InlineData("""{ "headline": " Promo ", "source_url": "https://fb.me/ad" }""", "Promo")]
+    [InlineData("""{ "headline": "", "source_url": "" }""", null)]
+    [InlineData("""{ }""", null)]
+    public void TheAdReference_IsTheFirstNonBlankOfHeadlineUrlIdAndBody(string referral, string? expected)
+    {
+        var json = $$"""{ "messages": [ { "from": "573005550101", "id": "a", "timestamp": "{{Dialog360Samples.T0}}", "type": "text", "referral": {{referral}} } ] }""";
+
+        var message = Assert.Single(Dialog360PayloadParser.Parse(json).Messages);
+
+        Assert.Equal(expected, message.Referral!.Reference); // a referral without any reference is still an ad
+    }
+
+    // ---- Truncation never splits an emoji ---------------------------------------------------------------------------------
+
+    [Fact]
+    public void TruncationAtAnEmojiBoundary_KeepsEveryStringWellFormed()
+    {
+        var text = new string('a', Domain.Entities.Message.TextMaxLength - 1) + "😀";
+        var name = new string('n', 199) + "😀";
+        var reference = new string('r', 499) + "😀";
+        var json = $$"""
+            { "contacts": [ { "wa_id": "573005550101", "profile": { "name": "{{name}}" } } ],
+              "messages": [ { "from": "573005550101", "id": "a", "timestamp": "{{Dialog360Samples.T0}}", "type": "text",
+                              "text": { "body": "{{text}}" }, "referral": { "headline": "{{reference}}" } } ] }
+            """;
+
+        var message = Assert.Single(Dialog360PayloadParser.Parse(json).Messages);
+
+        Assert.Equal(Domain.Entities.Message.TextMaxLength - 1, message.Text!.Length);
+        Assert.Equal(199, message.ContactName!.Length);
+        Assert.Equal(499, message.Referral!.Reference!.Length);
+        Assert.All(new[] { message.Text, message.ContactName, message.Referral.Reference }, AssertNoLoneSurrogate);
+    }
+
+    private static void AssertNoLoneSurrogate(string value)
+    {
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (char.IsHighSurrogate(value[i]))
+            {
+                Assert.True(i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]), "high surrogate without its pair");
+                i++;
+            }
+            else
+            {
+                Assert.False(char.IsLowSurrogate(value[i]), "low surrogate without its pair");
+            }
+        }
     }
 }

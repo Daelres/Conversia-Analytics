@@ -37,6 +37,26 @@ public static class TextRules
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
+    /// <summary>
+    /// Cuts <paramref name="text"/> to at most <paramref name="maxLength"/> UTF-16 units without splitting a surrogate pair: a lone
+    /// surrogate would make the whole value unwritable (Npgsql refuses it), and with it the delivery that carried it.
+    /// </summary>
+    public static string Truncate(string text, int maxLength)
+    {
+        if (text.Length <= maxLength)
+        {
+            return text;
+        }
+
+        var end = maxLength;
+        if (end > 0 && char.IsHighSurrogate(text[end - 1]))
+        {
+            end--;
+        }
+
+        return text[..end];
+    }
+
     public static Guid RequiredId(Guid id, string message)
         => id == Guid.Empty ? throw new DomainException(message) : id;
 }

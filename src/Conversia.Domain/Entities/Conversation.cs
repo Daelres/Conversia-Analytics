@@ -70,12 +70,16 @@ public class Conversation : BaseEntity
 
     public void AssignAdvisor(Guid advisorId) => AdvisorId = TextRules.RequiredId(advisorId, "El asesor es obligatorio.");
 
-    /// <summary>A referral on any message of the conversation marks it as coming from an ad; an existing ad reference is kept.</summary>
+    /// <summary>
+    /// A referral on any message of the conversation marks it as coming from an ad. A conversation that is already an ad keeps its
+    /// reference, unless it has none yet and this referral brings one.
+    /// </summary>
     public void MarkAsAds(string? sourceReference)
     {
         var reference = TextRules.Optional(sourceReference, SourceReferenceMaxLength, SourceReferenceRuleMessage);
         if (Source == ConversationSource.Ads)
         {
+            SourceReference ??= reference;
             return;
         }
 

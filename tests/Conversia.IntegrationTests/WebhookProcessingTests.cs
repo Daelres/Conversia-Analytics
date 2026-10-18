@@ -130,6 +130,116 @@ public class WebhookProcessingTests : IAsyncLifetime
         Assert.Equal((At(T0 - 600), At(T0), At(T0 + 30)), (conversation.StartedAt, conversation.FirstInboundAt, conversation.FirstResponseAt));
     }
 
+    [Fact]
+    public async Task AReplyInTheSameSecondAsTheCustomersMessage_IsTheFirstResponse()
+    {
+        using var f = await NewChannelAsync();
+        await DeliverAsync(_client, f, Dialog360Samples.InboundText("wamid.IN", T0));
+        await DeliverAsync(_client, f, Dialog360Samples.OutboundEcho("wamid.OUT", T0));
+
+        var conversation = Assert.Single((await ProcessAsync(f)).Conversations);
+
+        Assert.Equal((At(T0), At(T0)), (conversation.FirstInboundAt, conversation.FirstResponseAt));
+    }
+
+    [Fact]
+    public async Task AReactionOrASystemMessage_NeverSetsTheFirstInboundNorTheFirstResponse()
+    {
+        using var f = await NewChannelAsync();
+        var reaction = $$"""{ "messages": [ { "from": "{{Dialog360Samples.CustomerWaId}}", "id": "wamid.REACT", "timestamp": "{{T0}}", "type": "reaction", "reaction": { "emoji": "👍" } } ] }""";
+        await DeliverAsync(_client, f, reaction);
+
+        var s = await ProcessAsync(f);
+
+        Assert.Empty(s.Messages);
+        Assert.Empty(s.Conversations);
+        Assert.Equal((0, 0), (s.Events[0].SkippedMessageCount, s.Events[0].StatusCount));
+    }
+
+    // ---- Messages that cannot be stored are counted, never silent -----------------------------------------------
+
+    [Fact]
+    public async Task ADeliveryWhoseCustomerHasNoPhoneNumber_IsCountedAsSkipped_NotSilentlyDropped_AndNeverMergesCustomers()
+    {
+        using var f = await NewChannelAsync();
+        await DeliverAsync(_client, f, Dialog360Samples.InboundFrom("CO.13491208655302741918", "wamid.B1"));
+        await DeliverAsync(_client, f, Dialog360Samples.InboundFrom("CO.99999999999999999999", "wamid.B2", T0 + 1));
+        await DeliverAsync(_client, f, Dialog360Samples.InboundText("wamid.OK", T0 + 2));
+
+        var s = await ProcessAsync(f);
+
+        Assert.Equal([1, 1, 0], s.Events.Select(e => e.SkippedMessageCount!.Value));
+        Assert.All(s.Events, e => Assert.Equal(WebhookEventStatus.Processed, e.Status));
+        Assert.Equal(Dialog360Samples.CustomerWaId, Assert.Single(s.Contacts).WaId); // the BSUIDs created no contact at all
+        Assert.Equal("wamid.OK", Assert.Single(s.Messages).ProviderMessageId);
+    }
+
+    [Fact]
+    public async Task TheStatusCountOfAReceiptOnlyDelivery_IsPersisted()
+    {
+        using var f = await NewChannelAsync();
+        await DeliverAsync(_client, f, Dialog360Samples.StatusesOnly());
+
+        var webhookEvent = Assert.Single((await ProcessAsync(f)).Events);
+
+        Assert.Equal((0, 2), (webhookEvent.SkippedMessageCount, webhookEvent.StatusCount));
+    }
+
+    [Fact]
+    public async Task ADeliveryNamingAnotherBusinessNumber_IsCountedAsSkipped()
+    {
+        using var f = await NewChannelAsync(providerPhoneNumberId: Dialog360Samples.PhoneNumberId);
+        await DeliverAsync(_client, f, Dialog360Samples.InboundText("wamid.FOREIGN", phoneNumberId: "999999"));
+
+        Assert.Equal(1, Assert.Single((await ProcessAsync(f)).Events).SkippedMessageCount);
+    }
+
+    // ---- Names, references and boundaries -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task AnOlderDeliveryProcessedAfterANewerOne_DoesNotOverwriteTheNewerName()
+    {
+        using var f = await NewChannelAsync();
+        await DeliverAsync(_client, f, Dialog360Samples.InboundText("wamid.NEW", T0 + 3600, name: "Laura Nueva"));
+        await ProcessAsync(f);
+        await DeliverAsync(_client, f, Dialog360Samples.InboundText("wamid.OLD", T0, name: "Laura Vieja"));
+
+        var s = await ProcessAsync(f);
+
+        Assert.Equal("Laura Nueva", Assert.Single(s.Contacts).DisplayName);
+        Assert.Equal(2, s.Messages.Count);
+    }
+
+    [Fact]
+    public async Task AReferralWithAnEmptyHeadline_UsesTheUrl_AndALaterReferralFillsAMissingReference()
+    {
+        using var f = await NewChannelAsync();
+        string Ad(string id, long time, string referral) =>
+            $$"""{ "messages": [ { "from": "{{Dialog360Samples.CustomerWaId}}", "id": "{{id}}", "timestamp": "{{time}}", "type": "text", "referral": {{referral}} } ] }""";
+        await DeliverAsync(_client, f, Ad("wamid.A1", T0, """{ "headline": "", "source_url": "https://fb.me/ad-1" }"""));
+        Assert.Equal("https://fb.me/ad-1", Assert.Single((await ProcessAsync(f)).Conversations).SourceReference);
+
+        using var g = await NewChannelAsync();
+        await DeliverAsync(_client, g, Ad("wamid.B1", T0, "{ }")); // an ad, but nothing to name it by
+        await DeliverAsync(_client, g, Ad("wamid.B2", T0 + 5, """{ "headline": "Promo" }"""));
+        var conversation = Assert.Single((await ProcessAsync(g)).Conversations);
+
+        Assert.Equal((ConversationSource.Ads, "Promo"), (conversation.Source, conversation.SourceReference));
+    }
+
+    [Fact]
+    public async Task TextCutAtAnEmojiBoundary_IsStoredIntact()
+    {
+        using var f = await NewChannelAsync();
+        var text = new string('a', Domain.Entities.Message.TextMaxLength - 1) + "😀";
+        await DeliverAsync(_client, f, Dialog360Samples.InboundText(text: text));
+
+        var s = await ProcessAsync(f);
+
+        Assert.Equal(WebhookEventStatus.Processed, Assert.Single(s.Events).Status);
+        Assert.Equal(Domain.Entities.Message.TextMaxLength - 1, Assert.Single(s.Messages).Text!.Length);
+    }
+
     // ---- Source -------------------------------------------------------------------------------------
 
     [Fact]

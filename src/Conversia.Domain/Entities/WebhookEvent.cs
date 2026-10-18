@@ -40,6 +40,12 @@ public class WebhookEvent : BaseEntity
 
     public string? LastError { get; private set; }
 
+    /// <summary>Entries of the delivery that looked like customer messages but could not be stored (no usable id, phone, timestamp...). Null until processed.</summary>
+    public int? SkippedMessageCount { get; private set; }
+
+    /// <summary>Delivery receipts (<c>statuses</c>) in the delivery. Null until processed.</summary>
+    public int? StatusCount { get; private set; }
+
     // Required by EF Core for materialization.
     private WebhookEvent()
     {
@@ -67,6 +73,12 @@ public class WebhookEvent : BaseEntity
             ReceivedAt = received,
             NextAttemptAt = received,
         };
+    }
+
+    public void RecordParseCounts(int skippedMessages, int statuses)
+    {
+        SkippedMessageCount = skippedMessages;
+        StatusCount = statuses;
     }
 
     public void MarkProcessed(DateTime now)

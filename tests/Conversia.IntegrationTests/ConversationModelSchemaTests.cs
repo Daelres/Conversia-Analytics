@@ -128,7 +128,7 @@ public class ConversationModelSchemaTests
 
         await using (Scope(out var db))
         {
-            db.Add(Contact.Create(g.TenantId, "+57 300 123 4567", null, T0));
+            db.Add(Contact.Create(g.TenantId, "+573001234567", null, T0));
             await UniqueViolationAsync(db);
         }
 

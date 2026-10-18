@@ -21,6 +21,7 @@ public class ContactConfiguration : IEntityTypeConfiguration<Contact>
         builder.Property(c => c.WaId).IsRequired().HasMaxLength(Contact.MaxWaIdLength);
         builder.Property(c => c.DisplayName).HasMaxLength(Contact.DisplayNameMaxLength);
         builder.Property(c => c.FirstSeenAt).IsRequired();
+        builder.Property(c => c.DisplayNameAt);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.UpdatedAt);
 
@@ -144,6 +145,8 @@ public class WebhookEventConfiguration : IEntityTypeConfiguration<WebhookEvent>
         builder.Property(e => e.Attempts).IsRequired();
         builder.Property(e => e.NextAttemptAt).IsRequired();
         builder.Property(e => e.LastError).HasMaxLength(WebhookEvent.LastErrorMaxLength);
+        builder.Property(e => e.SkippedMessageCount);
+        builder.Property(e => e.StatusCount);
         builder.Property(e => e.CreatedAt).IsRequired();
         builder.Property(e => e.UpdatedAt);
 

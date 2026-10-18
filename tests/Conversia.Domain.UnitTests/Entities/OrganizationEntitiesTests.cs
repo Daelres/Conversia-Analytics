@@ -136,3 +136,17 @@ public class OrganizationEntitiesTests
     public void ChannelKeyShape_RejectsShortOrUnsafeKeys(string? key, bool wellFormed)
         => Assert.Equal(wellFormed, WhatsAppChannel.IsWellFormedChannelKey(key));
 }
+
+public class TextRulesTests
+{
+    [Fact]
+    public void Truncate_NeverSplitsASurrogatePair()
+    {
+        var text = new string('a', 9) + "😀" + "tail"; // the emoji takes units 9 and 10
+
+        Assert.Equal(new string('a', 9), Conversia.Domain.Common.TextRules.Truncate(text, 10)); // would cut the pair in two
+        Assert.Equal(new string('a', 9) + "😀", Conversia.Domain.Common.TextRules.Truncate(text, 11));
+        Assert.Equal("short", Conversia.Domain.Common.TextRules.Truncate("short", 10));
+        Assert.Equal(string.Empty, Conversia.Domain.Common.TextRules.Truncate("😀", 1));
+    }
+}

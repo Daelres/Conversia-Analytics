@@ -78,6 +78,7 @@ public sealed partial class WebhookEventRunner(
         try
         {
             var result = await processor.ProcessAsync(webhookEvent, cancellationToken);
+            webhookEvent.RecordParseCounts(result.Skipped, result.Statuses);
             webhookEvent.MarkProcessed(UtcNow());
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -85,6 +86,13 @@ public sealed partial class WebhookEventRunner(
             logger.LogInformation(
                 "Webhook event {EventId} processed: {Stored} messages stored, {AlreadyStored} already stored, {Ignored} ignored.",
                 webhookEvent.Id, result.MessagesStored, result.MessagesAlreadyStored, result.Ignored);
+            if (result.Skipped > 0)
+            {
+                // No content here, on purpose: the skipped entries hold phone numbers or ids of customers.
+                logger.LogWarning(
+                    "Webhook event {EventId} of tenant {TenantId} had {Skipped} messages that could not be stored (no usable phone number, id or timestamp, a group, or another number).",
+                    webhookEvent.Id, webhookEvent.TenantId, result.Skipped);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

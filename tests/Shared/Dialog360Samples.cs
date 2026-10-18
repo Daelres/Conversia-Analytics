@@ -38,6 +38,12 @@ public static class Dialog360Samples
             }
             """;
 
+    /// <summary>An inbound message whose sender is not a phone number (for example a business-scoped user id, <c>CO.1349...</c>).</summary>
+    public static string InboundFrom(string from, string id = "wamid.HBgM-BSUID-1", long timestamp = T0) => Envelope("messages", $$"""
+        "contacts": [ { "profile": { "name": "Laura Gómez" }, "wa_id": "{{from}}", "user_id": "{{from}}" } ],
+        "messages": [ { "from": "{{from}}", "from_user_id": "{{from}}", "id": "{{id}}", "timestamp": "{{timestamp}}", "type": "text", "text": { "body": "Hola" } } ]
+        """);
+
     /// <summary>Two inbound messages of the same customer in one delivery.</summary>
     public static string TwoInboundMessages(long timestamp = T0) => Envelope("messages", $$"""
         "contacts": [ { "profile": { "name": "Laura Gómez" }, "wa_id": "{{CustomerWaId}}" } ],

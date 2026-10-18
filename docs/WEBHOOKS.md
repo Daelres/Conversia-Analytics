@@ -91,16 +91,19 @@ shape, with `contacts`, `messages` and `statuses` at the root, is read too.
 | Payload | Becomes |
 |---|---|
 | `value.messages[]` | An **Inbound** message. |
-| `messages[].from` | The customer: `Contact.WaId` (digits only, 5 to 20). |
+| `messages[].from` | The customer: `Contact.WaId`. **Strict**: after trimming and an optional leading `+`, only ASCII digits, 7 to 15 of them (E.164). Spaces, dashes, dots and letters are *not* repaired: such a message is skipped and counted. In particular a business-scoped user id (`CO.13491208655302741918`) never becomes a phone number, so different customers cannot merge. |
 | `value.contacts[].profile.name` (matched by `wa_id`) | `Contact.DisplayName`; the latest non-blank name wins. |
 | `messages[].id` | `Message.ProviderMessageId` (case-sensitive; unique per channel). |
-| `messages[].timestamp` (unix seconds, string or number) | `Message.SentAt`, UTC. |
+| `messages[].timestamp` (unix seconds, string or number; decimals and exponents such as `1792324800.0` or `1.7923248e9` are truncated to the second) | `Message.SentAt`, UTC. Only 2015-01-01 up to one day after now is plausible; anything else is skipped and counted. |
 | `messages[].type` | `Message.Type` in lower case (`text`, `image`, `audio`, ...); an odd value becomes `unknown`. |
 | `text.body`, or `button.text`, or the title of an `interactive` reply, or the `caption` of a media message | `Message.Text` (4096 characters at most, NUL removed). Null for media without caption. |
-| `messages[].referral` (click-to-WhatsApp ad) | `Conversation.Source = Ads`; `SourceReference` is the first of `headline`, `source_url`, `source_id`, `body`. |
-| `value.statuses[]` | Ignored (delivery receipts). |
+| `messages[].referral` (click-to-WhatsApp ad) | `Conversation.Source = Ads`; `SourceReference` is the first *non-blank* of `headline`, `source_url`, `source_id`, `body`; a later referral fills a reference the ad conversation lacked. |
+| `value.statuses[]` | Ignored (delivery receipts); counted in `WebhookEvents.StatusCount`. |
+| `messages[]` with a `group_id` (or `recipient_type: group`) | Skipped and counted: group chats are not customer conversations. |
+| `messages[]` of type `reaction` or `system` | Ignored: they never create a conversation nor set `FirstInboundAt`/`FirstResponseAt`. |
 | `value.message_echoes[]` (`field: smb_message_echoes`) | An **Outbound** message; the customer is `to`. **Unverified**, see below. |
-| A `messages[]` entry whose `from` is the business number (`metadata.display_phone_number`) | Also **Outbound**, customer = `to`. Defensive fallback, **unverified**. |
+| A `messages[]` entry whose `from` is the business number (`metadata.display_phone_number`, compared by its digits) | Also **Outbound**, customer = `to`. Defensive fallback, **unverified**. |
+| An outbound entry with no `to` | Belongs to `contacts[0]` only when the delivery has exactly one contact; otherwise skipped and counted (never a guess). |
 | `metadata.phone_number_id` | Not used to find the channel (the URL does). If the channel has a `ProviderPhoneNumberId` and the delivery names another one, its messages are ignored. |
 | Anything else (templates, history sync, unknown fields) | Ignored. |
 
@@ -115,7 +118,7 @@ real 360dialog sandbox**. Until it is, treat first-response metrics as unproven.
 If the real shape differs, only `Dialog360PayloadParser` has to change; the tests
 build their payloads from `tests/Shared/Dialog360Samples.cs`. Also open: newer API
 versions may identify users by a business-scoped id (BSUID) and omit the phone
-number; `WaId` is digits only and such messages would be skipped and counted.
+number; such messages are skipped and counted in `SkippedMessageCount`, never stored under a fake number. Supporting them needs a decision about the contact key.
 
 ## Processing
 
@@ -143,12 +146,20 @@ Rules applied when a message is stored:
   Nothing closes a conversation yet.
 - **Message**: unique on `(ChannelId, ProviderMessageId)`. A message that is already
   stored (the same message inside another delivery) is skipped.
-- **Times** are recomputed from the stored message times after every message, never
-  from arrival order: `StartedAt` is the earliest message, `LastMessageAt` the latest,
-  `FirstInboundAt` the earliest customer message, and `FirstResponseAt` the earliest
-  business message **strictly after** `FirstInboundAt` (a business message sent
-  before the customer's first one is not a response). A delivery that arrives late
-  or out of order therefore fixes the markers instead of breaking them.
+- **Times** are recomputed from the stored message times once per conversation after a
+  delivery's messages are in, never from arrival order: `StartedAt` is the earliest
+  message, `LastMessageAt` the latest, `FirstInboundAt` the earliest customer message,
+  and `FirstResponseAt` the earliest business message **at or after** `FirstInboundAt`
+  (timestamps have one-second resolution, so a same-second reply counts; a business
+  message sent *before* the customer's first one is not a response). A delivery that
+  arrives late or out of order therefore fixes the markers instead of breaking them.
+- **Display name**: the profile name of the latest message (by message time) wins; an
+  older delivery processed late never overwrites a newer name.
+- **Skipped messages are visible**: `WebhookEvents.SkippedMessageCount` (customer or
+  advisor messages that could not be stored: no usable phone number or id, implausible
+  timestamp, group, ambiguous recipient, another business number) and `StatusCount` are
+  filled when the event is processed, and a Warning (without any customer data) is logged
+  when the skipped count is above zero.
 
 ### Idempotency, in layers
 

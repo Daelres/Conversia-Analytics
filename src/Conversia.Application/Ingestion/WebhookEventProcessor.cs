@@ -11,14 +11,17 @@ public class WebhookEventProcessor : IWebhookEventProcessor
     private readonly IContactRepository _contacts;
     private readonly IConversationRepository _conversations;
     private readonly IMessageRepository _messages;
+    private readonly TimeProvider _timeProvider;
 
     public WebhookEventProcessor(
-        IWhatsAppChannelRepository channels, IContactRepository contacts, IConversationRepository conversations, IMessageRepository messages)
+        IWhatsAppChannelRepository channels, IContactRepository contacts, IConversationRepository conversations,
+        IMessageRepository messages, TimeProvider timeProvider)
     {
         _channels = channels;
         _contacts = contacts;
         _conversations = conversations;
         _messages = messages;
+        _timeProvider = timeProvider;
     }
 
     public async Task<WebhookProcessingResult> ProcessAsync(WebhookEvent webhookEvent, CancellationToken cancellationToken = default)
@@ -27,19 +30,21 @@ public class WebhookEventProcessor : IWebhookEventProcessor
         var channel = await _channels.GetByIdAsync(webhookEvent.ChannelId, cancellationToken)
             ?? throw new InvalidOperationException("The channel of the webhook event no longer exists.");
 
-        var parsed = Dialog360PayloadParser.Parse(webhookEvent.RawPayload);
+        var parsed = Dialog360PayloadParser.Parse(webhookEvent.RawPayload, _timeProvider.GetUtcNow().UtcDateTime);
 
         var stored = 0;
         var alreadyStored = 0;
-        var ignored = parsed.StatusCount + parsed.SkippedCount;
+        var skipped = parsed.SkippedCount;
+        var contacts = new Dictionary<string, Contact>();
+        var conversations = new Dictionary<Guid, Conversation>(); // by contact: one open conversation per contact on this channel
 
         // Oldest first, so the message that opens a conversation is the first one in time. Arrival order never decides anything
-        // that matters: the conversation's markers are recomputed from the stored message times after every message.
+        // that matters: the conversation's markers are recomputed from the stored message times once all its messages are in.
         foreach (var message in parsed.Messages.OrderBy(m => m.SentAt).ThenBy(m => m.ProviderMessageId, StringComparer.Ordinal))
         {
             if (IsAnotherNumber(message, channel))
             {
-                ignored++;
+                skipped++;
             }
             else if (await _messages.ExistsAsync(channel.Id, message.ProviderMessageId, cancellationToken))
             {
@@ -47,12 +52,20 @@ public class WebhookEventProcessor : IWebhookEventProcessor
             }
             else
             {
-                await StoreAsync(channel, message, cancellationToken);
+                await StoreAsync(channel, message, contacts, conversations, cancellationToken);
                 stored++;
             }
         }
 
-        return new WebhookProcessingResult(stored, alreadyStored, ignored);
+        // One timeline per conversation, after its messages: not one reload of the whole history per message.
+        foreach (var conversation in conversations.Values)
+        {
+            var times = await _messages.ListTimesAsync(conversation.Id, cancellationToken);
+            conversation.ApplyTimeline(ConversationTimeline.From(times)!);
+            await _conversations.UpdateAsync(conversation, cancellationToken);
+        }
+
+        return new WebhookProcessingResult(stored, alreadyStored, skipped, parsed.IgnoredCount, parsed.StatusCount);
     }
 
     // A delivery that names a different business number than the channel's is a misconfigured webhook; its messages are not ours.
@@ -61,10 +74,12 @@ public class WebhookEventProcessor : IWebhookEventProcessor
            && message.PhoneNumberId is not null
            && !string.Equals(channel.ProviderPhoneNumberId, message.PhoneNumberId, StringComparison.Ordinal);
 
-    private async Task StoreAsync(WhatsAppChannel channel, ParsedMessage message, CancellationToken cancellationToken)
+    private async Task StoreAsync(
+        WhatsAppChannel channel, ParsedMessage message, Dictionary<string, Contact> contacts,
+        Dictionary<Guid, Conversation> conversations, CancellationToken cancellationToken)
     {
-        var contact = await GetOrCreateContactAsync(channel.TenantId, message, cancellationToken);
-        var conversation = await GetOrCreateConversationAsync(channel, contact, message, cancellationToken);
+        var contact = await GetOrCreateContactAsync(channel.TenantId, message, contacts, cancellationToken);
+        var conversation = await GetOrCreateConversationAsync(channel, contact, message, conversations, cancellationToken);
 
         await _messages.AddAsync(
             Message.Create(channel.TenantId, conversation.Id, channel.Id, message.ProviderMessageId, message.Direction, message.Type, message.Text, message.SentAt),
@@ -74,44 +89,55 @@ public class WebhookEventProcessor : IWebhookEventProcessor
         {
             conversation.MarkAsAds(message.Referral.Reference);
         }
-
-        var times = await _messages.ListTimesAsync(conversation.Id, cancellationToken);
-        conversation.ApplyTimeline(ConversationTimeline.From(times)!);
-        await _conversations.UpdateAsync(conversation, cancellationToken);
     }
 
-    private async Task<Contact> GetOrCreateContactAsync(Guid tenantId, ParsedMessage message, CancellationToken cancellationToken)
+    private async Task<Contact> GetOrCreateContactAsync(
+        Guid tenantId, ParsedMessage message, Dictionary<string, Contact> contacts, CancellationToken cancellationToken)
     {
-        var waId = Contact.NormalizeWaId(message.ContactWaId)!;
-        var contact = await _contacts.GetByWaIdAsync(waId, cancellationToken);
-        if (contact is null)
+        if (contacts.TryGetValue(message.ContactWaId, out var known))
         {
-            contact = Contact.Create(tenantId, waId, message.ContactName, message.SentAt);
-            await _contacts.AddAsync(contact, cancellationToken);
-            return contact;
+            known.ObserveAt(message.SentAt);
+            known.UpdateDisplayName(message.ContactName, message.SentAt);
+            return known;
         }
 
-        contact.ObserveAt(message.SentAt);
-        contact.UpdateDisplayName(message.ContactName);
-        await _contacts.UpdateAsync(contact, cancellationToken);
+        var contact = await _contacts.GetByWaIdAsync(message.ContactWaId, cancellationToken);
+        if (contact is null)
+        {
+            contact = Contact.Create(tenantId, message.ContactWaId, message.ContactName, message.SentAt);
+            await _contacts.AddAsync(contact, cancellationToken);
+        }
+        else
+        {
+            contact.ObserveAt(message.SentAt);
+            contact.UpdateDisplayName(message.ContactName, message.SentAt);
+            await _contacts.UpdateAsync(contact, cancellationToken);
+        }
+
+        contacts[message.ContactWaId] = contact;
         return contact;
     }
 
     // Reuse the contact's open conversation on this channel, otherwise open one (with its opportunity) at the time of the message.
     private async Task<Conversation> GetOrCreateConversationAsync(
-        WhatsAppChannel channel, Contact contact, ParsedMessage message, CancellationToken cancellationToken)
+        WhatsAppChannel channel, Contact contact, ParsedMessage message, Dictionary<Guid, Conversation> conversations, CancellationToken cancellationToken)
     {
-        var conversation = await _conversations.FindOpenAsync(contact.Id, channel.Id, cancellationToken);
-        if (conversation is not null)
+        if (conversations.TryGetValue(contact.Id, out var known))
         {
-            return conversation;
+            return known;
         }
 
-        conversation = Conversation.Start(
-            channel.TenantId, contact.Id, channel.Id, channel.BranchId, message.SentAt,
-            message.Referral is null ? ConversationSource.Organic : ConversationSource.Ads,
-            message.Referral?.Reference);
-        await _conversations.AddAsync(conversation, Opportunity.Open(channel.TenantId, conversation.Id), cancellationToken);
+        var conversation = await _conversations.FindOpenAsync(contact.Id, channel.Id, cancellationToken);
+        if (conversation is null)
+        {
+            conversation = Conversation.Start(
+                channel.TenantId, contact.Id, channel.Id, channel.BranchId, message.SentAt,
+                message.Referral is null ? ConversationSource.Organic : ConversationSource.Ads,
+                message.Referral?.Reference);
+            await _conversations.AddAsync(conversation, Opportunity.Open(channel.TenantId, conversation.Id), cancellationToken);
+        }
+
+        conversations[contact.Id] = conversation;
         return conversation;
     }
 }

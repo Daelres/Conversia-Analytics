@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Conversia.Domain.Common;
 using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
 
@@ -24,10 +25,14 @@ public sealed record ParsedReferral(string? Reference);
 
 /// <param name="Messages">The messages to store, in payload order.</param>
 /// <param name="StatusCount">Delivery receipts (<c>statuses</c>), which carry nothing to store.</param>
-/// <param name="SkippedCount">Entries that looked like messages but lacked a usable id, contact or timestamp.</param>
-public sealed record ParsedWebhook(IReadOnlyList<ParsedMessage> Messages, int StatusCount, int SkippedCount)
+/// <param name="SkippedCount">
+/// Entries that looked like customer or advisor messages but could not be stored: no usable id, no WhatsApp phone number (for example
+/// a business-scoped user id), an implausible timestamp, a group message, or an echo whose customer cannot be told.
+/// </param>
+/// <param name="IgnoredCount">Messages of a kind that says nothing about the conversation (<c>reaction</c>, <c>system</c>).</param>
+public sealed record ParsedWebhook(IReadOnlyList<ParsedMessage> Messages, int StatusCount, int SkippedCount, int IgnoredCount)
 {
-    public static ParsedWebhook Empty { get; } = new([], 0, 0);
+    public static ParsedWebhook Empty { get; } = new([], 0, 0, 0);
 }
 
 /// <summary>
@@ -45,8 +50,14 @@ public static class Dialog360PayloadParser
 {
     private const int MaxContactNameLength = Contact.DisplayNameMaxLength;
 
-    public static ParsedWebhook Parse(string json)
+    // WhatsApp Business started in 2009 and the Cloud API in 2022; nothing before 2015 is a plausible timestamp. A day of clock skew is tolerated.
+    private static readonly DateTime EarliestTimestamp = new(2015, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly TimeSpan FutureSkew = TimeSpan.FromDays(1);
+
+    /// <param name="nowUtc">The current time, to reject timestamps from the future; the system clock when null.</param>
+    public static ParsedWebhook Parse(string json, DateTime? nowUtc = null)
     {
+        var latest = (nowUtc ?? DateTime.UtcNow) + FutureSkew;
         JsonDocument document;
         try
         {
@@ -65,15 +76,14 @@ public static class Dialog360PayloadParser
             }
 
             var messages = new List<ParsedMessage>();
-            var statuses = 0;
-            var skipped = 0;
+            var counts = new Counts();
 
             foreach (var value in Values(document.RootElement))
             {
-                ParseValue(value, messages, ref statuses, ref skipped);
+                ParseValue(value, latest, messages, counts);
             }
 
-            return new ParsedWebhook(messages, statuses, skipped);
+            return new ParsedWebhook(messages, counts.Statuses, counts.Skipped, counts.Ignored);
         }
     }
 
@@ -104,44 +114,62 @@ public static class Dialog360PayloadParser
         yield return root;
     }
 
-    private static void ParseValue(JsonElement value, List<ParsedMessage> messages, ref int statuses, ref int skipped)
+    private sealed class Counts
     {
-        var phoneNumberId = String(Object(value, "metadata"), "phone_number_id");
-        var businessDigits = Contact.NormalizeWaId(String(Object(value, "metadata"), "display_phone_number"));
-        var names = ContactNames(value);
-        var firstContact = names.Count > 0 ? names.Keys.First() : null;
+        public int Statuses;
+        public int Skipped;
+        public int Ignored;
+    }
 
-        statuses += Array(value, "statuses").Count();
+    private static void ParseValue(JsonElement value, DateTime latest, List<ParsedMessage> messages, Counts counts)
+    {
+        var metadata = Object(value, "metadata");
+        var phoneNumberId = String(metadata, "phone_number_id");
+        var businessDigits = Digits(String(metadata, "display_phone_number"));
+        var names = ContactNames(value);
+        // The customer of a message that does not name one: only when the delivery has exactly one contact, never a guess among several.
+        var contactEntries = Array(value, "contacts").ToList();
+        var onlyContact = contactEntries.Count == 1 ? String(contactEntries[0], "wa_id") : null;
+
+        counts.Statuses += Array(value, "statuses").Count();
 
         foreach (var raw in Array(value, "messages"))
         {
             var from = String(raw, "from");
             // Fallback for an echo delivered as a plain message: the sender is the business number, the customer is the recipient.
-            var sentByBusiness = businessDigits is not null && Contact.NormalizeWaId(from) == businessDigits;
+            var sentByBusiness = businessDigits.Length >= Contact.MinWaIdLength && Digits(from) == businessDigits;
             Add(raw, sentByBusiness ? MessageDirection.Outbound : MessageDirection.Inbound,
-                sentByBusiness ? String(raw, "to") ?? firstContact : from, phoneNumberId, names, messages, ref skipped);
+                sentByBusiness ? String(raw, "to") ?? onlyContact : from, phoneNumberId, latest, names, messages, counts);
         }
 
         foreach (var echo in Array(value, "message_echoes"))
         {
-            Add(echo, MessageDirection.Outbound, String(echo, "to") ?? firstContact, phoneNumberId, names, messages, ref skipped);
+            Add(echo, MessageDirection.Outbound, String(echo, "to") ?? onlyContact, phoneNumberId, latest, names, messages, counts);
         }
     }
 
     private static void Add(
-        JsonElement raw, MessageDirection direction, string? contactWaId, string? phoneNumberId,
-        IReadOnlyDictionary<string, string?> names, List<ParsedMessage> messages, ref int skipped)
+        JsonElement raw, MessageDirection direction, string? contactWaId, string? phoneNumberId, DateTime latest,
+        IReadOnlyDictionary<string, string?> names, List<ParsedMessage> messages, Counts counts)
     {
-        var id = String(raw, "id")?.Trim();
-        var sentAt = Timestamp(raw);
-        var normalizedContact = Contact.NormalizeWaId(contactWaId);
-        if (string.IsNullOrEmpty(id) || id.Length > Message.ProviderMessageIdMaxLength || id.Contains('\0') || sentAt is null || normalizedContact is null)
+        var type = (String(raw, "type") ?? "unknown").ToLowerInvariant();
+        if (type is "reaction" or "system")
         {
-            skipped++;
+            counts.Ignored++;
             return;
         }
 
-        var type = (String(raw, "type") ?? "unknown").ToLowerInvariant();
+        var id = String(raw, "id")?.Trim();
+        var sentAt = Timestamp(raw, latest);
+        var normalizedContact = Contact.NormalizeWaId(contactWaId);
+        if (IsGroupMessage(raw)
+            || string.IsNullOrEmpty(id) || id.Length > Message.ProviderMessageIdMaxLength || id.Contains('\0')
+            || sentAt is null || normalizedContact is null)
+        {
+            counts.Skipped++;
+            return;
+        }
+
         if (!Message.IsValidType(type))
         {
             type = "unknown";
@@ -150,7 +178,7 @@ public static class Dialog360PayloadParser
         names.TryGetValue(normalizedContact, out var name);
         messages.Add(new ParsedMessage(
             phoneNumberId,
-            contactWaId!,
+            normalizedContact,
             direction == MessageDirection.Inbound ? name : null,
             id,
             direction,
@@ -159,6 +187,14 @@ public static class Dialog360PayloadParser
             sentAt.Value,
             direction == MessageDirection.Inbound ? Referral(raw) : null));
     }
+
+    // Group messages (Groups API) carry a group id, or say their recipient is a group. They are not a customer conversation.
+    private static bool IsGroupMessage(JsonElement raw)
+        => (raw.TryGetProperty("group_id", out var group) && group.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+           || string.Equals(String(raw, "recipient_type"), "group", StringComparison.OrdinalIgnoreCase);
+
+    // Only the digits of a formatted phone number ("+57 300 555 0100"), to compare the business number with a sender.
+    private static string Digits(string? text) => text is null ? string.Empty : new string(text.Where(char.IsAsciiDigit).ToArray());
 
     // wa_id -> profile name, keyed by the normalized id so a message's sender finds its name whatever formatting the payload used.
     private static Dictionary<string, string?> ContactNames(JsonElement value)
@@ -195,31 +231,41 @@ public static class Dialog360PayloadParser
             return null;
         }
 
-        var reference = String(referral, "headline") ?? String(referral, "source_url") ?? String(referral, "source_id") ?? String(referral, "body");
-        return new ParsedReferral(Clean(reference, Conversation.SourceReferenceMaxLength));
+        // The first of these that has something in it: an empty headline must not hide the URL.
+        var reference = new[] { "headline", "source_url", "source_id", "body" }
+            .Select(name => String(referral, name))
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+        return new ParsedReferral(Clean(reference?.Trim(), Conversation.SourceReferenceMaxLength));
     }
 
-    // Unix seconds, as a string ("1739400000") or a number.
-    private static DateTime? Timestamp(JsonElement message)
+    // Unix seconds, as a string or a number, possibly with decimals or an exponent ("1792324800.0", "1.7923248e9"); truncated to the second.
+    // Only a plausible time is accepted: between 2015 and a day from now.
+    private static DateTime? Timestamp(JsonElement message, DateTime latest)
     {
         if (!message.TryGetProperty("timestamp", out var raw))
         {
             return null;
         }
 
-        long seconds;
+        double seconds;
         switch (raw.ValueKind)
         {
-            case JsonValueKind.String when long.TryParse(raw.GetString(), NumberStyles.None, CultureInfo.InvariantCulture, out seconds):
+            case JsonValueKind.String when double.TryParse(raw.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out seconds):
                 break;
-            case JsonValueKind.Number when raw.TryGetInt64(out seconds):
+            case JsonValueKind.Number when raw.TryGetDouble(out seconds):
                 break;
             default:
                 return null;
         }
 
-        // 1970-01-02 .. year 9999: anything else is not a WhatsApp timestamp.
-        return seconds is > 86_400 and < 253_402_300_799 ? DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime : null;
+        var earliest = new DateTimeOffset(EarliestTimestamp).ToUnixTimeSeconds();
+        var last = new DateTimeOffset(latest).ToUnixTimeSeconds();
+        if (double.IsNaN(seconds) || seconds < earliest || seconds > last)
+        {
+            return null;
+        }
+
+        return DateTimeOffset.FromUnixTimeSeconds((long)Math.Floor(seconds)).UtcDateTime;
     }
 
     private static string? Clean(string? text, int maxLength)
@@ -229,8 +275,7 @@ public static class Dialog360PayloadParser
             return null;
         }
 
-        var cleaned = text.Replace("\0", string.Empty);
-        return cleaned.Length <= maxLength ? cleaned : cleaned[..maxLength];
+        return TextRules.Truncate(text.Replace("\0", string.Empty), maxLength);
     }
 
     private static JsonElement Object(JsonElement element, string name)

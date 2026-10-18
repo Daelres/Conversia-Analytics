@@ -17,38 +17,68 @@ public class ConversationEntitiesTests
 
     [Theory]
     [InlineData("573001234567", "573001234567")]
-    [InlineData("+57 300 123-4567", "573001234567")]
-    [InlineData("1234", null)] // too short
-    [InlineData("123456789012345678901", null)] // too long
-    [InlineData("abc", null)]
+    [InlineData("+573001234567", "573001234567")]
+    [InlineData(" 573001234567 ", "573001234567")]
+    [InlineData("1234567", "1234567")] // 7 digits
+    [InlineData("123456789012345", "123456789012345")] // 15 digits (E.164 maximum)
+    [InlineData("123456", null)] // too short
+    [InlineData("1234567890123456", null)] // 16 digits
+    [InlineData("+57 300 123 4567", null)] // separators are not repaired
+    [InlineData("57-300-123-4567", null)]
+    [InlineData("CO.13491208655302741918", null)] // business-scoped user id: not a phone number
+    [InlineData("US.123456", null)]
+    [InlineData("CA.123456", null)]
+    [InlineData("57300123456a", null)]
+    [InlineData("++573001234567", null)]
+    [InlineData("٥٧٣٠٠١٢٣٤٥٦٧", null)] // non-ASCII digits
     [InlineData("", null)]
-    public void Contact_NormalizeWaId_KeepsOnlyDigitsAndRejectsImplausibleIds(string waId, string? expected)
+    public void Contact_NormalizeWaId_IsStrict_NothingIsStrippedOrRepaired(string waId, string? expected)
         => Assert.Equal(expected, Contact.NormalizeWaId(waId));
 
     [Fact]
-    public void Contact_Create_NormalizesTheWaIdAndKeepsTheName()
+    public void Contact_Create_AcceptsAPlusAndKeepsTheName()
     {
-        var contact = Contact.Create(Tenant, "+57 300 123 4567", "  Laura  ", T0);
+        var contact = Contact.Create(Tenant, "+573001234567", "  Laura  ", T0);
 
         Assert.Equal("573001234567", contact.WaId);
         Assert.Equal("Laura", contact.DisplayName);
-        Assert.Equal(T0, contact.FirstSeenAt);
+        Assert.Equal((T0, T0), (contact.FirstSeenAt, contact.DisplayNameAt));
     }
 
     [Fact]
     public void Contact_Create_RejectsAnUnusableWaId()
-        => Assert.Throws<DomainException>(() => Contact.Create(Tenant, "none", null, T0));
+    {
+        Assert.Throws<DomainException>(() => Contact.Create(Tenant, "none", null, T0));
+        Assert.Throws<DomainException>(() => Contact.Create(Tenant, "CO.13491208655302741918", null, T0));
+    }
 
     [Fact]
-    public void Contact_UpdateDisplayName_IgnoresBlankNamesAndReplacesOtherwise()
+    public void Contact_UpdateDisplayName_IgnoresBlankNames_AndNeverLetsAnOlderMessageOverwriteANewerName()
     {
         var contact = Contact.Create(Tenant, "573001234567", "Laura", T0);
 
-        contact.UpdateDisplayName("  ");
+        contact.UpdateDisplayName("  ", T0.AddHours(1));
         Assert.Equal("Laura", contact.DisplayName);
 
-        contact.UpdateDisplayName("Laura G.");
+        contact.UpdateDisplayName("Laura G.", T0.AddHours(2));
         Assert.Equal("Laura G.", contact.DisplayName);
+
+        contact.UpdateDisplayName("Laura (vieja)", T0.AddHours(1)); // an older delivery processed late
+        Assert.Equal("Laura G.", contact.DisplayName);
+        Assert.Equal(T0.AddHours(2), contact.DisplayNameAt);
+
+        contact.UpdateDisplayName("Laura H.", T0.AddHours(2)); // the same instant: the latest processed wins
+        Assert.Equal("Laura H.", contact.DisplayName);
+    }
+
+    [Fact]
+    public void Contact_UpdateDisplayName_FillsAMissingNameWhateverTheTime()
+    {
+        var contact = Contact.Create(Tenant, "573001234567", null, T0);
+
+        contact.UpdateDisplayName("Laura", T0.AddDays(-1));
+
+        Assert.Equal("Laura", contact.DisplayName);
     }
 
     [Fact]
@@ -107,8 +137,8 @@ public class ConversationEntitiesTests
     }
 
     [Fact]
-    public void Timeline_AnOutboundInTheSameSecondAsTheFirstInboundIsNotAResponse()
-        => Assert.Equal(T0.AddSeconds(5), ConversationTimeline.From([In(0), Out(0), Out(5)])!.FirstResponseAt);
+    public void Timeline_AnOutboundInTheSameSecondAsTheFirstInbound_IsAResponse_BecauseTimestampsHaveOneSecondResolution()
+        => Assert.Equal(T0, ConversationTimeline.From([In(0), Out(0), Out(5)])!.FirstResponseAt);
 
     // ---- Conversation -------------------------------------------------------------------
 
@@ -145,6 +175,17 @@ public class ConversationEntitiesTests
 
         Assert.Equal(ConversationSource.Ads, conversation.Source);
         Assert.Equal("Depilación láser 2x1", conversation.SourceReference);
+    }
+
+    [Fact]
+    public void Conversation_MarkAsAds_FillsAMissingReferenceFromALaterReferral_ButNeverReplacesOne()
+    {
+        var conversation = NewConversation(ConversationSource.Ads);
+
+        conversation.MarkAsAds("https://fb.me/ad");
+        conversation.MarkAsAds("Other ad");
+
+        Assert.Equal("https://fb.me/ad", conversation.SourceReference);
     }
 
     [Fact]
