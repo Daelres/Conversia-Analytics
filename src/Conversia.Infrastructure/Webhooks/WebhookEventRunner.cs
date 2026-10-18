@@ -173,6 +173,10 @@ public sealed class WebhookEventRunner(
 
     // The tenant advisory lock is tried, never waited for in the database: a short spin, then the caller defers the event so that the
     // worker goes on with other tenants instead of sitting on this one.
+    //
+    // It is also why two ingestion workers cannot deadlock on the conversation rows they lock afterwards (FindOpenAsync, FOR UPDATE): they are
+    // taken only while holding this lock, so two transactions of one tenant never run together, and conversations never cross tenants. The jobs
+    // that do touch conversation rows meanwhile (closing, classification) use SKIP LOCKED and never wait. See docs/WEBHOOKS.md, "Lock order".
     private async Task<bool> TryLockTenantAsync(ApplicationDbContext db, Guid tenantId, CancellationToken cancellationToken)
     {
         var key = tenantId.ToString();

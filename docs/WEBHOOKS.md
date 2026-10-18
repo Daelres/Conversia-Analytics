@@ -211,6 +211,22 @@ Rules applied when a message is stored:
   filled when the event is processed, and a Warning (without any customer data) is logged
   when the skipped count is above zero.
 
+### Lock order: why two workers cannot deadlock on conversations
+
+A review asked whether two ingestion workers that touch conversations A and B in opposite order can deadlock. They cannot, and nothing needs ordering:
+
+- **Ingestion is serialized per tenant.** Before touching any row, the processing transaction takes the tenant's advisory lock
+  (`pg_try_advisory_xact_lock(hashtextextended(tenantId))`) and keeps it until it commits or rolls back. Every ingestion transaction of a tenant therefore runs alone;
+  a second worker of the same tenant never gets as far as `SELECT ... FOR UPDATE` on a conversation, it defers the event. A conversation belongs to one tenant, so two
+  workers of *different* tenants never meet on the same row. (If two tenants collide on the 64-bit hash they merely wait for each other.) The `FOR UPDATE` of
+  `FindOpenAsync` is not there to order workers: it is there against the jobs below.
+- **Every other path that locks conversation rows never waits for one.** The job that closes idle conversations and the classification worker claim with
+  `FOR UPDATE SKIP LOCKED` (a locked row is skipped, not waited for) and only write rows they hold. The manual outcome (`PUT .../opportunity`) takes one
+  conversation row and then its opportunity; assigning an advisor is a single `UPDATE` of one row. All of them take the **conversation row before its opportunity**, and nobody
+  takes an opportunity row without holding its conversation, so there is no cycle: a path that waits (ingestion, a person's decision) waits for a path that does not.
+
+If a new code path ever locks several conversations and *waits* for them, it must either take the tenant lock first or lock them in `Id` order.
+
 ### Idempotency, in layers
 
 1. Same body twice on a channel: one `WebhookEvents` row (`(ChannelId, BodyHash)` unique); `200` both times.
