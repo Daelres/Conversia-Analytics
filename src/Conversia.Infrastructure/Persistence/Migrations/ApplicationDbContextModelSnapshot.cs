@@ -425,12 +425,12 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId");
-
                     b.HasIndex("ChannelId", "ProviderMessageId")
                         .IsUnique();
 
                     b.HasIndex("ConversationId", "SentAt");
+
+                    b.HasIndex("TenantId", "SentAt");
 
                     b.ToTable("Messages", (string)null);
                 });

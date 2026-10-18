@@ -43,7 +43,7 @@ is for your own machine only: its accounts have a publicly known password.
   with a missing, short (< 32 bytes) or placeholder signing key.
 - **Permission-based authorization** — one policy per `Permission` enum
   value (`UsersView`, `UsersManage`, `ProductsView`, `ProductsManage`,
-  `OrganizationView`, `OrganizationManage`, `ConversationsView`, `ConversationsManage`);
+  `OrganizationView`, `OrganizationManage`, `ConversationsView`, `ConversationsManage`, `MetricsView`);
   owners bypass checks inside their own tenant. Permissions are read from the database on every request,
   so a revoke applies immediately.
 - **User creation and permission grant/revoke** — owners and
@@ -277,7 +277,7 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Conversations:AutoCloseAfterDays` | API | `7` | A conversation whose last message is older than this is closed (the customer's next message then opens a new one). 1 to 365. |
 | `Conversations:AutoCloseIntervalMinutes` | API | `15` | How often the job runs (it also runs once at startup). 1 to 1440. |
 | `Conversations:AutoCloseBatchSize` | API | `200` | Conversations closed per transaction. 1 to 5000. |
-| `Metrics:TimeZone` | API | `America/Bogota` | IANA time zone of the business: date ranges of the conversation list and the metrics are local dates of this zone. Must be known to the machine, otherwise the API will not start. |
+| `Metrics:TimeZone` | API | `America/Bogota` | IANA time zone of the business: date ranges of the conversation list and the metrics (`docs/METRICS.md`) are local dates of this zone, and days and hours are grouped in it. Must be known to the machine, otherwise the API will not start. |
 | `Classification:Enabled` | API | `true` | Runs the background worker that classifies conversations (service, reason, objection, outcome). `false`: conversations stay flagged. See `docs/CLASSIFICATION.md`. |
 | `Classification:Provider` | API | `Rules` | The classifier behind the port: only `Rules` (rule-based Spanish) exists; any other value stops the API at startup. |
 | `Classification:RulesPath` | API | *(embedded rules)* | Path of a JSON file with the classifier's dictionaries (another vertical or country). Validated at startup. |
@@ -287,6 +287,12 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Classification:MaxFailures` | API | `5` | Consecutive failures after which a conversation is no longer tried, until a new message arrives. 1 to 100. |
 | `Classification:RetryDelaySeconds` | API | `60` | Wait before a failed conversation is tried again. 0 to 86400. |
 | `Classification:ProcessingTimeoutSeconds` | API | `30` | Time budget of one classification (also its `statement_timeout`). 1 to 3600. |
+| `Metrics:FirstResponseSlaMinutes` | API | `30` | First-response SLA of the metrics and the unanswered alert. 1 to 1440. |
+| `Metrics:ConversionMaturityDays` | API | `7` | Age after which an undecided conversation counts against the conversion rate. 1 to 365. |
+| `Metrics:TopLossReasons` | API | `5` | Loss reasons listed by `/api/metrics/loss-reasons`. 1 to 20. |
+| `Metrics:MinSampleSize` | API | `20` | Decided conversations needed on both sides of a rate comparison for an alert. 1 to 100000. |
+| `Metrics:ConversionDropAlertPoints` | API | `10` | Points of conversion drop against the previous period that raise `CONVERSION_DROP`. 1 to 100. |
+| `Metrics:BranchBelowAveragePoints` | API | `15` | Points below the tenant's conversion that raise `BRANCH_BELOW_AVERAGE`. 1 to 100. |
 | `Demo:Enabled` | API | `false` | Opt-in demo data seeded at startup (see `docs/USERS_TENANTS_PERMISSIONS.md`, "Demo data"). Only allowed in the `Development` and `Demo` environments; `true` anywhere else, or a value that is not `true`/`false`, stops the API at startup. |
 | `Demo:Password` | API | `Demo-Pass-2026!` | Password of every demo account. Must satisfy the registration password policy, otherwise the API will not start. Only read when `Demo:Enabled` is `true`. |
 | `Demo:ShowAccounts` | Web | `false` | Shows the demo accounts and their password on `/demo` and as sign-in shortcuts on `/login`. Only allowed in the `Development` and `Demo` environments; `true` anywhere else, or a value that is not `true`/`false`, stops the Web at startup. |
@@ -331,6 +337,7 @@ policy in their own tenant.
 | GET | `/api/conversations/{id}` | `ConversationsView` | `200` conversation + opportunity + messages (text included) | `401`, `403`, `404` unknown or other-tenant conversation |
 | PUT | `/api/conversations/{id}/advisor` | `ConversationsManage` | `200` conversation (`{"advisorId": null}` unassigns) | `400` unknown/other-tenant/inactive advisor or one from another branch, `401`, `403`, `404` |
 | PUT | `/api/conversations/{id}/opportunity` | `ConversationsManage` | `200` opportunity; a manual `Won`, `Lost` (needs `lossReason`) or `InFollowUp`, which the classifier never overwrites | `400`, `401`, `403`, `404` |
+| GET | `/api/metrics/summary`, `/conversion`, `/first-response`, `/loss-reasons`, `/volume`, `/alerts` | `MetricsView` | `200` the numbers of `docs/METRICS.md` for `from`/`to` (local dates, `to` exclusive, at most 366 days, default the last 30) and the filters `branchId`, `advisorId`, `unassigned`, `source` | `400`, `401`, `403` |
 | POST | `/api/webhooks/360dialog/{channelKey}` | anonymous; header `X-Webhook-Secret` (the channel's secret); rate limited (`docs/WEBHOOKS.md`) | `200` (also for a body already received) | `400` not a JSON object, `401` unknown/inactive channel or wrong secret (same answer), `413`, `429` |
 | GET | `/health` | anonymous | `200` `Healthy` / `Degraded`, `503` `Unhealthy` (webhook queue; status word only) | |
 | POST | `/api/diagnostics/errors` | header `X-Error-Report-Key`, rate limited; off without `ErrorLogging:ReportKey` | `201` `{code,persisted}` | `400`, `401`, `404` (off), `413` over 64 KB, `429` (`Retry-After`) |

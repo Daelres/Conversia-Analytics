@@ -62,6 +62,7 @@ public enum Permission
     OrganizationManage = 6,
     ConversationsView = 7,
     ConversationsManage = 8,
+    MetricsView = 9,
 }
 ```
 
@@ -75,6 +76,7 @@ public enum Permission
 | `OrganizationManage` | 6 | `POST` on `/api/branches`, `/api/advisors` and `/api/channels` |
 | `ConversationsView` | 7 | `GET /api/conversations` and `GET /api/conversations/{id}` (the detail includes message text) |
 | `ConversationsManage` | 8 | `PUT /api/conversations/{id}/advisor` and `PUT /api/conversations/{id}/opportunity` |
+| `MetricsView` | 9 | every `GET /api/metrics/*` endpoint (docs/METRICS.md) |
 
 (`Organization*` gate the Conversia branches, advisors and WhatsApp channels; `Conversations*` the conversations captured from them.
 `Products*` belong to the reference feature that demonstrates the

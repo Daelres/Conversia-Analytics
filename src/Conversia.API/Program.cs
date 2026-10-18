@@ -33,6 +33,7 @@ builder.Services.AddErrorLogging(builder.Configuration);
 builder.Services.AddWebhookIngestion(builder.Configuration);
 builder.Services.AddConversations(builder.Configuration);
 builder.Services.AddClassification(builder.Configuration);
+builder.Services.AddMetrics(builder.Configuration);
 builder.Services.AddOptionalForwardedHeaders(builder.Configuration);
 builder.Services.AddDemoData(builder.Configuration, builder.Environment);
 

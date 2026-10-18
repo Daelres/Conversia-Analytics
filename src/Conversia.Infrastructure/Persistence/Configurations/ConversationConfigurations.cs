@@ -113,7 +113,8 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
         // A conversation's messages in time order.
         builder.HasIndex(m => new { m.ConversationId, m.SentAt });
 
-        builder.HasIndex(m => m.TenantId);
+        // The message volume of a tenant over a period (and the foreign key to the tenant, which it serves as its first column).
+        builder.HasIndex(m => new { m.TenantId, m.SentAt });
 
         builder.HasOne<Tenant>().WithMany().HasForeignKey(m => m.TenantId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Conversation>().WithMany().HasForeignKey(m => m.ConversationId).OnDelete(DeleteBehavior.Restrict);

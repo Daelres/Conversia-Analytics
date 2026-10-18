@@ -15,4 +15,5 @@ public enum Permission
     OrganizationManage = 6,
     ConversationsView = 7,
     ConversationsManage = 8,
+    MetricsView = 9,
 }

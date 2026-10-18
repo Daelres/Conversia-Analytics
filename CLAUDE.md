@@ -104,6 +104,7 @@ docs/
   ARCHITECTURE.md, EXTENDING.md, WORKFLOW.md, DEMO.md, ERRORS.md, USERS_TENANTS_PERMISSIONS.md   # de la plantilla
   WEBHOOKS.md                # ingesta del webhook de 360dialog (endpoint, mapeo, reintentos, cierre de conversaciones, formato no verificado)
   CLASSIFICATION.md          # clasificador de conversaciones (reglas en español; cómo conectar un LLM)
+  METRICS.md                 # definición exacta de cada métrica del tablero, alertas y configuración
 src/
   Conversia.Domain/          # sin dependencias
   Conversia.Application/     # referencia Domain

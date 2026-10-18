@@ -193,6 +193,8 @@ public class ConversationModelSchemaTests
         Assert.Contains("IX_Messages_ChannelId_ProviderMessageId", indexes);
         Assert.Contains("IX_WebhookEvents_ChannelId_BodyHash", indexes);
         Assert.Contains("IX_Opportunities_TenantId_Stage_ClosedAt", indexes);
+        Assert.Contains("IX_Messages_TenantId_SentAt", indexes);
+        Assert.Contains("IX_Conversations_LastMessageAt_ClassificationDirty", indexes);
     }
 
     [Fact]

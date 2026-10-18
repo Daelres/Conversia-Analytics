@@ -49,6 +49,7 @@ internal static class SpanishText
         [Permission.OrganizationManage] = "Gestionar organización",
         [Permission.ConversationsView] = "Ver conversaciones",
         [Permission.ConversationsManage] = "Gestionar conversaciones",
+        [Permission.MetricsView] = "Ver métricas",
     };
 
     /// <summary>
