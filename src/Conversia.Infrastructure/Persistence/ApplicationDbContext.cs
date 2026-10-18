@@ -30,6 +30,22 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<Product> Products => Set<Product>();
 
+    public DbSet<Branch> Branches => Set<Branch>();
+
+    public DbSet<Advisor> Advisors => Set<Advisor>();
+
+    public DbSet<WhatsAppChannel> WhatsAppChannels => Set<WhatsAppChannel>();
+
+    public DbSet<Contact> Contacts => Set<Contact>();
+
+    public DbSet<Conversation> Conversations => Set<Conversation>();
+
+    public DbSet<Message> Messages => Set<Message>();
+
+    public DbSet<Opportunity> Opportunities => Set<Opportunity>();
+
+    public DbSet<WebhookEvent> WebhookEvents => Set<WebhookEvent>();
+
     /// <summary>Operations table: not tenant-filtered, see <c>ErrorLogConfiguration</c>.</summary>
     public DbSet<ErrorLog> ErrorLogs => Set<ErrorLog>();
 
@@ -54,6 +70,16 @@ public class ApplicationDbContext : DbContext
 
         modelBuilder.Entity<Product>()
             .HasQueryFilter(p => p.TenantId == _currentTenantService.TenantId);
+
+        // The Conversia entities carry their own TenantId and the same filter.
+        modelBuilder.Entity<Branch>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<Advisor>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<WhatsAppChannel>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<Contact>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<Conversation>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<Message>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<Opportunity>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<WebhookEvent>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
 
         base.OnModelCreating(modelBuilder);
     }

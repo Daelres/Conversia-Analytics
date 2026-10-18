@@ -58,6 +58,8 @@ public enum Permission
     UsersManage = 2,
     ProductsView = 3,
     ProductsManage = 4,
+    OrganizationView = 5,
+    OrganizationManage = 6,
 }
 ```
 
@@ -67,8 +69,11 @@ public enum Permission
 | `UsersManage` | 2 | creating users, granting and revoking permissions |
 | `ProductsView` | 3 | `GET /api/products`, `GET /api/products/{id}` |
 | `ProductsManage` | 4 | `POST`, `PUT` and `DELETE` on `/api/products` |
+| `OrganizationView` | 5 | `GET` on `/api/branches`, `/api/advisors` and `/api/channels` |
+| `OrganizationManage` | 6 | `POST` on `/api/branches`, `/api/advisors` and `/api/channels` |
 
-(`Products*` belong to the reference feature that demonstrates the
+(`Organization*` gate the Conversia branches, advisors and WhatsApp channels.
+`Products*` belong to the reference feature that demonstrates the
 tenant-scoped pattern. Client projects add their own values as they add
 features — e.g. `OrdersView`, `OrdersManage`.)
 

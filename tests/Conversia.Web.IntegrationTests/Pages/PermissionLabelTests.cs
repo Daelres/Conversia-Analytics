@@ -15,6 +15,9 @@ public class PermissionLabelTests(TestApiFactory api)
 {
     private static readonly string[] EnumNames = Enum.GetNames<Permission>();
 
+    // The tour's access matrix only covers the template's demo features (users and products).
+    private static readonly string[] MatrixPermissions = ["UsersView", "UsersManage", "ProductsView", "ProductsManage"];
+
     public static TheoryData<Permission> AllPermissions
     {
         get
@@ -47,10 +50,10 @@ public class PermissionLabelTests(TestApiFactory api)
     }
 
     [Fact]
-    public async Task A_member_with_all_four_permissions_sees_four_spanish_labels_on_the_profile_and_on_the_tour()
+    public async Task A_member_with_every_permission_sees_every_spanish_label_on_the_profile_and_on_the_tour()
     {
         var owner = await ApiSeed.RegisterOwnerAsync(api);
-        var member = await ApiSeed.CreateMemberAsync(api, owner, "todo", Permission.UsersView, Permission.UsersManage, Permission.ProductsView, Permission.ProductsManage);
+        var member = await ApiSeed.CreateMemberAsync(api, owner, "todo", Enum.GetValues<Permission>());
         using var host = WebTestHost.Create(api);
         using var session = await WebFlows.SignedInAsync(host, member.Email);
 
@@ -82,7 +85,7 @@ public class PermissionLabelTests(TestApiFactory api)
 
         var held = tour.Select(PageContract.AccessCell).Where(c => c.GetAttribute("data-held") == "true").Select(c => c.GetAttribute("data-permission")!).Order();
         Assert.Equal(new[] { "ProductsView", "UsersManage" }.Order(), held);
-        Assert.Equal(EnumNames.Order(), tour.Select(PageContract.AccessCell).Select(c => c.GetAttribute("data-permission")!).Order());
+        Assert.Equal(MatrixPermissions.Order(), tour.Select(PageContract.AccessCell).Select(c => c.GetAttribute("data-permission")!).Order());
         AssertNoEnumNameVisible(tour);
     }
 

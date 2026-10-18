@@ -21,6 +21,10 @@ public static class ValidationMessages
 
     public static readonly string ProductPrice = $"El campo {{0}} {Domain.Entities.Product.PriceRuleText}.";
 
+    public static readonly string DisplayPhoneNumber = $"El campo {{0}} {Domain.Entities.WhatsAppChannel.DisplayPhoneNumberRuleText}.";
+
+    public static readonly string ProviderPhoneNumberId = $"El campo {{0}} {Domain.Entities.WhatsAppChannel.ProviderPhoneNumberIdRuleText}.";
+
     public static readonly string StrongPassword =
         $"El campo {{0}} debe tener entre {StrongPasswordAttribute.MinLength} y {StrongPasswordAttribute.MaxLength} caracteres e incluir al menos una mayúscula, una minúscula y un dígito.";
 }

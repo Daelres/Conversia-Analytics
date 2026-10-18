@@ -42,7 +42,8 @@ is for your own machine only: its accounts have a publicly known password.
   `sub`, `tenant_id` and `is_owner` claims. The API refuses to start
   with a missing, short (< 32 bytes) or placeholder signing key.
 - **Permission-based authorization** — one policy per `Permission` enum
-  value (`UsersView`, `UsersManage`, `ProductsView`, `ProductsManage`);
+  value (`UsersView`, `UsersManage`, `ProductsView`, `ProductsManage`,
+  `OrganizationView`, `OrganizationManage`);
   owners bypass checks inside their own tenant. Permissions are read from the database on every request,
   so a revoke applies immediately.
 - **User creation and permission grant/revoke** — owners and
@@ -284,6 +285,12 @@ policy in their own tenant.
 | POST | `/api/products` | `ProductsManage` | `201` product + `Location` | `400`, `401`, `403`, `409` SKU already in the tenant |
 | PUT | `/api/products/{id}` | `ProductsManage` | `200` product (send the last `rowVersion`) | `400`, `401`, `403`, `404`, `409` stale `rowVersion` |
 | DELETE | `/api/products/{id}` | `ProductsManage` | `204` | `401`, `403`, `404` |
+| GET | `/api/branches`, `/api/branches/{id}` | `OrganizationView` | `200` branches of the tenant / one branch | `401`, `403`, `404` unknown or other-tenant branch |
+| POST | `/api/branches` | `OrganizationManage` | `201` branch + `Location` | `400`, `401`, `403`, `409` name already in the tenant (any letter case) |
+| GET | `/api/advisors`, `/api/advisors/{id}` | `OrganizationView` | `200` advisors / one advisor | `401`, `403`, `404` |
+| POST | `/api/advisors` | `OrganizationManage` | `201` advisor + `Location` | `400` (also unknown branch or user), `401`, `403` |
+| GET | `/api/channels`, `/api/channels/{id}` | `OrganizationView` | `200` WhatsApp channels (key and webhook path, never the secret) | `401`, `403`, `404` |
+| POST | `/api/channels` | `OrganizationManage` | `201` channel + `webhookSecret` (shown only once) | `400` (also unknown branch), `401`, `403` |
 | POST | `/api/diagnostics/errors` | header `X-Error-Report-Key`, rate limited; off without `ErrorLogging:ReportKey` | `201` `{code,persisted}` | `400`, `401`, `404` (off), `413` over 64 KB, `429` (`Retry-After`) |
 
 The Web exposes `/`, `/login`, `/register`, `/users`, `/products`

@@ -11,6 +11,10 @@ public static class ProblemTexts
     public const string ProductNotFoundTitle = "Producto no encontrado";
     public const string DuplicateSkuTitle = "SKU duplicado";
     public const string ProductModifiedTitle = "Producto modificado";
+    public const string BranchNotFoundTitle = "Sucursal no encontrada";
+    public const string AdvisorNotFoundTitle = "Asesor no encontrado";
+    public const string ChannelNotFoundTitle = "Canal no encontrado";
+    public const string DuplicateBranchNameTitle = "Sucursal duplicada";
     public const string InvalidRequestTitle = "Solicitud no válida";
 
     public const string UnexpectedTitle = "Ocurrió un error inesperado";

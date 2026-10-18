@@ -245,7 +245,7 @@ public class ProductsAuthorizationTests
     }
 
     [Theory]
-    [InlineData(5)]
+    [InlineData(7)]
     [InlineData(99)]
     [InlineData(0)]
     [InlineData(-1)]

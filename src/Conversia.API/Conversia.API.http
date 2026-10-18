@@ -83,3 +83,33 @@ Authorization: Bearer {{token}}
 ### Revoke it (name or number)
 # DELETE {{host}}/api/users/<userId>/permissions/ProductsView
 # Authorization: Bearer <owner token>
+
+
+### Create a branch (OrganizationManage; the owner has it) - 201 + Location
+# @name branch
+POST {{host}}/api/branches
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Sede Centro" }
+
+###
+@branchId = {{branch.response.body.id}}
+
+### Create a WhatsApp channel - 201; the body has the webhookPath and the webhookSecret (shown only once)
+POST {{host}}/api/channels
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "branchId": "{{branchId}}", "displayPhoneNumber": "+57 300 123 4567", "providerPhoneNumberId": null }
+
+### Create an advisor
+POST {{host}}/api/advisors
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Ana Pérez", "branchId": "{{branchId}}", "userId": null }
+
+### List them (OrganizationView)
+GET {{host}}/api/branches
+Authorization: Bearer {{token}}

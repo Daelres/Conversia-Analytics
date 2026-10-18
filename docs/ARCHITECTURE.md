@@ -31,8 +31,11 @@ ASP.NET Core) beyond the BCL.
   UpdatedBy). **Every entity in the system inherits from `BaseEntity`.**
   This is the only place audit-trail fields are declared.
 - `Entities/` — aggregate/entity classes (`Tenant`, `User`,
-  `UserPermission`, `Product`, `ErrorLog`, and whatever business entities
-  a client project adds later).
+  `UserPermission`, `Product`, `ErrorLog`, the Conversia model `Branch`,
+  `Advisor`, `WhatsAppChannel`, `Contact`, `Conversation`, `Message`,
+  `Opportunity`, `WebhookEvent`, and whatever business entities a client
+  project adds later). `Common/TextRules` and `Common/UtcTime` hold the
+  free-text and UTC/microsecond rules the Conversia entities share.
 - `Common/ErrorCode` — pure generator/validator of the `ERR-yyyyMMdd-XXXXXX`
   code of a registered error (`docs/ERRORS.md`).
 - `Enums/` — enumerations, including the `Permission` catalog (see

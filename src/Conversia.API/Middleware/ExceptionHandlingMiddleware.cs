@@ -63,6 +63,22 @@ public class ExceptionHandlingMiddleware
         {
             await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.ProductModifiedTitle, ex.Message);
         }
+        catch (BranchNotFoundException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.BranchNotFoundTitle, ex.Message);
+        }
+        catch (AdvisorNotFoundException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.AdvisorNotFoundTitle, ex.Message);
+        }
+        catch (ChannelNotFoundException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.ChannelNotFoundTitle, ex.Message);
+        }
+        catch (DuplicateBranchNameException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.DuplicateBranchNameTitle, ex.Message);
+        }
         catch (DomainException ex)
         {
             await WriteProblemAsync(context, StatusCodes.Status400BadRequest, ProblemTexts.InvalidRequestTitle, ex.Message);
