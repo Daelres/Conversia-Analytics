@@ -14,6 +14,7 @@ public class Opportunity : BaseEntity
     public const int ServiceInterestMaxLength = 100;
     public const int InterestReasonMaxLength = 200;
     public const int DetailMaxLength = 500;
+    public const int ClassificationRulesMaxLength = 200;
 
     public static readonly string DetailRuleMessage = $"El detalle {TextRules.RuleText(DetailMaxLength, required: false)}.";
 
@@ -51,6 +52,12 @@ public class Opportunity : BaseEntity
     public DateTime? ClosedAt { get; private set; }
 
     public DateTime? ClassifiedAt { get; private set; }
+
+    /// <summary>How sure the classifier was, 0 to 1. Null until the first classification.</summary>
+    public decimal? ClassificationConfidence { get; private set; }
+
+    /// <summary>The codes of the rules behind the last classification (<c>outcome.won.advisor_confirmation,objection.price</c>); never customer text.</summary>
+    public string? ClassificationRules { get; private set; }
 
     // Required by EF Core for materialization.
     private Opportunity()
@@ -104,6 +111,89 @@ public class Opportunity : BaseEntity
     }
 
     /// <summary>
+    /// The classifier's reading of the conversation. The descriptive fields (service, reason, objection) always follow it. The stage follows it
+    /// too, except that a <see cref="StageSource.Manual"/> stage and its loss reason are never touched, an undetermined outcome leaves the
+    /// stage alone, and a loss for lack of an answer (set when the conversation closed idle) is only replaced by a decisive outcome (Won or
+    /// Lost), never by "still in follow-up". Applying the same reading twice changes nothing but <see cref="ClassifiedAt"/>.
+    /// </summary>
+    public void ApplyClassification(ClassificationUpdate update, DateTime now)
+    {
+        if (update.Stage is not (null or OpportunityStage.InFollowUp or OpportunityStage.Won or OpportunityStage.Lost))
+        {
+            throw new DomainException("La etapa de la clasificación debe ser Won, Lost o InFollowUp.");
+        }
+
+        if (update.Stage != OpportunityStage.Lost && update.LossReason is not null)
+        {
+            throw new DomainException("El motivo de pérdida solo aplica cuando la etapa es Lost.");
+        }
+
+        if (update.LossReason is { } reason && !Enum.IsDefined(reason))
+        {
+            throw new DomainException(LossReasonInvalidMessage);
+        }
+
+        if (!Enum.IsDefined(update.Objection))
+        {
+            throw new DomainException("El tipo de objeción no es válido.");
+        }
+
+        if (update.Confidence is < 0m or > 1m)
+        {
+            throw new DomainException("La confianza de la clasificación debe estar entre 0 y 1.");
+        }
+
+        var service = NormalizeCode(update.ServiceInterest, ServiceInterestMaxLength, "El servicio de interés");
+        var interest = NormalizeCode(update.InterestReason, InterestReasonMaxLength, "El motivo de interés");
+        var rules = NormalizeCode(update.RuleCodes, ClassificationRulesMaxLength, "Las reglas de la clasificación");
+        var at = UtcTime.Normalize(now);
+
+        ServiceInterest = service;
+        InterestReason = interest;
+        Objection = update.Objection;
+        ClassificationConfidence = Math.Round(update.Confidence, 2);
+        ClassificationRules = rules;
+        ClassifiedAt = at;
+
+        if (StageSource == StageSource.Manual || update.Stage is not { } stage)
+        {
+            return;
+        }
+
+        if (Stage == OpportunityStage.Lost && LossReason == Enums.LossReason.NoResponse && stage == OpportunityStage.InFollowUp)
+        {
+            return;
+        }
+
+        var lossReason = stage == OpportunityStage.Lost ? update.LossReason ?? Enums.LossReason.Unknown : (LossReason?)null;
+        if (Stage != stage)
+        {
+            StageChangedAt = at;
+        }
+
+        StageSource = StageSource.Auto;
+        ApplyStage(stage, lossReason, at);
+        LossDetail = null;
+    }
+
+    // A normalized code: lower-case ASCII letters, digits, '_' and ',' (a list of codes), at most maxLength long. Null or blank means "none".
+    private static string? NormalizeCode(string? code, int maxLength, string subject)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return null;
+        }
+
+        var trimmed = code.Trim();
+        if (trimmed.Length > maxLength || !trimmed.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '_' or ',' or '.'))
+        {
+            throw new DomainException($"{subject} debe ser un código de hasta {maxLength} caracteres con letras minúsculas, dígitos, '_', '.' o ','.");
+        }
+
+        return trimmed;
+    }
+
+    /// <summary>
     /// The conversation went silent after the business wrote last: the opportunity is lost for lack of an answer. Does nothing (returns false)
     /// when a person decided the stage or the opportunity is already Won or Lost.
     /// </summary>
@@ -131,3 +221,17 @@ public class Opportunity : BaseEntity
         LossReason = stage == OpportunityStage.Lost ? lossReason : null;
     }
 }
+
+/// <summary>
+/// What a classifier concluded, in the terms the opportunity stores. <paramref name="Stage"/> is null when the outcome is undetermined
+/// (the stage is left as it is); <paramref name="LossReason"/> goes with <see cref="OpportunityStage.Lost"/> only.
+/// </summary>
+public sealed record ClassificationUpdate(
+    string? ServiceInterest,
+    string? InterestReason,
+    ObjectionType Objection,
+    OpportunityStage? Stage,
+    LossReason? LossReason,
+    decimal Confidence,
+    string? RuleCodes);
+

@@ -36,7 +36,8 @@ internal static partial class TestHelpers
         Guid? advisorId = null,
         bool closed = false,
         string? waId = null,
-        Action<Opportunity>? configureOpportunity = null)
+        Action<Opportunity>? configureOpportunity = null,
+        bool requestClassification = false)
     {
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -64,6 +65,11 @@ internal static partial class TestHelpers
             conversation.Close(conversation.LastMessageAt);
         }
 
+        if (requestClassification)
+        {
+            conversation.RequestClassification(conversation.LastMessageAt);
+        }
+
         db.AddRange(contact, conversation, opportunity);
         db.AddRange(stored);
         await db.SaveChangesAsync();
@@ -73,8 +79,8 @@ internal static partial class TestHelpers
     internal static Task<Seeded> SeedConversationAsync(
         IServiceProvider services, ChannelFixture f, DateTime startedAt, IReadOnlyList<Msg> messages,
         ConversationSource source = ConversationSource.Organic, Guid? advisorId = null, bool closed = false, string? waId = null,
-        Action<Opportunity>? configureOpportunity = null)
-        => SeedConversationAsync(services, f.TenantId, f.Branch.Id, f.Channel.Id, startedAt, messages, source, advisorId, closed, waId, configureOpportunity);
+        Action<Opportunity>? configureOpportunity = null, bool requestClassification = false)
+        => SeedConversationAsync(services, f.TenantId, f.Branch.Id, f.Channel.Id, startedAt, messages, source, advisorId, closed, waId, configureOpportunity, requestClassification);
 
     /// <summary>The stored conversation and its opportunity, bypassing the tenant filter.</summary>
     internal static async Task<(Conversation Conversation, Opportunity Opportunity)> LoadAsync(IServiceProvider services, Guid conversationId)

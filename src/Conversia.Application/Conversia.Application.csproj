@@ -8,6 +8,16 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The default dictionaries of the rule-based classifier (Spanish, Colombia). A deployment can replace them with Classification:RulesPath. -->
+    <EmbeddedResource Include="Classification\Rules\ClassificationRules.es-CO.json" WithCulture="false" LogicalName="Conversia.Application.Classification.ClassificationRules.es-CO.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The text tokenizer and the phrase matcher are internal; their unit tests read them directly. -->
+    <InternalsVisibleTo Include="Conversia.Application.UnitTests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

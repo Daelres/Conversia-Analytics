@@ -44,6 +44,17 @@ public class Conversation : BaseEntity
     /// <summary>When the conversation was closed; null exactly while it is open.</summary>
     public DateTime? ClosedAt { get; private set; }
 
+    /// <summary>True while messages arrived that the classifier has not looked at yet. Set by ingestion, cleared by the classification worker.</summary>
+    public bool ClassificationDirty { get; private set; }
+
+    /// <summary>When ingestion last asked for a (re)classification; the age of the backlog.</summary>
+    public DateTime? ClassificationRequestedAt { get; private set; }
+
+    /// <summary>Consecutive failed classification attempts since the last request. At the configured maximum the worker stops retrying.</summary>
+    public int ClassificationFailures { get; private set; }
+
+    public DateTime? ClassificationAttemptedAt { get; private set; }
+
     // Required by EF Core for materialization.
     private Conversation()
     {
@@ -127,6 +138,28 @@ public class Conversation : BaseEntity
 
         Source = ConversationSource.Ads;
         SourceReference = reference;
+    }
+
+    /// <summary>
+    /// New messages changed what the classifier should read: the conversation waits for the classification worker again, with a fresh
+    /// failure count. <see cref="ClassificationRequestedAt"/> changes on every call, so the row is always written, even when it was
+    /// already dirty: a worker that is classifying the conversation right now cannot clear this request by mistake (its own write
+    /// waits for the row lock this one takes, and this one lands after it).
+    /// </summary>
+    public void RequestClassification(DateTime now)
+    {
+        ClassificationDirty = true;
+        ClassificationRequestedAt = UtcTime.Normalize(now);
+        ClassificationFailures = 0;
+        ClassificationAttemptedAt = null;
+    }
+
+    /// <summary>The worker classified the conversation: nothing is pending.</summary>
+    public void CompleteClassification(DateTime now)
+    {
+        ClassificationDirty = false;
+        ClassificationFailures = 0;
+        ClassificationAttemptedAt = UtcTime.Normalize(now);
     }
 
     public void ApplyTimeline(ConversationTimeline timeline)

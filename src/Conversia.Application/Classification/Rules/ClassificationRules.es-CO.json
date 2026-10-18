@@ -1,0 +1,90 @@
+{
+  // Rules of the rule-based classifier for Spanish (Colombia) sales chats of the pilot vertical: laser hair removal.
+  // Everything a vertical or a country changes lives here; the engine (RuleBasedConversationClassifier) knows none of these words.
+  //
+  // Phrases are matched on normalized text: lower case, no accents or punctuation, no emoji, letters repeated three times or more
+  // collapsed ("holaaa" -> "hola"), words joined by single spaces. So write them in any case and with accents.
+  //   "pierna*"   a trailing * lets the last word continue (pierna, piernas, piernitas)
+  //   "^ok$"      ^ = the phrase starts a sentence, $ = it ends one
+  // A phrase never crosses a sentence boundary (. ! ? and new lines); commas and "pero/sino/aunque" only end a clause, which is the
+  // scope of a negation ("no me parece caro, pero lo pienso").
+  "version": 1,
+  "locale": "es-CO",
+  "vertical": "laser-hair-removal",
+
+  // Whole words, applied after normalization to the text of a message (never to the phrases below).
+  "aliases": {
+    "q": "que", "k": "que", "xq": "porque", "pq": "porque", "porq": "porque", "tmb": "tambien", "tb": "tambien",
+    "dsp": "despues", "grax": "gracias", "gracs": "gracias", "graciass": "gracias", "xfa": "favor", "xfavor": "favor", "pls": "favor",
+    "sii": "si", "sip": "si", "okey": "ok", "oki": "ok", "okis": "ok", "oka": "ok", "dalee": "dale", "listoo": "listo", "nop": "no", "nel": "no",
+    "info": "informacion", "porfa": "favor", "porfis": "favor", "ps": "pues", "pa": "para", "ud": "usted", "uds": "ustedes"
+  },
+  "negators": [ "no", "nunca", "tampoco", "ni", "jamas", "sin" ],
+  "negationWindow": 4,
+  "clauseBreakers": [ "pero", "sino", "aunque", "porque" ],
+
+  // Services and body zones the customer can ask about. The result keeps the codes (axilas, piernas,bikini). A service with
+  // "exclusive": true replaces the others when it is mentioned (full body already includes every zone).
+  "services": [
+    { "code": "axilas", "phrases": [ "axila*", "sobaco*", "axilar*" ] },
+    { "code": "piernas", "phrases": [ "pierna*", "piernitas", "media pierna", "medias piernas", "muslo*" ] },
+    { "code": "bikini", "phrases": [ "bikini", "bikini*", "brasilero", "brasilera", "brazilian", "ingle*", "zona intima", "area intima", "parte intima", "pubis", "pubico" ] },
+    { "code": "rostro", "phrases": [ "rostro", "facial", "faciales", "cara completa", "la cara", "mi cara", "cachetes", "mejillas", "patillas", "barbilla", "mentón" ] },
+    { "code": "bozo", "phrases": [ "bozo", "bigote", "labio superior" ] },
+    { "code": "brazos", "phrases": [ "brazo*", "antebrazo*" ] },
+    { "code": "espalda", "phrases": [ "espalda", "lumbar" ] },
+    { "code": "abdomen", "phrases": [ "abdomen", "barriga", "vientre", "panza", "linea alba" ] },
+    { "code": "pecho", "phrases": [ "pecho", "torax" ] },
+    { "code": "gluteos", "phrases": [ "gluteo*", "nalga*", "pompis" ] },
+    { "code": "cuerpo_completo", "exclusive": true, "phrases": [ "cuerpo completo", "cuerpo entero", "todo el cuerpo", "full body", "fullbody", "paquete completo" ] }
+  ],
+  // The service in general, when no zone is named.
+  "generalServices": [
+    { "code": "depilacion_laser", "phrases": [ "depilacion", "depilar*", "depilarme", "depilarse", "laser", "vello*", "pelitos" ] }
+  ],
+
+  "interestReasons": [
+    { "code": "precio_promocion", "phrases": [ "promo", "promos", "promocion*", "oferta*", "2x1", "dos por uno", "combo*", "paquete*", "descuento*", "black friday", "cyber monday" ] },
+    { "code": "estetica", "phrases": [ "verme mejor", "verme bien", "lucir", "piel suave", "piel lisa", "estetica", "belleza", "me da pena", "me da verguenza", "complejo", "me incomoda verme", "vello oscuro", "se ve feo" ] },
+    { "code": "comodidad", "phrases": [ "no rasurarme", "dejar de rasurarme", "dejar de rasurar", "no afeitarme", "dejar de afeitarme", "cansada de rasurar*", "cansado de rasurar*", "cansada de afeitar*", "cansado de afeitar*", "cansada de la cera", "cansado de la cera", "cansada de depilarme", "cansado de depilarme", "adios a la cera", "ahorrar tiempo", "practic*", "comodidad", "olvidarme de" ] },
+    { "code": "salud", "phrases": [ "foliculitis", "encarnado*", "irritacion", "irrita*", "piel sensible", "alergia", "granitos", "infeccion*", "higiene", "mal olor", "sudor" ] },
+    { "code": "evento", "phrases": [ "boda", "matrimonio", "luna de miel", "viaje", "vacaciones", "quince*", "playa", "cumpleanos", "fiesta", "graduacion", "evento" ] },
+    { "code": "recomendacion", "phrases": [ "me recomendaron", "me recomendo", "me hablaron de ustedes", "se depilo con ustedes", "se hizo con ustedes", "se la hizo con ustedes", "va con ustedes", "viene con ustedes", "vi los resultados de", "resultados de una amiga" ] }
+  ],
+
+  // Objections of the customer. Negated mentions ("no me parece caro") do not count.
+  "objections": {
+    "price": [ "caro", "muy cara", "es cara", "esta cara", "demasiado cara", "bastante cara", "me parece cara", "algo cara", "un poco cara", "sale cara", "queda cara", "carisimo", "carisima", "costoso", "costosa", "muy elevado", "elevado el precio", "precio elevado", "no me alcanza", "no me da el presupuesto", "fuera de mi presupuesto", "presupuesto", "mucha plata", "mucho dinero", "no tengo plata", "no tengo dinero", "me sale caro", "mas barat*", "mas economic*", "economico", "mejor precio", "descuento*", "rebaja*", "mucho para mi", "me cobran menos", "me cobraron menos", "encontre mas barato", "no puedo pagar", "no puedo pagarlo" ],
+    "timing": [ "lo pienso", "lo voy a pensar", "lo estoy pensando", "tengo que pensarlo", "tengo que pensar", "dejame pensarlo", "dejame pensar", "voy a pensarlo", "pensarlo", "lo pensare", "^despues$", "^luego$", "despues te aviso", "despues le aviso", "despues miro", "despues lo veo", "despues vemos", "despues te escribo", "despues hablamos", "luego te aviso", "luego te escribo", "luego miro", "luego hablamos", "ya despues", "mas adelante", "mas tarde", "otro dia", "otro momento", "en otro momento", "ahorita no", "por ahora no", "por el momento no", "todavia no", "aun no", "proximo mes", "el mes entrante", "mes que viene", "cuando cobre", "cuando me paguen", "te aviso", "yo te aviso", "yo le aviso", "yo les aviso", "te escribo luego", "te confirmo luego", "la proxima semana", "en unos dias", "no puedo ir", "no voy a poder", "no tengo tiempo", "no me queda tiempo" ],
+    "location": [ "lejos", "queda muy lejos", "no hay sede*", "no tienen sede*", "no hay sucursal*", "no tienen sucursal*", "no hay punto*", "vivo en otra ciudad", "otra ciudad", "no vivo cerca", "no me queda cerca", "no queda cerca", "fuera de la ciudad", "muy retirado", "retirado" ],
+    "trust": [ "es seguro", "es confiable", "no confio", "desconfio", "desconfianza", "tienen certificacion", "certificado*", "tienen registro", "invima", "garantia*", "resultados reales", "funciona de verdad", "de verdad funciona", "realmente funciona", "en verdad funciona", "no se si funcione", "no se si funciona", "estafa", "efectos secundarios", "riesgo*", "quemadura*", "manchas", "fotos de resultados", "testimonios", "opiniones", "referencias" ],
+    "pain": [ "duele", "duela", "duelen", "doler", "dolor", "doloroso", "dolorosa", "me va a doler", "lastima", "ardor", "anestesia", "anestesico", "anestesica", "aguanta", "aguantar", "miedo al dolor" ],
+    "other": [ "tengo que consultarlo", "lo consulto con", "lo consultare con", "consultar con mi", "consultarlo con", "preguntarle a mi", "hablarlo con mi", "lo hablo con mi", "tengo que hablar con mi", "mi esposo no", "mi esposa no", "mi pareja no", "mi novio no", "mi novia no", "mi mama no", "mi doctor me dijo", "mi medico me dijo", "mi dermatologa me dijo", "mi dermatologo me dijo", "estoy embarazada", "embarazada", "lactando", "estoy en tratamiento", "estoy tomando", "roacutan", "isotretinoina" ]
+  },
+
+  // The customer went with, or is comparing with, another provider. Not an objection type of its own: it decides the loss reason.
+  "competitor": [ "en otro lado", "en otra parte", "en otra clinica", "en otro centro", "en otro sitio", "en otro lugar", "otra clinica", "otro centro", "otro lugar", "otra empresa", "la competencia", "me ofrecieron", "ya me hice", "ya me depile", "ya me la hice", "ya agende en", "ya reserve en", "ya compre", "ya pague en", "alla me hacen", "alla me cobran", "ya tengo donde" ],
+
+  // The customer asks something about the service: interest even without an objection or a booking.
+  "inquiry": [ "cuanto cuesta", "cuanto cuestan", "cuanto vale", "cuanto valen", "cuanto es", "cuanto sale", "cuanto me sale", "cuanto seria", "precio*", "valor", "valores", "costo*", "tarifa*", "informacion", "mas informacion", "como funciona", "cuantas sesiones", "cuantas", "sesion*", "horario*", "ubicacion", "direccion", "donde quedan", "donde estan", "donde queda", "tienen sede", "sede*", "sucursal*", "valoracion", "cotizacion", "cotizar", "cotizame", "quisiera saber", "quiero saber", "me interesa", "me gustaria", "quisiera", "interesad*", "quiero hacerme", "quiero depilarme", "necesito", "tratamiento*", "resultados", "duracion", "cuanto dura", "cuanto demora" ],
+
+  // The customer wants to book (or move a booking). Negated mentions ("no quiero agendar") are not intent.
+  "bookingIntent": [ "agend*", "cita", "citas", "sacar cita", "pedir cita", "reserv*", "separar", "separame", "separarme", "separarlo", "apartar", "apartame", "apartarme", "apartarlo", "me anoto", "me apunto", "me apuntas", "quiero ir", "puedo ir", "podria ir", "cuando puedo ir", "quiero empezar", "quiero comenzar", "como agendo", "como separo", "como reservo", "cupo*", "disponibilidad", "reprogram*", "cambiar la cita", "cambiar mi cita", "mover la cita", "otra fecha" ],
+
+  "customerConfirmation": {
+    // The customer confirms by themselves. Won needs intent before it: either their own, or a booking proposal of the business.
+    "strong": [ "confirmo", "confirmado", "confirmada", "confirmar la cita", "confirmar mi cita", "si confirmo", "listo el lunes", "listo el martes", "listo el miercoles", "listo el jueves", "listo el viernes", "listo el sabado", "listo el domingo", "listo para el", "listo para manana", "listo manana", "ahi estare", "ahi estaremos", "alla estare", "alla estaremos", "ahi nos vemos", "alla nos vemos", "nos vemos el", "nos vemos manana", "quedamos asi", "quedamos para el", "quedo agendada", "quedo agendado", "queda agendada", "queda agendado" ],
+    // A bare acknowledgement ("dale", "listo"). It only counts as accepting when the message before it was a booking proposal.
+    "weakAck": [ "^ok$", "^ok listo$", "^ok perfecto$", "^ok dale$", "^ok gracias$", "^listo$", "^listo gracias$", "^dale$", "^dale pues$", "^dale listo$", "^de una$", "^perfecto$", "^perfecto gracias$", "^bueno$", "^vale$", "^si$", "^si claro$", "^si por favor$", "^si favor$", "^si dale$", "^si listo$", "^si perfecto$", "^claro$", "^claro que si$", "^hagale$", "^hagale pues$", "^con gusto$", "^me parece bien$", "^me parece$", "^excelente$", "^super$" ]
+  },
+
+  // The business proposes a booking ("¿te agendo?"). It is not a confirmation.
+  "bookingProposal": [ "te agendo", "le agendo", "te la agendo", "te lo agendo", "agendamos", "agendo", "te reservo", "le reservo", "te separo", "le separo", "te aparto", "le aparto", "quieres agendar", "quiere agendar", "deseas agendar", "desea agendar", "te gustaria agendar", "le gustaria agendar", "agendar tu cita", "agendar su cita", "agendar una cita", "te parece", "le parece", "que dia te", "que dia le", "que dia puedes", "que dia puede", "cuando te queda", "cuando le queda", "cual dia", "que horario te", "que horario le", "te sirve", "le sirve", "para que dia", "quieres que te", "quiere que le", "separamos", "apartamos", "reservamos", "tenemos cupo", "tenemos disponibilidad", "podemos agendar", "podemos separar" ],
+
+  // The business confirms a booking. Questions never count.
+  "advisorConfirmation": [ "quedo agendad*", "queda agendad*", "quedas agendad*", "quedaste agendad*", "quedo separad*", "queda separad*", "quedo reservad*", "queda reservad*", "ya te agende", "ya le agende", "ya quedo agendad*", "ya quedaste", "ya estas agendad*", "estas agendad*", "esta agendad*", "agendada para", "agendado para", "agendamos tu cita", "agendamos su cita", "agendamos para", "cita confirmada", "cita agendada", "cita quedo", "tu cita es", "su cita es", "tu cita queda", "su cita queda", "reserva confirmada", "reserva exitosa", "te esperamos el", "te esperamos manana", "te esperamos a las", "te esperamos este", "te esperamos hoy", "lo esperamos el", "la esperamos el", "los esperamos el", "ya te anote", "ya te registre", "queda confirmada", "quedo confirmada", "quedo confirmado", "queda confirmado" ],
+
+  // The customer says no. These are not checked for negation (they contain their own "no").
+  "refusal": [ "no gracias", "gracias pero no", "no me interesa", "no estoy interesad*", "no estamos interesad*", "ya no me interesa", "ya no estoy interesad*", "ya no quiero", "ya no necesito", "ya no voy", "ya no gracias", "ya agende en", "ya reserve en", "ya pague en", "ya me hice", "ya me la hice", "ya lo hice en", "ya me depile en", "ya tengo donde", "^ya no$", "^no quiero$", "^no gracias$", "mejor no", "no quiero nada", "no deseo", "no voy a hacerlo", "no lo voy a hacer", "no voy a continuar", "no continuo", "no sigo", "olvidalo", "olvidelo", "olvidate", "dejalo asi", "dejemoslo asi", "no insistas", "no insistan", "no me escribas", "no me escriban", "dejen de escribir*", "no me contacten", "no molesten", "borrame", "eliminame", "no es para mi" ],
+  "cancellation": [ "cancel*", "anul*" ]
+}

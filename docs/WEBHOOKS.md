@@ -201,6 +201,8 @@ Rules applied when a message is stored:
   (timestamps have one-second resolution, so a same-second reply counts; a business
   message sent *before* the customer's first one is not a response). A delivery that
   arrives late or out of order therefore fixes the markers instead of breaking them.
+- **Classification**: every conversation that received a new message is flagged (`ClassificationDirty`, `ClassificationRequestedAt`,
+  failures reset) in the same transaction; the classification worker reads it once it has been quiet (`docs/CLASSIFICATION.md`).
 - **Display name**: the profile name of the latest message (by message time) wins; an
   older delivery processed late never overwrites a newer name.
 - **Skipped messages are visible**: `WebhookEvents.SkippedMessageCount` (customer or

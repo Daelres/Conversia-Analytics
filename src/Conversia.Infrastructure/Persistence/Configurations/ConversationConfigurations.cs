@@ -50,6 +50,10 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.LastMessageAt).IsRequired();
         builder.Property(c => c.Status).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.ClosedAt);
+        builder.Property(c => c.ClassificationDirty).IsRequired();
+        builder.Property(c => c.ClassificationRequestedAt);
+        builder.Property(c => c.ClassificationFailures).IsRequired();
+        builder.Property(c => c.ClassificationAttemptedAt);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.UpdatedAt);
 
@@ -70,9 +74,12 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.HasIndex(c => new { c.TenantId, c.Status, c.LastMessageAt });
 
         // The close-by-inactivity job looks for the idle open conversations of every tenant at once: only open ones are indexed.
-        builder.HasIndex(c => c.LastMessageAt)
-            .HasDatabaseName("IX_Conversations_LastMessageAt_Open")
+        builder.HasIndex(c => c.LastMessageAt, "IX_Conversations_LastMessageAt_Open")
             .HasFilter("\"Status\" = 'Open'");
+
+        // The classification worker looks for the flagged conversations of every tenant at once: only those are indexed.
+        builder.HasIndex(c => c.LastMessageAt, "IX_Conversations_LastMessageAt_ClassificationDirty")
+            .HasFilter("\"ClassificationDirty\"");
 
         builder.HasOne<Tenant>().WithMany().HasForeignKey(c => c.TenantId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Contact>().WithMany().HasForeignKey(c => c.ContactId).OnDelete(DeleteBehavior.Restrict);
@@ -133,6 +140,8 @@ public class OpportunityConfiguration : IEntityTypeConfiguration<Opportunity>
         builder.Property(o => o.LossDetail).HasMaxLength(Opportunity.DetailMaxLength);
         builder.Property(o => o.ClosedAt);
         builder.Property(o => o.ClassifiedAt);
+        builder.Property(o => o.ClassificationConfidence).HasPrecision(3, 2);
+        builder.Property(o => o.ClassificationRules).HasMaxLength(Opportunity.ClassificationRulesMaxLength);
         builder.Property(o => o.CreatedAt).IsRequired();
         builder.Property(o => o.UpdatedAt);
 

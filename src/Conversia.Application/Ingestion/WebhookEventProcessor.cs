@@ -66,11 +66,14 @@ public class WebhookEventProcessor : IWebhookEventProcessor
             }
         }
 
-        // One timeline per conversation, after its messages: not one reload of the whole history per message.
+        // One timeline per conversation, after its messages: not one reload of the whole history per message. Every conversation that
+        // received a message is also queued for classification (the worker reads it once the conversation has been quiet for a while).
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
         foreach (var conversation in conversations.Values)
         {
             var times = await _messages.ListTimesAsync(conversation.Id, cancellationToken);
             conversation.ApplyTimeline(ConversationTimeline.From(times)!);
+            conversation.RequestClassification(now);
             await _conversations.UpdateAsync(conversation, cancellationToken);
         }
 

@@ -32,6 +32,7 @@ public class LoginRateLimitConfigurationTests
             builder.UseSetting("Webhooks:Processing:Enabled", "false"); // no queue worker: these hosts assert on database traffic and logs
             builder.UseSetting("Webhooks:Retention:Enabled", "false");
             builder.UseSetting("Conversations:AutoCloseEnabled", "false");
+            builder.UseSetting("Classification:Enabled", "false");
 
             if (withoutAppSettingsFile)
             {

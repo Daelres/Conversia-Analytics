@@ -165,6 +165,18 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ChannelId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("ClassificationAttemptedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("ClassificationDirty")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("ClassificationFailures")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ClassificationRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime?>("ClosedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -216,10 +228,6 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ChannelId");
 
-                    b.HasIndex("LastMessageAt")
-                        .HasDatabaseName("IX_Conversations_LastMessageAt_Open")
-                        .HasFilter("\"Status\" = 'Open'");
-
                     b.HasIndex("TenantId");
 
                     b.HasIndex("AdvisorId", "StartedAt");
@@ -233,6 +241,12 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "StartedAt");
 
                     b.HasIndex("TenantId", "Status", "LastMessageAt");
+
+                    b.HasIndex(new[] { "LastMessageAt" }, "IX_Conversations_LastMessageAt_ClassificationDirty")
+                        .HasFilter("\"ClassificationDirty\"");
+
+                    b.HasIndex(new[] { "LastMessageAt" }, "IX_Conversations_LastMessageAt_Open")
+                        .HasFilter("\"Status\" = 'Open'");
 
                     b.ToTable("Conversations", null, t =>
                         {
@@ -426,6 +440,14 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<decimal?>("ClassificationConfidence")
+                        .HasPrecision(3, 2)
+                        .HasColumnType("numeric(3,2)");
+
+                    b.Property<string>("ClassificationRules")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<DateTime?>("ClassifiedAt")
                         .HasColumnType("timestamp with time zone");
