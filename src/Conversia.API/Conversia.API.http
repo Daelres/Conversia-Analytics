@@ -1,0 +1,85 @@
+@host = http://localhost:5030
+
+# Ready-to-run requests for VS Code (REST Client) and Rider. Send them from
+# top to bottom. The demo accounts exist when the API runs with Demo:Enabled=true
+# (docs/DEMO.md); otherwise register a workspace first and use its owner.
+@demoPassword = Demo-Pass-2026!
+
+### Register a new workspace (201 + a token for its owner)
+POST {{host}}/api/auth/register-tenant
+Content-Type: application/json
+
+{
+  "tenantName": "Initech",
+  "email": "owner@initech.example",
+  "password": "Initech-Pass-2026"
+}
+
+### Log in as the Acme demo manager (ProductsView, ProductsManage, UsersView)
+# @name login
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "manager@acme-demo.example",
+  "password": "{{demoPassword}}"
+}
+
+###
+@token = {{login.response.body.token}}
+
+### Who am I
+GET {{host}}/api/users/me
+Authorization: Bearer {{token}}
+
+### List products (page, pageSize 1-100, search)
+GET {{host}}/api/products?page=1&pageSize=5&search=
+Authorization: Bearer {{token}}
+
+### Create a product (201 + Location)
+# @name create
+POST {{host}}/api/products
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Demo Widget",
+  "sku": "DEMO-1",
+  "price": 19.99,
+  "stock": 10
+}
+
+###
+@productId = {{create.response.body.id}}
+@rowVersion = {{create.response.body.rowVersion}}
+
+### Read it
+GET {{host}}/api/products/{{productId}}
+Authorization: Bearer {{token}}
+
+### Update it (send the rowVersion of the last read; a stale one is 409)
+PUT {{host}}/api/products/{{productId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Demo Widget v2",
+  "price": 24.50,
+  "stock": 8,
+  "rowVersion": "{{rowVersion}}"
+}
+
+### Delete it (204)
+DELETE {{host}}/api/products/{{productId}}
+Authorization: Bearer {{token}}
+
+### Grant a permission (needs UsersManage, e.g. the Acme owner; the body takes the number: 3 = ProductsView)
+# POST {{host}}/api/users/<userId>/permissions
+# Authorization: Bearer <owner token>
+# Content-Type: application/json
+#
+# { "permission": 3 }
+
+### Revoke it (name or number)
+# DELETE {{host}}/api/users/<userId>/permissions/ProductsView
+# Authorization: Bearer <owner token>

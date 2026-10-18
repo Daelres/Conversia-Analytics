@@ -1,0 +1,41 @@
+<section class="@CssClass" @attributes="Attributes">
+    @if (Title is not null)
+    {
+        <div class="card__head">
+            @if (IconName is not null)
+            {
+                <span class="tile-icon"><Icon Name="@IconName" /></span>
+            }
+            <div class="stack-sm">
+                <h2 class="card__title">@Title</h2>
+                @if (Subtitle is not null)
+                {
+                    <p class="card__sub">@Subtitle</p>
+                }
+            </div>
+        </div>
+    }
+    @ChildContent
+</section>
+
+@code {
+    [Parameter]
+    public string? Title { get; set; }
+
+    [Parameter]
+    public string? Subtitle { get; set; }
+
+    [Parameter]
+    public string? IconName { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public Dictionary<string, object>? Attributes { get; set; }
+
+    private string CssClass => string.IsNullOrWhiteSpace(Class) ? "card" : $"card {Class}";
+}

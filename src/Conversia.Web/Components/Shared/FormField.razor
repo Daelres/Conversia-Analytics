@@ -1,0 +1,110 @@
+@typeparam TValue
+@using System.Linq.Expressions
+@using Microsoft.AspNetCore.Components.Forms
+
+<div class="field" data-invalid="@(Invalid ? "true" : "false")">
+    <label for="@Id" class="field__label">@Label</label>
+    <div class="@(IconName is null ? "field__control" : "field__control field__control--icon")">
+        @if (IconName is not null)
+        {
+            <Icon Name="@IconName" Class="field__icon" />
+        }
+        @ChildContent(ControlAttributes)
+    </div>
+    @if (Hint is not null)
+    {
+        <p id="@HintId" class="field__hint">@Hint</p>
+    }
+    @if (Invalid)
+    {
+        <div id="@ErrorId" class="field__error">
+            @foreach (var message in _messages)
+            {
+                <p class="field__error-line"><Icon Name="alert-circle" Class="icon--sm" /><span>@message</span></p>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<string> _messages = [];
+
+    [CascadingParameter]
+    private EditContext? EditContext { get; set; }
+
+    /// <summary>The model member the field edits: its validation messages are shown and linked to the control.</summary>
+    [Parameter, EditorRequired]
+    public Expression<Func<TValue>> For { get; set; } = default!;
+
+    /// <summary>The id of the control (the label points at it).</summary>
+    [Parameter, EditorRequired]
+    public string Id { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? IconName { get; set; }
+
+    [Parameter]
+    public string? Hint { get; set; }
+
+    /// <summary>Messages the API reported, by field name.</summary>
+    [Parameter]
+    public IReadOnlyDictionary<string, string[]>? ApiErrors { get; set; }
+
+    /// <summary>The API's name for the field; by default the name of the model member.</summary>
+    [Parameter]
+    public string? ApiField { get; set; }
+
+    /// <summary>The control, given the attributes it must carry (<c>aria-invalid</c>, <c>aria-describedby</c>): <c>@@attributes="context"</c>.</summary>
+    [Parameter, EditorRequired]
+    public RenderFragment<FieldAttributes> ChildContent { get; set; } = default!;
+
+    private bool Invalid => _messages.Count > 0;
+
+    private string ErrorId => $"{Id}-error";
+
+    private string HintId => $"{Id}-hint";
+
+    private FieldAttributes ControlAttributes
+    {
+        get
+        {
+            var attributes = new FieldAttributes { Invalid = Invalid };
+            var described = new List<string>();
+            if (Hint is not null)
+            {
+                described.Add(HintId);
+            }
+
+            if (Invalid)
+            {
+                attributes["aria-invalid"] = "true";
+                described.Add(ErrorId);
+            }
+
+            if (described.Count > 0)
+            {
+                attributes["aria-describedby"] = string.Join(' ', described);
+            }
+
+            return attributes;
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        var field = FieldIdentifier.Create(For);
+        var messages = EditContext is null ? [] : EditContext.GetValidationMessages(field).ToList();
+        var apiField = ApiField ?? field.FieldName;
+        if (ApiErrors is not null)
+        {
+            messages.AddRange(ApiErrors
+                .Where(entry => string.Equals(entry.Key, apiField, StringComparison.OrdinalIgnoreCase))
+                .SelectMany(entry => entry.Value));
+        }
+
+        _messages = messages.Distinct().ToList();
+    }
+}

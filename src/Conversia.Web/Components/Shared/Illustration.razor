@@ -1,0 +1,51 @@
+<svg class="ill" viewBox="0 0 160 120" fill="none" aria-hidden="true" focusable="false">
+    <ellipse class="ill-shadow" cx="80" cy="108" rx="40" ry="6" />
+    @switch (Kind)
+    {
+        case "search":
+            <circle class="ill-shape" cx="72" cy="54" r="28" />
+            <path class="ill-stroke" d="m92 74 22 24" />
+            <path class="ill-stroke-2" d="M60 54h24" />
+            <path class="ill-dim" d="M20 30h18M122 30h18M126 84h14" />
+            break;
+        case "lost":
+            <path class="ill-shape" d="M52 14h38l24 24v62a6 6 0 0 1-6 6H52a6 6 0 0 1-6-6V20a6 6 0 0 1 6-6z" />
+            <path class="ill-stroke" d="M90 14v24h24" />
+            <path class="ill-stroke-2" d="M60 62h38M60 76h24" />
+            <circle class="ill-solid-2" cx="120" cy="88" r="3" />
+            <circle class="ill-solid" cx="34" cy="40" r="3" />
+            break;
+        case "locked":
+            <rect class="ill-shape" x="52" y="54" width="56" height="44" rx="10" />
+            <path class="ill-stroke" d="M62 54V42a18 18 0 0 1 36 0v12" />
+            <circle class="ill-solid" cx="80" cy="73" r="5.5" />
+            <path class="ill-stroke" d="M80 79v9" />
+            <circle class="ill-solid-2" cx="128" cy="34" r="3" />
+            break;
+        case "invalid":
+            <circle class="ill-shape" cx="80" cy="56" r="36" />
+            <path class="ill-stroke" d="M80 34v23l15 9" />
+            <path class="ill-stroke-2" d="M122 28l8-8M128 40h10M30 30l-8-8" />
+            break;
+        case "error":
+            <path class="ill-shape" d="M80 18 134 98H26z" />
+            <path class="ill-stroke" d="M80 50v26" />
+            <circle class="ill-solid" cx="80" cy="88" r="3.5" />
+            <circle class="ill-solid-2" cx="34" cy="34" r="3" />
+            break;
+        default:
+            <path class="ill-shape" d="M80 34 116 52v32l-36 18-36-18V52z" />
+            <path class="ill-stroke" d="M44 52l36 18 36-18M80 70v32" />
+            <path class="ill-shape-2" d="M80 34 62 26l-18 8 18 8zM80 34l18-8 18 8-18 8z" />
+            <path class="ill-stroke-2" d="M130 18v10M125 23h10" />
+            <circle class="ill-solid-2" cx="30" cy="38" r="3" />
+            <circle class="ill-solid" cx="138" cy="72" r="2.5" />
+            break;
+    }
+</svg>
+
+@code {
+    /// <summary>"box" (default), "search", "lost", "locked", "invalid" or "error".</summary>
+    [Parameter]
+    public string Kind { get; set; } = "box";
+}

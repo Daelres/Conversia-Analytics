@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f5f6fb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0d16" media="(prefers-color-scheme: dark)" />
+    <base href="/" />
+    @* Applies the saved theme before the first paint (no flash) and tells the CSS that scripts run. *@
+    <script>(function(d){try{var t=localStorage.getItem("dr-theme");if(t==="light"||t==="dark"){d.dataset.theme=t}}catch(e){}d.classList.add("js")})(document.documentElement)</script>
+    <ResourcePreloader />
+    <link rel="stylesheet" href="@Assets["css/tokens.css"]" />
+    <link rel="stylesheet" href="@Assets["css/base.css"]" />
+    <link rel="stylesheet" href="@Assets["css/layout.css"]" />
+    <link rel="stylesheet" href="@Assets["css/components.css"]" />
+    <link rel="stylesheet" href="@Assets["css/pages.css"]" />
+    <ImportMap />
+    <link rel="icon" type="image/svg+xml" href="@Assets["favicon.svg"]" />
+    <HeadOutlet />
+</head>
+
+<body>
+    <Routes />
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script src="@Assets["js/shell.js"]" defer></script>
+</body>
+
+</html>

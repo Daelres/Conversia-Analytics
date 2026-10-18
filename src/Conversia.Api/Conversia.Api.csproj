@@ -1,8 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
-
-  <ItemGroup>
-    <ProjectReference Include="..\Conversia.Application\Conversia.Application.csproj" />
-    <ProjectReference Include="..\Conversia.Infrastructure\Conversia.Infrastructure.csproj" />
-  </ItemGroup>
-
-</Project>

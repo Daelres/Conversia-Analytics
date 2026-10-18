@@ -1,0 +1,39 @@
+# Version control and tooling
+**/.git
+**/.gitignore
+**/.gitattributes
+**/.github
+**/.vs
+**/.vscode
+**/.idea
+**/.claude
+**/*.user
+**/*.suo
+
+# Build output
+**/bin
+**/obj
+**/[Tt]est[Rr]esult*
+**/coverage
+**/*.trx
+**/artifacts
+
+# Secrets and local config (never send to the build context)
+**/.env
+**/.env.*
+!**/.env.example
+**/secrets.json
+**/*.pfx
+**/*.pem
+**/appsettings.Local.json
+
+# Not needed to build the images
+tests
+docs
+scripts
+pack
+.template.config
+**/*.md
+**/Dockerfile*
+**/.dockerignore
+docker-compose*.yml

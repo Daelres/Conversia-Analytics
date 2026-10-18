@@ -1,0 +1,206 @@
+@page "/"
+@using Conversia.Application.DTOs.Users
+@using Conversia.Domain.Enums
+@using Conversia.Web.Authentication
+@inherits ApiPageBase
+
+<PageTitle>Inicio - Conversia</PageTitle>
+<HeadContent>
+    <meta name="description" content="Conversia es una plantilla multiespacio para .NET 10: gestiona tu espacio de trabajo, sus usuarios y sus permisos con una API protegida y una interfaz Blazor." />
+</HeadContent>
+
+@if (!_signedIn)
+{
+    <div class="page" data-page="home">
+        <section class="hero">
+            <div class="hero__copy">
+                <span class="chip chip--brand"><Icon Name="sparkles" />Plantilla multiespacio para .NET 10</span>
+                <h1 class="hero__title">Tu espacio de trabajo, <span class="gradient-text">listo para crecer</span></h1>
+                <p class="hero__lead">Gestiona tu espacio de trabajo, sus usuarios y sus permisos. Una base sólida con API protegida, interfaz moderna y una funcionalidad de referencia para copiar.</p>
+                <div class="cluster-md">
+                    <a class="btn btn--primary" href="/register">Crear espacio de trabajo<Icon Name="arrow-right" /></a>
+                    <a class="btn btn--secondary" href="/login">Iniciar sesión</a>
+                    <a class="btn btn--ghost" href="/demo">Ver recorrido<Icon Name="compass" /></a>
+                </div>
+            </div>
+            <div class="hero__art" aria-hidden="true">
+                <div class="hero-card hero-card--a"><span class="tile-icon"><Icon Name="building" /></span><span class="skeleton skeleton--w60"></span><span class="skeleton skeleton--w40"></span></div>
+                <div class="hero-card hero-card--b"><span class="tile-icon tile-icon--accent"><Icon Name="shield-check" /></span><span class="skeleton skeleton--w70"></span><span class="skeleton skeleton--w50"></span></div>
+                <div class="hero-card hero-card--c"><span class="tile-icon"><Icon Name="box" /></span><span class="skeleton skeleton--w50"></span><span class="skeleton skeleton--w30"></span></div>
+            </div>
+        </section>
+
+        <section class="stack" aria-labelledby="home-features">
+            <h2 id="home-features">Todo lo necesario para empezar</h2>
+            <div class="grid-cards">
+                @foreach (var feature in Features)
+                {
+                    <article class="card feature">
+                        <span class="tile-icon @feature.Tone"><Icon Name="@feature.Icon" /></span>
+                        <h3>@feature.Title</h3>
+                        <p class="muted">@feature.Text</p>
+                    </article>
+                }
+            </div>
+        </section>
+
+        <section class="cta-band">
+            <div class="stack-sm">
+                <h2>¿Quieres verla en acción?</h2>
+                <p>El recorrido explica qué incluye la plantilla y qué puede hacer cada tipo de cuenta.</p>
+            </div>
+            <a class="btn btn--primary" href="/demo">Ver recorrido<Icon Name="arrow-right" /></a>
+        </section>
+    </div>
+}
+else
+{
+    <div class="page" data-page="home">
+        <PageHeader Eyebrow="Tu perfil" EyebrowIcon="user" Title="Te damos la bienvenida"
+                    Description="Este es el resumen de tu cuenta y de tu espacio de trabajo." />
+
+        @if (_failure is not null)
+        {
+            <Alert Kind="AlertKind.Danger">@_failure</Alert>
+        }
+        else if (_profile is not null)
+        {
+            <div class="grid-cards stats">
+                <Card Class="stat">
+                    <p class="stat__label">Rol</p>
+                    <div class="stat__value" data-testid="profile-is-owner" data-value="@(_profile.IsOwner ? "true" : "false")">
+                        @if (_profile.IsOwner)
+                        {
+                            <Chip Tone="ChipTone.Brand" IconName="shield-check" data-chip="owner">Propietario</Chip>
+                        }
+                        else
+                        {
+                            <Chip IconName="user">Miembro</Chip>
+                        }
+                    </div>
+                    <p class="stat__note">@(_profile.IsOwner ? "Tienes todos los permisos en tu espacio." : "Tus permisos los concede la persona propietaria.")</p>
+                </Card>
+                <Card Class="stat">
+                    <p class="stat__label">Espacio de trabajo</p>
+                    <p class="stat__value stat__value--mono" data-testid="profile-tenant-id">@_profile.TenantId</p>
+                    <p class="stat__note">Identificador de tu espacio.</p>
+                </Card>
+                <Card Class="stat">
+                    <p class="stat__label">Permisos</p>
+                    <div class="stat__value">
+                        @if (_profile.IsOwner && _profile.Permissions.Count == 0)
+                        {
+                            <span class="muted">Todos, por ser propietario</span>
+                        }
+                        else if (_profile.Permissions.Count == 0)
+                        {
+                            <span class="muted">Ninguno</span>
+                        }
+                        else
+                        {
+                            <ul class="cluster">
+                                @foreach (var permission in _profile.Permissions)
+                                {
+                                    <li><Chip Tone="ChipTone.Accent" IconName="check" data-chip="permission" data-testid="profile-permission" data-permission="@permission">@PermissionLabels.For(permission)</Chip></li>
+                                }
+                            </ul>
+                        }
+                    </div>
+                </Card>
+            </div>
+
+            <section class="stack" aria-labelledby="home-actions">
+                <h2 id="home-actions">Por dónde seguir</h2>
+                <div class="grid-cards">
+                    @if (_profile.Can(Permission.ProductsView))
+                    {
+                        <a class="card card--link" href="/products">
+                            <span class="tile-icon"><Icon Name="box" /></span>
+                            <span class="card-link__title">Productos</span>
+                            <span class="card-link__text">Consulta y gestiona el catálogo de tu espacio de trabajo.</span>
+                            <span class="card-link__go">Abrir productos<Icon Name="arrow-right" Class="icon--sm" /></span>
+                        </a>
+                    }
+                    else
+                    {
+                        <div class="card card--locked">
+                            <span class="tile-icon tile-icon--muted"><Icon Name="lock" /></span>
+                            <span class="card-link__title">Productos</span>
+                            <span class="card-link__text">Necesitas el permiso «@PermissionLabels.For(Permission.ProductsView)». Pídeselo a la persona propietaria.</span>
+                        </div>
+                    }
+                    @if (_profile.Can(Permission.UsersView))
+                    {
+                        <a class="card card--link" href="/users">
+                            <span class="tile-icon tile-icon--accent"><Icon Name="users" /></span>
+                            <span class="card-link__title">Usuarios</span>
+                            <span class="card-link__text">Mira quién forma parte del equipo y qué puede hacer cada quien.</span>
+                            <span class="card-link__go">Abrir usuarios<Icon Name="arrow-right" Class="icon--sm" /></span>
+                        </a>
+                    }
+                    else
+                    {
+                        <div class="card card--locked">
+                            <span class="tile-icon tile-icon--muted"><Icon Name="lock" /></span>
+                            <span class="card-link__title">Usuarios</span>
+                            <span class="card-link__text">Necesitas el permiso «@PermissionLabels.For(Permission.UsersView)». Pídeselo a la persona propietaria.</span>
+                        </div>
+                    }
+                    <a class="card card--link" href="/demo">
+                        <span class="tile-icon"><Icon Name="compass" /></span>
+                        <span class="card-link__title">Recorrido</span>
+                        <span class="card-link__text">Descubre qué incluye la plantilla y qué ve cada tipo de cuenta.</span>
+                        <span class="card-link__go">Ver recorrido<Icon Name="arrow-right" Class="icon--sm" /></span>
+                    </a>
+                </div>
+            </section>
+        }
+    </div>
+}
+
+@code {
+    private sealed record Feature(string Icon, string Tone, string Title, string Text);
+
+    private static readonly Feature[] Features =
+    [
+        new("building", string.Empty, "Espacios aislados", "Cada equipo trabaja en su propio espacio: sus usuarios y sus datos nunca se mezclan con los de otro."),
+        new("shield-check", "tile-icon--accent", "Permisos precisos", "Los propietarios lo tienen todo; el resto de personas solo hace lo que se les concede, comprobado en cada solicitud."),
+        new("zap", string.Empty, "Listo para ampliar", "Una funcionalidad de referencia, productos, con búsqueda, paginación y concurrencia optimista: cópiala para crear la tuya.")
+    ];
+
+    private bool _signedIn;
+    private UserProfileResponse? _profile;
+    private string? _failure;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _signedIn = HttpContext.User.Identity?.IsAuthenticated == true;
+        if (!_signedIn)
+        {
+            return;
+        }
+
+        var token = await HttpContext.GetApiTokenAsync();
+        if (token is null)
+        {
+            await EndSessionAsync();
+            return;
+        }
+
+        var result = await Api.GetMyProfileAsync(token);
+        if (result.Status == ApiResultStatus.Unauthorized)
+        {
+            await EndSessionAsync();
+        }
+        else if (result.IsSuccess)
+        {
+            _profile = result.Value;
+            Shell.Remember(_profile!);
+        }
+        else
+        {
+            SetStatusCode(StatusCodes.Status503ServiceUnavailable);
+            _failure = UiMessages.Unavailable;
+        }
+    }
+}

@@ -1,23 +1,40 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" />
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="xunit" />
-    <PackageReference Include="xunit.runner.visualstudio" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\Conversia.Api\Conversia.Api.csproj" />
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.11" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="Microsoft.OpenApi" Version="2.12.2" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.14.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>
 
   <ItemGroup>
     <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Conversia.API\Conversia.API.csproj" />
+    <ProjectReference Include="..\..\src\Conversia.Infrastructure\Conversia.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Conversia.Application\Conversia.Application.csproj" />
+    <ProjectReference Include="..\..\src\Conversia.Domain\Conversia.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- One denylist for every project that checks "all user-facing text is Spanish". -->
+    <Compile Include="..\Shared\EnglishLeaks.cs" Link="Shared\EnglishLeaks.cs" />
+    <!-- The error registry's limits and code shape: one definition for the API and the Web suites. -->
+    <Compile Include="..\Shared\ErrorLimits.cs" Link="Shared\ErrorLimits.cs" />
   </ItemGroup>
 
 </Project>

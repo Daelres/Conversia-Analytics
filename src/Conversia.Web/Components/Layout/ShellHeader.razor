@@ -1,0 +1,78 @@
+<header class="shell-header">
+    @* The checkbox + label pair opens the menu on small screens without JavaScript. *@
+    <input type="checkbox" id="menu-toggle" class="menu-check" />
+    <div class="shell-bar">
+        <a class="brand" href="/">
+            <BrandMark />
+            <span class="brand-name">Conversia</span>
+        </a>
+        <label for="menu-toggle" class="menu-button">
+            <Icon Name="menu" Class="icon-open" />
+            <Icon Name="x" Class="icon-close" />
+            <span>Menú</span>
+        </label>
+    </div>
+    <div class="shell-panel">
+        <nav aria-label="Navegación principal">
+            <ul class="nav-list">
+                <NavItem Href="/" Label="Inicio" IconName="home" Exact="true" />
+                <NavItem Href="/demo" Label="Recorrido" IconName="compass" />
+                @if (SignedIn)
+                {
+                    <NavItem Href="/products" Label="Productos" IconName="box" />
+                    <NavItem Href="/users" Label="Usuarios" IconName="users" />
+                }
+                else
+                {
+                    <NavItem Href="/login" Label="Iniciar sesión" IconName="log-in" />
+                    <NavItem Href="/register" Label="Registrarse" IconName="sparkles" Cta="true" />
+                }
+            </ul>
+        </nav>
+        <div class="shell-foot">
+            @if (SignedIn)
+            {
+                <div class="user-card">
+                    <Avatar Text="@RoleLabel" />
+                    <div class="user-card__text">
+                        <span class="user-card__role">@RoleLabel</span>
+                        <span class="user-card__meta">@Meta</span>
+                        @if (Profile is not null)
+                        {
+                            <span class="user-card__meta user-card__id">@Short(Profile.TenantId.ToString())</span>
+                        }
+                    </div>
+                </div>
+                <div class="shell-foot__row">
+                    <ThemeToggle />
+                    <form method="post" action="/logout">
+                        <AntiforgeryToken />
+                        <button type="submit" class="btn btn--secondary btn--block">
+                            <Icon Name="log-out" />
+                            Cerrar sesión
+                        </button>
+                    </form>
+                </div>
+            }
+            else
+            {
+                <ThemeToggle />
+            }
+        </div>
+    </div>
+</header>
+
+@code {
+    [Parameter]
+    public bool SignedIn { get; set; }
+
+    /// <summary>Role and workspace, once a page has loaded the profile.</summary>
+    [Parameter]
+    public ShellUser? Profile { get; set; }
+
+    private string RoleLabel => Profile is null ? "Tu cuenta" : Profile.IsOwner ? "Propietario" : "Miembro";
+
+    private string Meta => Profile is not null ? "Espacio de trabajo" : "Sesión iniciada";
+
+    private static string Short(string id) => id.Length <= 8 ? id : id[..8];
+}

@@ -1,12 +1,16 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/Conversia.Api/Conversia.Api.csproj" />
+    <Project Path="src/Conversia.API/Conversia.API.csproj" />
     <Project Path="src/Conversia.Application/Conversia.Application.csproj" />
     <Project Path="src/Conversia.Domain/Conversia.Domain.csproj" />
     <Project Path="src/Conversia.Infrastructure/Conversia.Infrastructure.csproj" />
+    <Project Path="src/Conversia.Web/Conversia.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Conversia.Application.UnitTests/Conversia.Application.UnitTests.csproj" />
+    <Project Path="tests/Conversia.Domain.UnitTests/Conversia.Domain.UnitTests.csproj" />
     <Project Path="tests/Conversia.IntegrationTests/Conversia.IntegrationTests.csproj" />
-    <Project Path="tests/Conversia.UnitTests/Conversia.UnitTests.csproj" />
+    <Project Path="tests/Conversia.Infrastructure.UnitTests/Conversia.Infrastructure.UnitTests.csproj" />
+    <Project Path="tests/Conversia.Web.IntegrationTests/Conversia.Web.IntegrationTests.csproj" />
   </Folder>
 </Solution>

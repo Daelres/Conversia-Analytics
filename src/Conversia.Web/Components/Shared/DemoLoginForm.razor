@@ -1,0 +1,46 @@
+@using Conversia.Application.DTOs.Auth
+@using Conversia.Application.Demo
+
+@* One form per account, so each gets a mapping scope of its own: form names must be unique on a page. *@
+<FormMappingScope Name="@Account.Email" Context="scope">
+    <EditForm Model="Credentials" FormName="demo-login" OnValidSubmit="SubmitAsync" method="post" class="account-row">
+        <input type="hidden" name="Credentials.Email" value="@Account.Email" />
+        <input type="hidden" name="Credentials.Password" value="@Password" />
+        <Avatar Text="@Account.SignInLabel" />
+        <div class="account-row__text">
+            <span class="account-row__role">@Role</span>
+            <span class="account-row__desc">@Detail</span>
+        </div>
+        <button type="submit" class="btn btn--secondary btn--sm account-row__go">Entrar como @Account.SignInLabel</button>
+    </EditForm>
+</FormMappingScope>
+
+@code {
+    private LoginRequest? _credentials;
+
+    [Parameter, EditorRequired]
+    public DemoAccount Account { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public string Password { get; set; } = string.Empty;
+
+    /// <summary>Raised with the posted credentials, which then travel the same sign-in as the login form's.</summary>
+    [Parameter, EditorRequired]
+    public EventCallback<LoginRequest> OnSignIn { get; set; }
+
+    [SupplyParameterFromForm(FormName = "demo-login")]
+    private LoginRequest Credentials
+    {
+        get => _credentials ??= new() { Email = Account.Email, Password = Password };
+        set => _credentials = value;
+    }
+
+    // "Propietario de Acme: tiene todos los permisos...": the words before the colon name the role, the rest says what it can do.
+    private string Role => Account.Description.Contains(':') ? Account.Description[..Account.Description.IndexOf(':')] : Capitalized(Account.SignInLabel);
+
+    private static string Capitalized(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
+
+    private string Detail => Account.Description.Contains(':') ? Capitalized(Account.Description[(Account.Description.IndexOf(':') + 1)..].Trim()) : Account.Description;
+
+    private Task SubmitAsync() => OnSignIn.InvokeAsync(Credentials);
+}

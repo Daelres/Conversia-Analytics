@@ -1,0 +1,41 @@
+<div class="page-header">
+    <div class="page-header__text">
+        @if (Eyebrow is not null)
+        {
+            <span class="eyebrow">
+                @if (EyebrowIcon is not null)
+                {
+                    <Icon Name="@EyebrowIcon" Class="icon--sm" />
+                }
+                @Eyebrow
+            </span>
+        }
+        <h1>@Title</h1>
+        @if (Description is not null)
+        {
+            <p class="page-header__desc">@Description</p>
+        }
+    </div>
+    @if (ChildContent is not null)
+    {
+        <div class="page-header__actions">@ChildContent</div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Description { get; set; }
+
+    [Parameter]
+    public string? Eyebrow { get; set; }
+
+    [Parameter]
+    public string? EyebrowIcon { get; set; }
+
+    /// <summary>The page's primary actions, shown on the right.</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

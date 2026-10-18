@@ -1,0 +1,36 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject ShellState Shell
+
+<InPageLink Fragment="main" class="skip-link">Saltar al contenido</InPageLink>
+<div class="shell" data-shell="@(_signedIn ? "app" : "site")">
+    <ShellHeader SignedIn="_signedIn" Profile="Shell.User" />
+    <div class="shell-body">
+        <main id="main" tabindex="-1">
+            <ErrorCodeNotice />
+            @Body
+        </main>
+        <SiteFooter />
+    </div>
+</div>
+
+@code {
+    private bool _signedIn;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Shell.Changed += OnShellChanged;
+        if (AuthenticationState is not null)
+        {
+            var user = (await AuthenticationState).User;
+            _signedIn = user.Identity?.IsAuthenticated == true;
+        }
+    }
+
+    private void OnShellChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Shell.Changed -= OnShellChanged;
+}

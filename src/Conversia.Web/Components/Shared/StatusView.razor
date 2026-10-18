@@ -1,0 +1,57 @@
+@* The page of a state that is not the page the person asked for: forbidden, not found, a rejected request, an error. *@
+<div class="page" data-page="@DataPage">
+    <div class="status-view">
+        <div class="status-view__body">
+            <span class="status-view__code" aria-hidden="true">@Code</span>
+            <h1>@Title</h1>
+            <p class="status-view__text">@ChildContent</p>
+            @if (Hint is not null)
+            {
+                <p class="status-view__hint"><Icon Name="refresh" /><span>@Hint</span></p>
+            }
+            <div class="cluster-md">
+                @if (Actions is not null)
+                {
+                    @Actions
+                }
+                else
+                {
+                    <a class="btn btn--primary" href="/"><Icon Name="home" />Volver al inicio</a>
+                }
+            </div>
+            @if (Meta is not null)
+            {
+                <p class="status-view__meta">@Meta</p>
+            }
+        </div>
+        <div class="status-view__art"><Illustration Kind="@Art" /></div>
+    </div>
+</div>
+
+@code {
+    /// <summary>The <c>data-page</c> hook: forbidden, not-found or error.</summary>
+    [Parameter, EditorRequired]
+    public string DataPage { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string Code { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Art { get; set; } = "error";
+
+    [Parameter]
+    public string? Hint { get; set; }
+
+    [Parameter]
+    public string? Meta { get; set; }
+
+    /// <summary>Replaces the default "Volver al inicio" button.</summary>
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

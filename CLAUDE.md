@@ -37,11 +37,11 @@ Fuera del MVP: respuestas automáticas del bot, conteo de personas o análisis d
 
 ## Stack
 
-- **Backend:** .NET 10 (LTS), C#, ASP.NET Core Web API.
+- **Backend:** .NET 10 (LTS), C#, ASP.NET Core Web API. La base del repo es la plantilla `DR.Template` 1.0.0, adaptada de SQL Server a PostgreSQL (ver `docs/decisiones.md`).
 - **Base de datos:** PostgreSQL (se descartó SQL Server por costos). ORM: EF Core con Npgsql.
 - **WhatsApp:** 360dialog como proveedor de la API de WhatsApp Business (por validar).
 - **Infraestructura:** Azure.
-- **Frontend del dashboard:** por definir.
+- **Frontend del dashboard:** Blazor Web (de la plantilla DR.Template).
 - **Análisis de texto / IA:** por definir (clasificación de intención, extracción de entidades).
 
 ## Arquitectura propuesta (inicial, abierta a cambios)
@@ -79,7 +79,7 @@ WhatsApp ─► 360dialog ─► Webhook (API .NET) ─► Cola / procesamiento 
 ## Preguntas abiertas
 
 - ¿Cómo se capturan los mensajes que los asesores envían desde su teléfono o WhatsApp Web? (define la viabilidad técnica de todo el producto).
-- Tecnología del dashboard (Blazor, React, Power BI embebido, otra).
+- Tecnología del dashboard: Blazor Web viene con la plantilla DR.Template; falta confirmar si basta para el dashboard ejecutivo (React, Power BI embebido, otra).
 - Motor de clasificación: reglas, modelo de IA vía API, o combinación.
 - Nombre definitivo del producto.
 
@@ -95,24 +95,33 @@ WhatsApp ─► 360dialog ─► Webhook (API .NET) ─► Cola / procesamiento 
 
 ```
 Conversia.slnx
-global.json, Directory.Build.props, Directory.Packages.props
-docker-compose.yml, .env.example
-docs/decisiones.md
+global.json, .editorconfig, .config/dotnet-tools.json   # dotnet-ef 10.0.11 como herramienta local
+docker-compose.yml, docker-compose.demo.yml, .env.example, .dockerignore
+.github/workflows/tests.yml
+README.md                    # de la plantilla DR.Template
+docs/
+  decisiones.md              # registro de decisiones del proyecto
+  ARCHITECTURE.md, EXTENDING.md, WORKFLOW.md, DEMO.md, ERRORS.md, USERS_TENANTS_PERMISSIONS.md   # de la plantilla
 src/
   Conversia.Domain/          # sin dependencias
   Conversia.Application/     # referencia Domain
-  Conversia.Infrastructure/  # referencia Application; EF Core + Npgsql
-  Conversia.Api/             # minimal API; referencia Application e Infrastructure
+  Conversia.Infrastructure/  # referencia Application; EF Core + Npgsql, migraciones en Persistence/Migrations
+  Conversia.API/             # controllers; referencia Application e Infrastructure
+  Conversia.Web/             # Blazor Web; referencia Application y habla con la API por HTTP
 tests/
-  Conversia.UnitTests/       # xUnit; Domain y Application
-  Conversia.IntegrationTests/# xUnit + WebApplicationFactory; Api
+  Conversia.Domain.UnitTests/, Conversia.Application.UnitTests/, Conversia.Infrastructure.UnitTests/   # xUnit
+  Conversia.IntegrationTests/      # API contra PostgreSQL real (Testcontainers; requiere Docker)
+  Conversia.Web.IntegrationTests/  # Web contra la API y PostgreSQL reales (Testcontainers)
 ```
 
 Comandos habituales:
 
 ```bash
-cp .env.example .env && docker compose up -d   # PostgreSQL local
+cp .env.example .env                      # completar POSTGRES_PASSWORD y JWT_SIGNING_KEY
+docker compose up -d --build              # PostgreSQL + migraciones + API (5030) + Web (5112)
+docker compose up -d postgres             # solo PostgreSQL, para desarrollar con dotnet run
+dotnet tool restore                       # una vez: dotnet-ef
 dotnet build
-dotnet test
-dotnet run --project src/Conversia.Api         # GET /health
+dotnet test                               # las pruebas de integración necesitan Docker
+dotnet run --project src/Conversia.API    # OpenAPI en /openapi/v1.json (Development)
 ```

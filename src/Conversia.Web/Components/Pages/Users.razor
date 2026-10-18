@@ -1,0 +1,197 @@
+@page "/users"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Users
+@using Conversia.Domain.Enums
+@using Conversia.Web.Authentication
+@inherits ApiPageBase
+
+<PageTitle>Usuarios - Conversia</PageTitle>
+
+@if (_forbidden)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="users">
+        <PageHeader Eyebrow="Equipo" EyebrowIcon="users" Title="Usuarios"
+                    Description="Las personas de tu espacio de trabajo y lo que puede hacer cada una." />
+
+        @if (UsersNotice.Describe(Notice) is { } notice)
+        {
+            <Alert Kind="@(notice.IsError ? AlertKind.Danger : AlertKind.Success)">@notice.Text</Alert>
+        }
+
+        @if (_message is not null)
+        {
+            <Alert Kind="AlertKind.Danger">@_message</Alert>
+        }
+
+        @* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller
+           without UsersManage who forges one must still reach the API and be refused there, not crash here. *@
+        <div hidden="@(!_canManage)">
+            <Card Title="Agregar un usuario" Subtitle="La persona podrá entrar con este correo; tú decides después sus permisos." IconName="plus">
+                <EditForm Model="Input" FormName="create-user" OnValidSubmit="CreateUserAsync" OnInvalidSubmit="LoadAsync" method="post" class="form">
+                    <DataAnnotationsValidator />
+                    <div class="form-grid form-grid--2">
+                        <FormField TValue="string" For="() => Input.Email" Id="new-email" Label="Correo electrónico" IconName="mail" ApiErrors="_createErrors" Context="field">
+                            <TextInput id="new-email" type="email" class="input" autocomplete="off" @bind-Value="Input.Email" @attributes="field" Invalid="field.Invalid" />
+                        </FormField>
+                        <FormField TValue="string" For="() => Input.Password" Id="new-password" Label="Contraseña" IconName="lock" ApiErrors="_createErrors" Context="field">
+                            @* A plain input: it has no value attribute, so a submitted password can never be echoed back. *@
+                            <input id="new-password" name="Input.Password" type="password" class="input" autocomplete="new-password" @attributes="field" />
+                        </FormField>
+                    </div>
+                    <ApiFieldErrors Errors="_createErrors" KnownFields="@(["Email", "Password"])" />
+                    <div class="form-actions">
+                        @if (_canManage)
+                        {
+                            <button type="submit" class="btn btn--primary"><Icon Name="plus" />Crear</button>
+                        }
+                    </div>
+                </EditForm>
+            </Card>
+        </div>
+
+        @if (_users is not null)
+        {
+            <ul class="user-list" aria-label="Usuarios del espacio de trabajo">
+                @foreach (var user in _users)
+                {
+                    <li class="card user" data-testid="user-row" data-user-id="@user.UserId">
+                        <div class="user__head">
+                            <Avatar Text="@user.Email" Class="avatar--lg" />
+                            <div class="user__who">
+                                <span class="user__email">@user.Email</span>
+                                @if (user.IsOwner)
+                                {
+                                    <Chip Tone="ChipTone.Brand" IconName="shield-check" data-testid="owner-badge">Propietario</Chip>
+                                }
+                            </div>
+                        </div>
+                        @if (_canManage)
+                        {
+                            @if (user.IsOwner)
+                            {
+                                <p class="muted user__all"><Icon Name="check-circle" Class="icon--sm" />Todos los permisos</p>
+                            }
+                            else
+                            {
+                                <ul class="perm-list" aria-label="Permisos de @user.Email">
+                                    @foreach (var permission in Permissions)
+                                    {
+                                        <li class="perm">
+                                            <span class="perm__label" data-testid="permission-label" data-permission="@permission">@PermissionLabels.For(permission)</span>
+                                            <span class="perm__actions">
+                                                <PermissionForm Action="grant" ButtonText="Conceder" UserId="user.UserId" Permission="permission" ButtonClass="btn--success-ghost" IconName="check" />
+                                                <PermissionForm Action="revoke" ButtonText="Revocar" UserId="user.UserId" Permission="permission" ButtonClass="btn--danger-ghost" IconName="x" />
+                                            </span>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                        }
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+}
+
+@code {
+    private static readonly Permission[] Permissions = Enum.GetValues<Permission>();
+
+    private string? _token;
+    private string? _message;
+    private bool _canManage;
+    private bool _forbidden;
+    private IReadOnlyList<UserSummaryResponse>? _users;
+    private IReadOnlyDictionary<string, string[]>? _createErrors;
+
+    private CreateUserRequest? _input;
+
+    [SupplyParameterFromForm(FormName = "create-user")]
+    private CreateUserRequest Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    [SupplyParameterFromQuery]
+    public string? Notice { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _token = await HttpContext.GetApiTokenAsync();
+        if (_token is null)
+        {
+            await EndSessionAsync();
+            return;
+        }
+
+        // A post is an action: its handler loads the list only when it has to show it again
+        // (a rejected create, or a submit that local validation refused before reaching the handler).
+        if (!HttpMethods.IsPost(HttpContext.Request.Method))
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var usersTask = Api.GetUsersAsync(_token!);
+        var profileTask = Api.GetMyProfileAsync(_token!);
+        await Task.WhenAll(usersTask, profileTask);
+        var users = usersTask.Result;
+        var profile = profileTask.Result;
+
+        if (users.Status == ApiResultStatus.Unauthorized || profile.Status == ApiResultStatus.Unauthorized)
+        {
+            await EndSessionAsync();
+        }
+        else if (users.Status == ApiResultStatus.Forbidden)
+        {
+            SetStatusCode(StatusCodes.Status403Forbidden);
+            _message = UiMessages.NotAuthorized;
+            _forbidden = true;
+        }
+        else if (users.IsSuccess && profile.IsSuccess)
+        {
+            _users = users.Value;
+            Shell.Remember(profile.Value!);
+            _canManage = profile.Value!.IsOwner || profile.Value.Permissions.Contains(Permission.UsersManage);
+        }
+        else
+        {
+            SetStatusCode(StatusCodes.Status503ServiceUnavailable);
+            _message = UiMessages.Unavailable;
+        }
+    }
+
+    private async Task CreateUserAsync()
+    {
+        var result = await Api.CreateUserAsync(_token!, Input);
+        Input.Password = string.Empty;
+
+        if (result.IsSuccess)
+        {
+            RedirectTo(UsersNotice.Url(UsersNotice.Created));
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.Unauthorized)
+        {
+            await EndSessionAsync();
+            return;
+        }
+
+        _createErrors = result.ValidationErrors;
+        _message = result.Status switch
+        {
+            ApiResultStatus.Conflict => UiMessages.EmailTaken,
+            ApiResultStatus.ValidationFailed => null,
+            _ => UiMessages.ForCommonFailure(result) ?? UiMessages.Unavailable
+        };
+        await LoadAsync();
+    }
+}

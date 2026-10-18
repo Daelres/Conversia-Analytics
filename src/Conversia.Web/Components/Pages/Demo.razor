@@ -1,0 +1,220 @@
+@page "/demo"
+@using Conversia.Application.Demo
+@using Conversia.Application.DTOs.Users
+@using Conversia.Domain.Enums
+@using Conversia.Web.Authentication
+@using Conversia.Web.Demo
+@inherits ApiPageBase
+@inject DemoOptions DemoSettings
+
+<PageTitle>Recorrido por la plantilla - Conversia</PageTitle>
+<HeadContent>
+    <meta name="description" content="Recorrido por Conversia: autenticación multiespacio con JWT, permisos, gestión de usuarios y una funcionalidad de referencia lista para ampliar." />
+</HeadContent>
+
+<div class="page" data-page="demo">
+    <section class="hero hero--compact">
+        <div class="hero__copy">
+            <span class="chip chip--brand"><Icon Name="compass" />Recorrido</span>
+            <h1 class="hero__title hero__title--md">Recorrido por la plantilla</h1>
+            <p class="hero__lead">Una plantilla multiespacio para .NET 10: una API protegida con JWT, una interfaz web Blazor basada en cookies y una funcionalidad de referencia lista para ampliar.</p>
+        </div>
+    </section>
+
+    <section class="stack" aria-labelledby="tour-features">
+        <h2 id="tour-features">Qué incluye</h2>
+        <ul class="grid-balanced">
+            @foreach (var feature in Features)
+            {
+                <li class="card feature" data-testid="tour-feature">
+                    <span class="tile-icon"><Icon Name="@feature.Icon" /></span>
+                    <h3>@feature.Title</h3>
+                    <p class="muted">@feature.Description</p>
+                </li>
+            }
+        </ul>
+    </section>
+
+    @if (!_signedIn)
+    {
+        <section class="cta-band cta-band--wrap" aria-labelledby="tour-try">
+            <div class="stack-sm">
+                <h2 id="tour-try">Pruébala</h2>
+                <p>Inicia sesión, registra un espacio de trabajo, gestiona los usuarios o explora los productos.</p>
+            </div>
+            <div class="cluster-md">
+                <a class="btn btn--primary" href="/login">Iniciar sesión</a>
+                <a class="btn btn--secondary" href="/register">Registrar un espacio</a>
+                <a class="btn btn--secondary" href="/users">Usuarios</a>
+                <a class="btn btn--secondary" href="/products">Productos</a>
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="cta-band cta-band--wrap" aria-labelledby="tour-try">
+            <div class="stack-sm">
+                <h2 id="tour-try">Sigue explorando</h2>
+                <p>Abre los productos o los usuarios de tu espacio de trabajo y comprueba lo que tu cuenta puede hacer.</p>
+                <p class="subtle">¿Quieres ver el recorrido con otra cuenta? Puedes <a href="/login">iniciar sesión</a> de nuevo o <a href="/register">registrar un espacio</a> nuevo.</p>
+            </div>
+            <div class="cluster-md">
+                <a class="btn btn--primary" href="/products"><Icon Name="box" />Productos</a>
+                <a class="btn btn--secondary" href="/users"><Icon Name="users" />Usuarios</a>
+                <a class="btn btn--secondary" href="/"><Icon Name="home" />Inicio</a>
+            </div>
+        </section>
+    }
+
+    @if (_failure is not null)
+    {
+        <Alert Kind="AlertKind.Danger">@_failure</Alert>
+    }
+    else if (_profile is not null)
+    {
+        <Card Title="Tú, ahora mismo" Subtitle="Lo que la API sabe de tu sesión, en este momento." IconName="user" data-testid="you-now">
+            <dl class="kv kv--cols">
+                <div>
+                    <dt>Espacio de trabajo</dt>
+                    <dd class="mono" data-testid="you-tenant-id">@_profile.TenantId</dd>
+                </div>
+                <div>
+                    <dt>Propietario</dt>
+                    <dd data-testid="you-is-owner" data-value="@(_profile.IsOwner ? "true" : "false")">@(_profile.IsOwner ? "Sí" : "No")</dd>
+                </div>
+                <div class="form-grid__wide">
+                    <dt>Permisos</dt>
+                    <dd>
+                        @if (_profile.IsOwner && _profile.Permissions.Count == 0)
+                        {
+                            <span class="muted">Todos (propietario)</span>
+                        }
+                        else if (_profile.Permissions.Count == 0)
+                        {
+                            <span class="muted">Ninguno</span>
+                        }
+                        else
+                        {
+                            <ul class="cluster">
+                                @foreach (var permission in _profile.Permissions)
+                                {
+                                    <li><Chip Tone="ChipTone.Accent" IconName="check" data-testid="you-permission" data-permission="@permission">@PermissionLabels.For(permission)</Chip></li>
+                                }
+                            </ul>
+                        }
+                    </dd>
+                </div>
+            </dl>
+
+            <div class="table-wrap matrix">
+                <table class="table">
+                    <caption class="sr-only">Matriz de acceso a usuarios y productos</caption>
+                    <thead>
+                        <tr><th scope="col">Acceso</th><th scope="col">Ver</th><th scope="col">Gestionar</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <th scope="row">Usuarios</th>
+                            <AccessCell Held="_profile.Can(Permission.UsersView)" Permission="Permission.UsersView" />
+                            <AccessCell Held="_profile.Can(Permission.UsersManage)" Permission="Permission.UsersManage" />
+                        </tr>
+                        <tr>
+                            <th scope="row">Productos</th>
+                            <AccessCell Held="_profile.Can(Permission.ProductsView)" Permission="Permission.ProductsView" />
+                            <AccessCell Held="_profile.Can(Permission.ProductsManage)" Permission="Permission.ProductsManage" />
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </Card>
+    }
+
+    @if (DemoSettings.ShowAccounts)
+    {
+        <section class="stack" aria-labelledby="tour-accounts">
+            <h2 id="tour-accounts">Cuentas de demostración</h2>
+            <p class="muted">
+                Todas las cuentas usan la misma contraseña:
+                <code class="pw" data-testid="demo-password">@DemoSettings.Password</code>
+            </p>
+            <div class="grid-cards">
+                @foreach (var account in DemoAccounts.All)
+                {
+                    <article class="card account" data-testid="demo-account-row" data-email="@account.Email">
+                        <Avatar Text="@account.Email" Class="avatar--lg" />
+                        <div class="stack-sm">
+                            <p class="mono account__email">@account.Email</p>
+                            <p class="muted">@account.Description</p>
+                        </div>
+                    </article>
+                }
+            </div>
+
+            <h2 id="tour-scenarios">Cosas que probar</h2>
+            <ol class="timeline" aria-labelledby="tour-scenarios">
+                @foreach (var scenario in Scenarios)
+                {
+                    <li data-testid="demo-scenario">@scenario</li>
+                }
+            </ol>
+        </section>
+    }
+</div>
+
+@code {
+    private sealed record Feature(string Icon, string Title, string Description);
+
+    private static readonly Feature[] Features =
+    [
+        new("shield-check", "Autenticación multiespacio con JWT", "Registra un espacio de trabajo, inicia sesión y recibe un token firmado; cada usuario pertenece a un único espacio de trabajo."),
+        new("key", "Autorización basada en permisos", "Los propietarios lo tienen todo; el resto de usuarios solo tiene los permisos que se les conceden, comprobados en cada solicitud."),
+        new("users", "Gestión de usuarios", "Los propietarios y los gestores crean usuarios y conceden o revocan sus permisos."),
+        new("box", "Funcionalidad de referencia: productos", "Un catálogo propio de cada espacio de trabajo con búsqueda, paginación y concurrencia optimista: cópialo para crear tu propia funcionalidad."),
+        new("activity", "Límite de intentos de inicio de sesión", "La ruta de inicio de sesión frena la fuerza bruta por dirección de cliente."),
+        new("globe", "Interfaz web Blazor basada en cookies", "Renderizado estático en el servidor con protección antifalsificación (antiforgery) en cada formulario; el token nunca llega al navegador."),
+        new("database", "Docker y compose", "Dockerfiles para la API y la Web, y un archivo compose con PostgreSQL y el migrador.")
+    ];
+
+    private static readonly string[] Scenarios =
+    [
+        "Entra como lector: la lista de productos aparece, pero no hay nada que crear, editar ni eliminar.",
+        "Entra como gestor: edita un producto y luego abre la página de usuarios, donde no se pueden asignar permisos.",
+        "Entra como propietario de Globex: solo aparecen los productos de Globex, aunque ambos espacios de trabajo usan el SKU SKU-001."
+    ];
+
+    private bool _signedIn;
+    private UserProfileResponse? _profile;
+    private string? _failure;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _signedIn = HttpContext.User.Identity?.IsAuthenticated == true;
+        if (!_signedIn)
+        {
+            return;
+        }
+
+        var token = await HttpContext.GetApiTokenAsync();
+        if (token is null)
+        {
+            await EndSessionAsync();
+            return;
+        }
+
+        var result = await Api.GetMyProfileAsync(token);
+        if (result.Status == ApiResultStatus.Unauthorized)
+        {
+            await EndSessionAsync();
+        }
+        else if (result.IsSuccess)
+        {
+            _profile = result.Value;
+            Shell.Remember(_profile!);
+        }
+        else
+        {
+            SetStatusCode(StatusCodes.Status503ServiceUnavailable);
+            _failure = UiMessages.Unavailable;
+        }
+    }
+}

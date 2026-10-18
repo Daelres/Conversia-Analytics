@@ -1,20 +1,89 @@
+# Local full-stack environment: PostgreSQL + one-shot EF Core migrations + API + Web.
+#
+#   cp .env.example .env      # then edit the required secrets (POSTGRES_PASSWORD, JWT_SIGNING_KEY)
+#   docker compose up -d --build
+#
+# API: http://localhost:${API_PORT:-5030}   Web: http://localhost:${WEB_PORT:-5112}
+# Tear down (and delete the database volume): docker compose down -v
+name: conversia
+
+# Connection strings: "GSS Encryption Mode=Disable" stops Npgsql from probing for Kerberos
+# (libgssapi), which the runtime images do not ship and which would log a harmless error.
 services:
   postgres:
     image: postgres:17-alpine
-    restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:?set it in .env}
-      POSTGRES_USER: ${POSTGRES_USER:?set it in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set it in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env (copy .env.example).}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env (copy .env.example).}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (copy .env.example).}
+    # Published on loopback only, for tools such as psql / DBeaver.
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  # One-shot job: applies the EF Core migrations (a self-contained migrations
+  # bundle built by the `migrator` target of the API Dockerfile), then exits.
+  migrator:
+    build:
+      context: .
+      dockerfile: src/Conversia.API/Dockerfile
+      target: migrator
+    command:
+      - --connection
+      - Host=postgres;Port=5432;Database=${POSTGRES_DB:?Set POSTGRES_DB in .env};Username=${POSTGRES_USER:?Set POSTGRES_USER in .env};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env};GSS Encryption Mode=Disable
+    environment:
+      # The bundle boots the API host to find the DbContext, and the host
+      # refuses to start without a valid Jwt:SigningKey. The migrator never
+      # signs a token, so it gets a throwaway value instead of the real secret.
+      Jwt__SigningKey: migrator-only-throwaway-value-not-a-secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: src/Conversia.API/Dockerfile
+    environment:
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:?Set POSTGRES_DB in .env};Username=${POSTGRES_USER:?Set POSTGRES_USER in .env};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env};GSS Encryption Mode=Disable
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env (copy .env.example). It must be at least 32 bytes.}
+      # Optional. Unset: the report endpoint is off (404). The Web gets the same value as ErrorReporting__ApiKey.
+      ErrorLogging__ReportKey: ${ERROR_REPORT_KEY:-}
+    ports:
+      - "${API_PORT:-5030}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: src/Conversia.Web/Dockerfile
+    environment:
+      # The Web only ever talks to the API; it has no database connection.
+      Api__BaseUrl: http://api:8080/
+      # Optional. Unset: the Web still shows and logs its error codes, it just does not report them to the API.
+      ErrorReporting__ApiKey: ${ERROR_REPORT_KEY:-}
+    ports:
+      - "${WEB_PORT:-5112}:8080"
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+    restart: unless-stopped
 
 volumes:
-  postgres_data:
+  postgres-data:

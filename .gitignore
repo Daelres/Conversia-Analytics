@@ -481,7 +481,7 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 
-.env
+# Local overrides and editor folders
 *.local.json
 appsettings.*.local.json
 .idea/

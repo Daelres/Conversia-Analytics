@@ -1,0 +1,137 @@
+@page "/products/{Id:guid}/edit"
+@attribute [Authorize]
+@using System.Globalization
+@using Conversia.Domain.Common
+@inherits ProductPageBase
+
+<PageTitle>Editar producto - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (ProductMissing)
+{
+    <ProductNotFoundView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="product-edit">
+        <PageHeader Eyebrow="Productos" EyebrowIcon="box" Title="Editar producto"
+                    Description="Cambia el nombre, el precio o el stock. El SKU no se puede modificar.">
+            <a class="btn btn--secondary" href="/products"><Icon Name="arrow-left" />Volver a productos</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_modified)
+        {
+            <Alert Kind="AlertKind.Warning">
+                <ChildContent>@UiMessages.ProductModified</ChildContent>
+                <Actions>
+                    <a class="btn btn--secondary btn--sm" href="/products/@Id/edit"><Icon Name="refresh" Class="icon--sm" />Recargar el producto</a>
+                </Actions>
+            </Alert>
+        }
+
+        @* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller
+           without ProductsManage who forges one must still reach the API and be refused there, not crash here. *@
+        <div hidden="@(!ShowForm)">
+            <Card Title="Datos del producto" IconName="pencil">
+                <EditForm Model="Edit" FormName="edit-product" OnValidSubmit="SaveAsync" OnInvalidSubmit="ReloadAsync" method="post" class="form">
+                    <DataAnnotationsValidator />
+                    <input type="hidden" name="@($"{nameof(Edit)}.{nameof(EditProductInput.RowVersion)}")" value="@Edit.RowVersion" />
+                    <div class="field">
+                        <span class="field__label">SKU</span>
+                        <div><Chip Mono="true" IconName="tag">@Product?.Sku</Chip></div>
+                    </div>
+                    <div class="form-grid form-grid--2">
+                        <ProductFields Model="Edit" Prefix="@nameof(Edit)" ApiErrors="_errors" NameColumn="form-grid__wide" />
+                    </div>
+                    <ValidationMessage For="() => Edit.RowVersion" />
+                    <ApiFieldErrors Errors="_errors" KnownFields="@(["Name", "Price", "Stock"])" />
+                    <div class="form-actions">
+                        @if (ShowForm)
+                        {
+                            <button type="submit" class="btn btn--primary"><Icon Name="check" />Guardar</button>
+                        }
+                        <a class="btn btn--ghost" href="/products">Cancelar</a>
+                    </div>
+                </EditForm>
+            </Card>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _modified;
+    private IReadOnlyDictionary<string, string[]>? _errors;
+
+    private EditProductInput? _edit;
+
+    [SupplyParameterFromForm(FormName = "edit-product")]
+    private EditProductInput Edit
+    {
+        get => _edit ??= new();
+        set => _edit = value;
+    }
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private bool ShowForm => Product is not null && CanManage && !_modified;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadProductAsync(Id);
+            Prefill();
+        }
+    }
+
+    // The way back after a rejected post: the SKU and the caller's rights are not part of the form.
+    private Task ReloadAsync() => LoadProductAsync(Id);
+
+    private void Prefill()
+    {
+        if (Product is null)
+        {
+            return;
+        }
+
+        Edit.Name = Product.Name;
+        Edit.Price = SpanishCulture.FormatInput(Product.Price);
+        Edit.Stock = Product.Stock.ToString(CultureInfo.InvariantCulture);
+        Edit.RowVersion = Product.RowVersion;
+    }
+
+    private async Task SaveAsync()
+    {
+        var result = await Api.UpdateProductAsync(Token!, Id, Edit.ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo(ProductsNotice.Url(ProductsNotice.Updated));
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.Conflict)
+        {
+            _modified = true;
+        }
+        else if (result.Status == ApiResultStatus.ValidationFailed)
+        {
+            _errors = result.ValidationErrors;
+            await LoadProductAsync(Id);
+        }
+        else
+        {
+            await TryFailAsync(result);
+        }
+    }
+}

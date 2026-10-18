@@ -1,0 +1,280 @@
+@page "/products"
+@attribute [Authorize]
+@using System.Globalization
+@using Conversia.Application.DTOs.Products
+@using Conversia.Domain.Common
+@using Conversia.Domain.Enums
+@inherits ProductPageBase
+
+<PageTitle>Productos - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="products">
+        <PageHeader Eyebrow="Catálogo" EyebrowIcon="box" Title="Productos"
+                    Description="Los productos de tu espacio de trabajo: busca por SKU o nombre y mantén el stock al día.">
+            @if (_canManage)
+            {
+                <InPageLink Fragment="nuevo-producto" class="btn btn--primary"><Icon Name="plus" />Nuevo producto</InPageLink>
+            }
+        </PageHeader>
+
+        @if (ProductsNotice.Describe(Notice) is { } notice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">@notice</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_products is not null)
+        {
+            <form method="get" action="/products" role="search" class="toolbar" data-testid="product-search">
+                <div class="@(string.IsNullOrWhiteSpace(Search) ? "search" : "search search--filled")">
+                    <label for="search" class="sr-only">Buscar por SKU o nombre</label>
+                    <Icon Name="search" Class="search__icon" />
+                    <input id="search" name="search" type="search" class="input" placeholder="Buscar SKU o nombre" autocomplete="off" value="@Search" />
+                    @if (!string.IsNullOrWhiteSpace(Search))
+                    {
+                        <a class="search__clear" href="/products" aria-label="Borrar la búsqueda"><Icon Name="x" Class="icon--sm" /></a>
+                    }
+                </div>
+                <button type="submit" class="btn btn--secondary">Buscar</button>
+            </form>
+        }
+
+@* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller
+           without ProductsManage who forges one must still reach the API and be refused there, not crash here. *@
+        <div hidden="@(!_canManage)" id="nuevo-producto" class="create-panel" data-open="@(IsPost ? "true" : null)">
+            <Card Title="Agregar un producto" Subtitle="Cada producto pertenece a tu espacio de trabajo." IconName="plus">
+                <EditForm Model="Create" FormName="create-product" OnValidSubmit="CreateAsync" OnInvalidSubmit="LoadAsync" method="post" class="form">
+                    <DataAnnotationsValidator />
+                    <div class="form-grid form-grid--product">
+                        <FormField TValue="string" For="() => Create.Sku" Id="product-sku" Label="SKU" IconName="tag" ApiErrors="_createErrors" Context="field">
+                            <TextInput id="product-sku" class="input input--mono" autocomplete="off" @bind-Value="Create.Sku" @attributes="field" Invalid="field.Invalid" />
+                        </FormField>
+                        <ProductFields Model="Create" Prefix="@nameof(Create)" ApiErrors="_createErrors" />
+                    </div>
+                    <ApiFieldErrors Errors="_createErrors" KnownFields="@(["Sku", "Name", "Price", "Stock"])" />
+                    <div class="form-actions">
+                        @if (_canManage)
+                        {
+                            <button type="submit" class="btn btn--primary"><Icon Name="plus" />Crear producto</button>
+                        }
+                        <a class="btn btn--ghost" href="/products">Cancelar</a>
+                    </div>
+                </EditForm>
+            </Card>
+        </div>
+
+        <div class="stack">
+
+                @if (_products is not null)
+                {
+                    @if (_products.Items.Count == 0)
+                    {
+                        @if (string.IsNullOrWhiteSpace(Search))
+                        {
+                            <EmptyState Title="Aún no hay productos" Art="box"
+                                        Text="@(_canManage ? "Crea el primero y aparecerá aquí, con su SKU, su precio y su stock." : "Cuando alguien agregue productos a tu espacio de trabajo, los verás aquí.")">
+                                <Actions>
+                                    @if (_canManage)
+                                    {
+                                        <InPageLink Fragment="nuevo-producto" class="btn btn--primary"><Icon Name="plus" />Crear el primer producto</InPageLink>
+                                    }
+                                </Actions>
+                            </EmptyState>
+                        }
+                        else
+                        {
+                            <EmptyState Title="No se encontraron productos" Art="search"
+                                        Text="Ningún producto coincide con tu búsqueda. Prueba con otro SKU o con parte del nombre.">
+                                <Actions>
+                                    <a class="btn btn--secondary" href="/products"><Icon Name="x" />Borrar la búsqueda</a>
+                                    @if (_canManage)
+                                    {
+                                        <InPageLink Fragment="nuevo-producto" class="btn btn--primary"><Icon Name="plus" />Nuevo producto</InPageLink>
+                                    }
+                                </Actions>
+                            </EmptyState>
+                        }
+                    }
+                    else
+                    {
+                        <div class="table-wrap" role="region" aria-label="Lista de productos" tabindex="0">
+                            <table class="table table--stack">
+                                <caption class="sr-only">Productos de tu espacio de trabajo</caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">SKU</th>
+                                        <th scope="col">Nombre</th>
+                                        <th scope="col" data-align="end">Precio</th>
+                                        <th scope="col" data-align="end">Stock</th>
+                                        @if (_canManage)
+                                        {
+                                            <th scope="col"><span class="sr-only">Acciones</span></th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var product in _products.Items)
+                                    {
+                                        <tr data-testid="product-row" data-product-id="@product.Id">
+                                            <td data-field="sku">@product.Sku</td>
+                                            <td data-field="name" id="pn-@product.Id">@product.Name</td>
+                                            <td data-field="price" data-price="@RawPrice(product.Price)" data-align="end">@SpanishCulture.FormatAmount(product.Price)</td>
+                                            <td data-field="stock" data-stock="@product.Stock" data-align="end">
+                                                @{ var stock = StockOf(product.Stock); }
+                                                <Chip Tone="@stock.Tone" IconName="@stock.Icon" data-stock-status="@stock.Status">@SpanishCulture.FormatWhole(product.Stock)<span class="chip__note"> · @stock.Label</span></Chip>
+                                            </td>
+                                            @if (_canManage)
+                                            {
+                                                <td class="table__cell-actions">
+                                                    <div class="table__actions">
+                                                        <a href="/products/@product.Id/edit" id="pe-@product.Id" class="btn btn--ghost btn--sm" aria-labelledby="pe-@product.Id pn-@product.Id"><Icon Name="pencil" Class="icon--sm" />Editar</a>
+                                                        <a href="/products/@product.Id/delete" id="pd-@product.Id" class="btn btn--danger-ghost btn--sm" aria-labelledby="pd-@product.Id pn-@product.Id"><Icon Name="trash" Class="icon--sm" />Eliminar</a>
+                                                    </div>
+                                                </td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    <nav aria-label="Paginación" class="pager" data-testid="pager"
+                         data-page="@_products.Page" data-page-count="@PageCount" data-total-count="@_products.TotalCount">
+                        <div class="pager__group">
+                            @if (_products.Page > 1)
+                            {
+                                <a class="btn btn--ghost btn--sm" data-testid="pager-prev" href="@PageUrl(Math.Min(_products.Page - 1, PageCount))"><Icon Name="chevron-left" Class="icon--sm" />Anterior</a>
+                            }
+                            else
+                            {
+                                <span class="btn btn--ghost btn--sm" data-testid="pager-prev" aria-disabled="true"><Icon Name="chevron-left" Class="icon--sm" />Anterior</span>
+                            }
+                            <span class="pager__status">Página @_products.Page de @PageCount</span>
+                            @if (_products.Page < PageCount)
+                            {
+                                <a class="btn btn--ghost btn--sm" data-testid="pager-next" href="@PageUrl(_products.Page + 1)">Siguiente<Icon Name="chevron-right" Class="icon--sm" /></a>
+                            }
+                            else
+                            {
+                                <span class="btn btn--ghost btn--sm" data-testid="pager-next" aria-disabled="true">Siguiente<Icon Name="chevron-right" Class="icon--sm" /></span>
+                            }
+                        </div>
+                        <span class="pager__total">@UiMessages.ProductCount(_products.TotalCount)</span>
+                    </nav>
+                }
+        </div>
+    </div>
+}
+
+@code {
+    private const int PageSize = 10;
+
+    private bool _canManage;
+    private PagedResponse<ProductResponse>? _products;
+    private IReadOnlyDictionary<string, string[]>? _createErrors;
+
+    private NewProductInput? _create;
+
+    [SupplyParameterFromForm(FormName = "create-product")]
+    private NewProductInput Create
+    {
+        get => _create ??= new();
+        set => _create = value;
+    }
+
+    [SupplyParameterFromQuery(Name = "page")]
+    public string? PageText { get; set; }
+
+    [SupplyParameterFromQuery]
+    public string? Search { get; set; }
+
+    [SupplyParameterFromQuery]
+    public string? Notice { get; set; }
+
+    private int PageNumber => int.TryParse(PageText, NumberStyles.None, CultureInfo.InvariantCulture, out var page) && page >= 1 ? page : 1;
+
+    private int PageCount => Math.Max(1, (int)Math.Ceiling(_products!.TotalCount / (double)PageSize));
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        // A post is an action: its handler loads the list only when it has to show it again
+        // (a rejected create, or a submit that local validation refused before reaching the handler).
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var listTask = Api.GetProductsAsync(Token!, PageNumber, PageSize, Search);
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        await Task.WhenAll(listTask, profileTask);
+
+        if (await TryFailAsync(listTask.Result, profileTask.Result))
+        {
+            return;
+        }
+
+        _products = listTask.Result.Value;
+        Shell.Remember(profileTask.Result.Value!);
+        _canManage = profileTask.Result.Value!.Can(Permission.ProductsManage);
+    }
+
+    private async Task CreateAsync()
+    {
+        var result = await Api.CreateProductAsync(Token!, Create.ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo(ProductsNotice.Url(ProductsNotice.Created));
+            return;
+        }
+
+        switch (result.Status)
+        {
+            case ApiResultStatus.ValidationFailed:
+                _createErrors = result.ValidationErrors;
+                break;
+            case ApiResultStatus.Conflict:
+                _createErrors = new Dictionary<string, string[]> { ["Sku"] = [UiMessages.ProductSkuTaken] };
+                break;
+            default:
+                await TryFailAsync(result);
+                break;
+        }
+
+        if (!Redirected)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private sealed record StockLevel(string Status, string Label, ChipTone Tone, string Icon);
+
+    private static StockLevel StockOf(int stock) => stock switch
+    {
+        0 => new("out", "Sin stock", ChipTone.Danger, "x-circle"),
+        <= 5 => new("low", "Pocas unidades", ChipTone.Warning, "alert-triangle"),
+        _ => new("ok", "Disponible", ChipTone.Success, "check-circle")
+    };
+
+    private static string RawPrice(decimal amount) => amount.ToString("0.00", CultureInfo.InvariantCulture);
+
+    private string PageUrl(int page)
+        => string.IsNullOrWhiteSpace(Search)
+            ? $"/products?page={page}"
+            : $"/products?page={page}&search={Uri.EscapeDataString(Search)}";
+}

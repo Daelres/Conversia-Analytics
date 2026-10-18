@@ -1,0 +1,87 @@
+@page "/products/{Id:guid}/delete"
+@attribute [Authorize]
+@using Conversia.Domain.Common
+@inherits ProductPageBase
+
+<PageTitle>Eliminar producto - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (ProductMissing)
+{
+    <ProductNotFoundView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="product-delete">
+        <PageHeader Eyebrow="Productos" EyebrowIcon="box" Title="Eliminar producto" />
+
+        <ErrorAlert Message="@Message" />
+
+        <section class="card danger-zone">
+            <div class="danger-zone__head">
+                <span class="tile-icon tile-icon--danger"><Icon Name="alert-triangle" /></span>
+                <div class="stack-sm">
+                    <h2 class="card__title">¿Eliminar este producto?</h2>
+                    <p class="muted">Esta acción no se puede deshacer.</p>
+                </div>
+            </div>
+
+            @if (Product is not null && CanManage)
+            {
+                <dl class="kv kv--cols">
+                    <div><dt>SKU</dt><dd><Chip Mono="true" IconName="tag">@Product.Sku</Chip></dd></div>
+                    <div><dt>Nombre</dt><dd>@Product.Name</dd></div>
+                    <div><dt>Precio</dt><dd class="num">@SpanishCulture.FormatAmount(Product.Price)</dd></div>
+                    <div><dt>Stock</dt><dd class="num">@SpanishCulture.FormatWhole(Product.Stock)</dd></div>
+                </dl>
+            }
+
+            @* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller
+               without ProductsManage who forges one must still reach the API and be refused there, not crash here. *@
+            <form method="post" @formname="delete-product" @onsubmit="DeleteAsync" hidden="@(!ShowForm)" class="form-actions">
+                <AntiforgeryToken />
+                @if (ShowForm)
+                {
+                    <button type="submit" class="btn btn--danger"><Icon Name="trash" />Eliminar</button>
+                }
+                <a class="btn btn--ghost" href="/products">Cancelar</a>
+            </form>
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private bool ShowForm => Product is not null && CanManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadProductAsync(Id);
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        var result = await Api.DeleteProductAsync(Token!, Id);
+        if (result.IsSuccess)
+        {
+            RedirectTo(ProductsNotice.Url(ProductsNotice.Deleted));
+        }
+        else
+        {
+            await TryFailAsync(result);
+        }
+    }
+}

@@ -1,0 +1,30 @@
+@page "/not-found"
+@page "/status/404"
+@page "/status/{Code:int}"
+@layout MainLayout
+@attribute [Microsoft.AspNetCore.Mvc.IgnoreAntiforgeryToken]
+@using Conversia.Web.Http
+
+@if (ProductNotFoundMarker.IsMarked(HttpContext))
+{
+    <PageTitle>Producto no encontrado - Conversia</PageTitle>
+
+    <ProductNotFoundView />
+}
+else
+{
+    <PageTitle>Página no encontrada - Conversia</PageTitle>
+
+    <StatusView DataPage="not-found" Code="404" Title="Página no encontrada" Art="lost">
+        Lo sentimos, la página que buscas no existe o cambió de lugar.
+    </StatusView>
+}
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    // Any other empty error answer re-executes to /status/{code}; it gets this page as well.
+    [Parameter]
+    public int Code { get; set; }
+}

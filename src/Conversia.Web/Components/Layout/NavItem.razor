@@ -1,0 +1,40 @@
+@inject NavigationManager Navigation
+
+<li>
+    <a class="@CssClass" href="@Href" aria-current="@(IsCurrent ? "page" : null)">
+        <Icon Name="@IconName" />
+        <span>@Label</span>
+    </a>
+</li>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Href { get; set; } = "/";
+
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string IconName { get; set; } = string.Empty;
+
+    /// <summary>The home entry is current only on "/" itself; the others also cover the pages below them (/products/{id}/edit).</summary>
+    [Parameter]
+    public bool Exact { get; set; }
+
+    /// <summary>Styled as the call to action of the bar.</summary>
+    [Parameter]
+    public bool Cta { get; set; }
+
+    private string CssClass => Cta ? "nav-link nav-link--cta" : "nav-link";
+
+    private bool IsCurrent
+    {
+        get
+        {
+            var path = "/" + Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Trim('/');
+            return Exact
+                ? string.Equals(path, Href, StringComparison.OrdinalIgnoreCase)
+                : string.Equals(path, Href, StringComparison.OrdinalIgnoreCase) || path.StartsWith(Href + "/", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+}

@@ -1,0 +1,9 @@
+@if (Message is not null)
+{
+    <Alert Kind="AlertKind.Danger">@Message</Alert>
+}
+
+@code {
+    [Parameter]
+    public string? Message { get; set; }
+}

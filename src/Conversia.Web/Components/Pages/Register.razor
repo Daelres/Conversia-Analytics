@@ -1,0 +1,82 @@
+@page "/register"
+@using Conversia.Application.DTOs.Auth
+@using Conversia.Web.Authentication
+@layout AuthLayout
+@inherits ApiPageBase
+
+<PageTitle>Registrarse - Conversia</PageTitle>
+<HeadContent>
+    <meta name="description" content="Crea tu espacio de trabajo en Conversia: registra tu equipo y empieza a gestionar usuarios y permisos." />
+</HeadContent>
+
+<div class="page auth-page" data-page="register">
+    <PageHeader Eyebrow="Empieza en un minuto" EyebrowIcon="sparkles" Title="Crea tu espacio de trabajo"
+                Description="Serás la persona propietaria: podrás invitar a tu equipo y decidir qué puede hacer cada quien." />
+
+    @if (_message is not null)
+    {
+        <Alert Kind="AlertKind.Danger">@_message</Alert>
+    }
+
+    <Card>
+        <EditForm Model="Input" FormName="register" OnValidSubmit="RegisterAsync" method="post" class="form">
+            <DataAnnotationsValidator />
+
+            <FormField TValue="string" For="() => Input.TenantName" Id="tenantName" Label="Nombre del espacio de trabajo" IconName="building" ApiErrors="_apiErrors" Context="field">
+                <TextInput id="tenantName" class="input" autocomplete="organization" placeholder="Mi empresa" @bind-Value="Input.TenantName" @attributes="field" Invalid="field.Invalid" />
+            </FormField>
+
+            <FormField TValue="string" For="() => Input.Email" Id="email" Label="Correo electrónico" IconName="mail" ApiErrors="_apiErrors" Context="field">
+                <TextInput id="email" type="email" class="input" autocomplete="username" placeholder="tu@correo.com" @bind-Value="Input.Email" @attributes="field" Invalid="field.Invalid" />
+            </FormField>
+
+            <FormField TValue="string" For="() => Input.Password" Id="password" Label="Contraseña" IconName="lock" ApiErrors="_apiErrors" Context="field">
+                @* A plain input: it has no value attribute, so a submitted password can never be echoed back. *@
+                <input id="password" name="Input.Password" type="password" class="input" autocomplete="new-password" @attributes="field" />
+            </FormField>
+
+            <ApiFieldErrors Errors="_apiErrors" KnownFields="@(["TenantName", "Email", "Password"])" />
+
+            <button type="submit" class="btn btn--primary btn--block">
+                Registrarse
+                <Icon Name="arrow-right" />
+            </button>
+        </EditForm>
+    </Card>
+
+    <p class="auth-switch">¿Ya tienes una cuenta? <a href="/login">Iniciar sesión</a></p>
+</div>
+
+@code {
+    private string? _message;
+    private IReadOnlyDictionary<string, string[]>? _apiErrors;
+
+    private RegisterTenantRequest? _input;
+
+    [SupplyParameterFromForm(FormName = "register")]
+    private RegisterTenantRequest Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    private async Task RegisterAsync()
+    {
+        var result = await Api.RegisterTenantAsync(Input);
+        Input.Password = string.Empty;
+
+        if (result.IsSuccess && await HttpContext.SignInApiUserAsync(result.Value!))
+        {
+            RedirectTo("/");
+            return;
+        }
+
+        _apiErrors = result.ValidationErrors;
+        _message = result.Status switch
+        {
+            ApiResultStatus.Conflict => UiMessages.EmailTaken,
+            ApiResultStatus.ValidationFailed => null,
+            _ => UiMessages.ForCommonFailure(result) ?? UiMessages.Unavailable
+        };
+    }
+}

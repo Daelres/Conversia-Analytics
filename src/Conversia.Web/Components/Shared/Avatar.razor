@@ -1,0 +1,32 @@
+<span class="@CssClass" aria-hidden="true">@Initials</span>
+
+@code {
+    /// <summary>The text the initials and the colour come from (an email, a name or an id).</summary>
+    [Parameter, EditorRequired]
+    public string Text { get; set; } = string.Empty;
+
+    [Parameter]
+    public int Letters { get; set; } = 1;
+
+    /// <summary>Extra classes, e.g. <c>avatar--sm</c> or <c>avatar--lg</c>.</summary>
+    [Parameter]
+    public string? Class { get; set; }
+
+    private string Initials
+    {
+        get
+        {
+            var letters = Text.Where(char.IsLetterOrDigit).Take(Math.Max(1, Letters)).ToArray();
+            return letters.Length == 0 ? "?" : new string(letters);
+        }
+    }
+
+    private string CssClass
+    {
+        get
+        {
+            var tone = 1 + Text.Aggregate(0, (sum, c) => (sum * 31 + c) % 6007) % 6;
+            return string.IsNullOrWhiteSpace(Class) ? $"avatar avatar--t{tone}" : $"avatar avatar--t{tone} {Class}";
+        }
+    }
+}

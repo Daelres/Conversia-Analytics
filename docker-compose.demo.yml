@@ -1,0 +1,40 @@
+# Demo overlay: boots the stack with seeded sample data and the demo accounts.
+#
+#   cp .env.example .env      # then edit the required secrets
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml up --build
+#
+# What it adds on top of docker-compose.yml:
+#   * ASPNETCORE_ENVIRONMENT=Demo for the API and the Web (one of the two
+#     environments that accept the demo settings; it behaves like Production:
+#     no developer exception page, no OpenAPI document).
+#   * api: Demo__Enabled=true. The API seeds two tenants (Acme Demo, Globex
+#     Demo), five accounts and sample products while it starts. The migrator
+#     still runs first, so the tables exist by then.
+#   * web: Demo__ShowAccounts=true. /demo lists the accounts and /login gets
+#     "Sign in as ..." shortcuts.
+#   * Both get the same Demo__Password (DEMO_PASSWORD in .env, default below).
+#     The API sets it on the accounts, the Web displays it, so they must match.
+#
+# ERROR_REPORT_KEY (see .env.example) reaches both services through the base
+# docker-compose.yml, so error reporting works the same in the demo.
+#
+# The accounts have a publicly known password: use this overlay only on your
+# own machine, never on a server other people can reach. The base
+# docker-compose.yml never enables any demo.
+# Reset the demo data: docker compose -f docker-compose.yml -f docker-compose.demo.yml down -v
+
+services:
+  api:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Demo
+      Demo__Enabled: "true"
+      Demo__Password: ${DEMO_PASSWORD:-Demo-Pass-2026!}
+      # Keep `docker compose logs api` readable: EF Core would otherwise log
+      # every SQL statement (including the whole seeding batch) at Information.
+      Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command: Warning
+
+  web:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Demo
+      Demo__ShowAccounts: "true"
+      Demo__Password: ${DEMO_PASSWORD:-Demo-Pass-2026!}

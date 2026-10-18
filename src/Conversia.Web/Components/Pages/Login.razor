@@ -1,0 +1,102 @@
+@page "/login"
+@using Conversia.Application.Demo
+@using Conversia.Application.DTOs.Auth
+@using Conversia.Web.Demo
+@using Conversia.Web.Authentication
+@layout AuthLayout
+@inherits ApiPageBase
+@inject DemoOptions DemoSettings
+
+<PageTitle>Iniciar sesión - Conversia</PageTitle>
+<HeadContent>
+    <meta name="description" content="Inicia sesión en tu espacio de trabajo de Conversia con tu correo y tu contraseña." />
+</HeadContent>
+
+<div class="page auth-page" data-page="login">
+    <PageHeader Eyebrow="Te damos la bienvenida" EyebrowIcon="sparkles" Title="Iniciar sesión"
+                Description="Entra a tu espacio de trabajo con tu correo y tu contraseña." />
+
+    @if (_message is not null)
+    {
+        <Alert Kind="AlertKind.Danger">@_message</Alert>
+    }
+
+    <Card>
+        <EditForm Model="Input" FormName="login" OnValidSubmit="SignInFormAsync" method="post" class="form">
+            <DataAnnotationsValidator />
+
+            <FormField TValue="string" For="() => Input.Email" Id="email" Label="Correo electrónico" IconName="mail" ApiErrors="_apiErrors" Context="field">
+                <TextInput id="email" type="email" class="input" autocomplete="username" placeholder="tu@correo.com" @bind-Value="Input.Email" @attributes="field" Invalid="field.Invalid" />
+            </FormField>
+
+            <FormField TValue="string" For="() => Input.Password" Id="password" Label="Contraseña" IconName="lock" ApiErrors="_apiErrors" Context="field">
+                @* A plain input: it has no value attribute, so a submitted password can never be echoed back. *@
+                <input id="password" name="Input.Password" type="password" class="input" autocomplete="current-password" @attributes="field" />
+            </FormField>
+
+            <ApiFieldErrors Errors="_apiErrors" KnownFields="@(["Email", "Password"])" />
+
+            <button type="submit" class="btn btn--primary btn--block">
+                Iniciar sesión
+                <Icon Name="arrow-right" />
+            </button>
+        </EditForm>
+    </Card>
+
+    <p class="auth-switch">¿No tienes cuenta? <a href="/register">Crear una cuenta</a></p>
+
+    @if (DemoSettings.ShowAccounts)
+    {
+        <section class="demo-panel" data-testid="demo-login-panel">
+            <div class="demo-panel__head">
+                <h2 class="section-title"><Icon Name="users" />Cuentas de demostración</h2>
+                <p class="muted">Entra con un clic como cada persona de la demostración y compara lo que puede hacer.</p>
+            </div>
+            <div class="stack-sm">
+                @foreach (var account in DemoAccounts.All)
+                {
+                    <DemoLoginForm Account="account" Password="@DemoSettings.Password" OnSignIn="SignInAsync" />
+                }
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    private string? _message;
+    private IReadOnlyDictionary<string, string[]>? _apiErrors;
+
+    private LoginRequest? _input;
+
+    [SupplyParameterFromForm(FormName = "login")]
+    private LoginRequest Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    private Task SignInFormAsync() => SignInAsync(Input);
+
+    private async Task SignInAsync(LoginRequest request)
+    {
+        var result = await Api.LoginAsync(request);
+        request.Password = string.Empty;
+
+        if (result.IsSuccess && await HttpContext.SignInApiUserAsync(result.Value!))
+        {
+            RedirectTo(LocalReturnUrl.OrHome(ReturnUrl));
+            return;
+        }
+
+        _apiErrors = result.ValidationErrors;
+        _message = result.Status switch
+        {
+            ApiResultStatus.Unauthorized => UiMessages.InvalidCredentials,
+            ApiResultStatus.ValidationFailed => null,
+            _ => UiMessages.ForCommonFailure(result) ?? UiMessages.Unavailable
+        };
+    }
+}

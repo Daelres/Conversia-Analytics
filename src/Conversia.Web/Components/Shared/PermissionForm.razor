@@ -1,0 +1,32 @@
+@using Conversia.Domain.Enums
+
+<form method="post" action="/users/permissions/@Action" data-action="@Action" class="form-inline">
+    <AntiforgeryToken />
+    <input type="hidden" name="userId" value="@UserId" />
+    <input type="hidden" name="permission" value="@Permission" />
+    <button type="submit" class="btn btn--sm @ButtonClass" aria-label="@($"{ButtonText}: {PermissionLabels.For(Permission)}")">
+        <Icon Name="@IconName" Class="icon--sm" />
+        @ButtonText
+    </button>
+</form>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Action { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public Guid UserId { get; set; }
+
+    [Parameter, EditorRequired]
+    public Permission Permission { get; set; }
+
+    /// <summary>The button's words, in Spanish ("Conceder", "Revocar"); <see cref="Action"/> stays the identifier posted and tagged in <c>data-action</c>.</summary>
+    [Parameter, EditorRequired]
+    public string ButtonText { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ButtonClass { get; set; } = "btn--secondary";
+
+    [Parameter]
+    public string IconName { get; set; } = "check";
+}

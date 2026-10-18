@@ -1,0 +1,22 @@
+@* Shows the code of the unexpected error the request ran into, so the person can quote it in a ticket. It lives in the layouts: a page needs nothing of its own. *@
+@implements IDisposable
+@inject ErrorCodeState State
+
+@if (State.Code is { } errorId)
+{
+    <div class="error-code-notice">
+        <Alert Kind="AlertKind.Danger">
+            <span>Código de error: <strong class="error-code" data-testid="error-code">@errorId</strong></span>
+            <small class="muted">Indica este código si pides ayuda por este problema.</small>
+        </Alert>
+    </div>
+}
+
+@code {
+    // The page decides what to call during its own initialisation, after this component was created: it repaints when a code arrives.
+    protected override void OnInitialized() => State.Changed += OnChanged;
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => State.Changed -= OnChanged;
+}

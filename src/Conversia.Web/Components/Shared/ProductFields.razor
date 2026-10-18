@@ -1,0 +1,35 @@
+@* Name, price and stock: the part of the product form that the create and the edit page share. *@
+<div class="@NameColumn">
+    <FormField For="() => Model.Name" Id="product-name" Label="Nombre" ApiErrors="ApiErrors" Context="field">
+        <TextInput id="product-name" class="input" autocomplete="off" name="@FieldName("Name")" @bind-Value="Model.Name" @attributes="field" Invalid="field.Invalid" />
+    </FormField>
+</div>
+<div>
+    <FormField For="() => Model.Price" Id="product-price" Label="Precio" ApiErrors="ApiErrors" Context="field">
+        <TextInput id="product-price" class="input input--num" inputmode="decimal" autocomplete="off" name="@FieldName("Price")" @bind-Value="Model.Price" @attributes="field" Invalid="field.Invalid" />
+    </FormField>
+</div>
+<div>
+    <FormField For="() => Model.Stock" Id="product-stock" Label="Stock" ApiErrors="ApiErrors" Context="field">
+        <TextInput id="product-stock" class="input input--num" inputmode="numeric" autocomplete="off" name="@FieldName("Stock")" @bind-Value="Model.Stock" @attributes="field" Invalid="field.Invalid" />
+    </FormField>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public ProductInput Model { get; set; } = default!;
+
+    /// <summary>The name of the page property that receives the post: the form field names must start with it.</summary>
+    [Parameter, EditorRequired]
+    public string Prefix { get; set; } = string.Empty;
+
+    [Parameter]
+    public IReadOnlyDictionary<string, string[]>? ApiErrors { get; set; }
+
+    /// <summary>The column class of the name field, so each page can fit it in its own grid.</summary>
+    [Parameter]
+    public string? NameColumn { get; set; }
+
+    // Spelled out because the expression "Model.Name" would otherwise name the field after this component's parameter.
+    private string FieldName(string field) => $"{Prefix}.{field}";
+}

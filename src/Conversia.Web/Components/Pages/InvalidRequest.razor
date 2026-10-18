@@ -1,0 +1,13 @@
+@page "/status/400"
+@layout MainLayout
+@attribute [Microsoft.AspNetCore.Mvc.IgnoreAntiforgeryToken]
+
+<PageTitle>Solicitud no válida - Conversia</PageTitle>
+
+<StatusView DataPage="error" Code="400" Title="La solicitud no es válida" Art="invalid"
+            Hint="Si el problema continúa, vuelve al inicio y abre de nuevo la página que estabas usando.">
+    <ChildContent>@UiMessages.AntiforgeryRejected</ChildContent>
+    <Actions>
+        <a class="btn btn--primary" href="/"><Icon Name="home" />Volver al inicio</a>
+    </Actions>
+</StatusView>

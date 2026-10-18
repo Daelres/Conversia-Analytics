@@ -1,0 +1,26 @@
+@if (_messages.Count > 0)
+{
+    <div class="form-errors">
+        @foreach (var message in _messages)
+        {
+            <p>@message</p>
+        }
+    </div>
+}
+
+@code {
+    private List<string> _messages = [];
+
+    /// <summary>Messages the API reported, by field name.</summary>
+    [Parameter]
+    public IReadOnlyDictionary<string, string[]>? Errors { get; set; }
+
+    /// <summary>Messages for fields not in <see cref="KnownFields"/> (the ones no field shows itself).</summary>
+    [Parameter]
+    public string[] KnownFields { get; set; } = [];
+
+    protected override void OnParametersSet()
+        => _messages = Errors is null
+            ? []
+            : Errors.Where(entry => !KnownFields.Contains(entry.Key, StringComparer.OrdinalIgnoreCase)).SelectMany(entry => entry.Value).ToList();
+}

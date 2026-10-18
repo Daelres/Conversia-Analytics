@@ -1,0 +1,29 @@
+<span class="@CssClass" @attributes="Attributes">
+    @if (IconName is not null)
+    {
+        <Icon Name="@IconName" />
+    }
+    @ChildContent
+</span>
+
+@code {
+    [Parameter]
+    public ChipTone Tone { get; set; } = ChipTone.Neutral;
+
+    [Parameter]
+    public string? IconName { get; set; }
+
+    /// <summary>Adds the monospace look used for SKUs and ids.</summary>
+    [Parameter]
+    public bool Mono { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Hooks such as <c>data-chip</c> or <c>data-stock-status</c> go straight to the element.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public Dictionary<string, object>? Attributes { get; set; }
+
+    private string CssClass
+        => $"chip{(Tone == ChipTone.Neutral ? string.Empty : $" chip--{Tone.ToString().ToLowerInvariant()}")}{(Mono ? " chip--mono" : string.Empty)}";
+}

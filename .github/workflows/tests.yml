@@ -1,0 +1,41 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore Conversia.slnx
+
+      - name: Build
+        run: dotnet build Conversia.slnx --no-restore --configuration Release
+
+      - name: Unit tests — Domain
+        run: dotnet test tests/Conversia.Domain.UnitTests --no-build --configuration Release --logger "trx"
+
+      - name: Unit tests — Application
+        run: dotnet test tests/Conversia.Application.UnitTests --no-build --configuration Release --logger "trx"
+
+      - name: Unit tests — Infrastructure
+        run: dotnet test tests/Conversia.Infrastructure.UnitTests --no-build --configuration Release --logger "trx"
+
+      - name: Integration tests
+        run: dotnet test tests/Conversia.IntegrationTests --no-build --configuration Release --logger "trx"
+
+      - name: Web integration tests
+        run: dotnet test tests/Conversia.Web.IntegrationTests --no-build --configuration Release --logger "trx"

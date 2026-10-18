@@ -1,0 +1,135 @@
+/*
+ * Design tokens. The page follows the system colour scheme unless <html data-theme> forces one.
+ *
+ * Every colour that differs between the schemes is written once as a pair:
+ *   --x: var(--if-light, <light value>) var(--if-dark, <dark value>);
+ * The scheme blocks at the end of this file set exactly one of --if-light / --if-dark to `initial` (so its fallback, the value,
+ * is used) and the other to an empty value (so it contributes nothing). It is plain custom properties, so it works in every
+ * browser with var() support, unlike light-dark() (Chrome/Edge 123, Firefox 120, Safari 17.5).
+ */
+
+:root {
+  color-scheme: light;
+  --if-light: initial;
+  --if-dark: ;
+
+  /* Brand: indigo to violet, with a teal accent */
+  --indigo-500: #6366f1;
+  --indigo-600: #4f46e5;
+  --indigo-700: #4338ca;
+  --violet-600: #7c3aed;
+  --violet-700: #6d28d9;
+  --teal-400: #2dd4bf;
+  --teal-600: #0d9488;
+  --brand: var(--if-light, #4f46e5) var(--if-dark, #a5b4fc);
+  --brand-hover: var(--if-light, #4338ca) var(--if-dark, #c7d2fe);
+  --brand-soft: var(--if-light, #eef0ff) var(--if-dark, #1d2247);
+  --brand-soft-text: var(--if-light, #3730a3) var(--if-dark, #c7d2fe);
+  --brand-border: var(--if-light, #c9cffb) var(--if-dark, #3a4284);
+  --accent: var(--if-light, #0f766e) var(--if-dark, #5eead4);
+  --accent-soft: var(--if-light, #e1f6f3) var(--if-dark, #0f2f33);
+  --grad-brand: linear-gradient(135deg, #4f46e5 0%, #6d28d9 100%);
+  --grad-brand-hover: linear-gradient(135deg, #4338ca 0%, #5b21b6 100%);
+  --grad-text: linear-gradient(100deg, var(--if-light, #4338ca) var(--if-dark, #a5b4fc) 0%, var(--if-light, #7c3aed) var(--if-dark, #d8b4fe) 55%, var(--if-light, #0d9488) var(--if-dark, #5eead4) 100%);
+
+  /* Neutrals and layered surfaces */
+  --bg: var(--if-light, #f5f6fb) var(--if-dark, #0a0d16);
+  --surface: var(--if-light, #ffffff) var(--if-dark, #11151f);
+  --surface-raised: var(--if-light, #ffffff) var(--if-dark, #171c2a);
+  --surface-sunken: var(--if-light, #eff1f8) var(--if-dark, #0d111b);
+  --surface-hover: var(--if-light, #f4f5fb) var(--if-dark, #1b2132);
+  --border: var(--if-light, #e2e6f0) var(--if-dark, #232a3d);
+  --border-strong: var(--if-light, #c3cadb) var(--if-dark, #3a4461);
+  --text: var(--if-light, #0f172a) var(--if-dark, #e9ecf6);
+  --text-muted: var(--if-light, #475166) var(--if-dark, #a6b0c7);
+  --text-subtle: var(--if-light, #596378) var(--if-dark, #8f9ab4);
+  --text-on-brand: #ffffff;
+
+  /* Semantic colours with soft tinted backgrounds */
+  --success: var(--if-light, #046c4e) var(--if-dark, #6ee7b7);
+  --success-soft: var(--if-light, #e6f7ef) var(--if-dark, #0c2a21);
+  --success-border: var(--if-light, #a7e3c9) var(--if-dark, #1d5b45);
+  --warning: var(--if-light, #8a3b09) var(--if-dark, #fcd34d);
+  --warning-soft: var(--if-light, #fff5de) var(--if-dark, #2c2108);
+  --warning-border: var(--if-light, #f2d38c) var(--if-dark, #66510f);
+  --danger: var(--if-light, #b42318) var(--if-dark, #fda4af);
+  --danger-soft: var(--if-light, #fff0ef) var(--if-dark, #321419);
+  --danger-border: var(--if-light, #f5b9b4) var(--if-dark, #7a2a33);
+  --danger-solid: #c42b1c;
+  --info: var(--if-light, #07557f) var(--if-dark, #7dd3fc);
+  --info-soft: var(--if-light, #e8f5fd) var(--if-dark, #0b2535);
+  --info-border: var(--if-light, #a6d4ee) var(--if-dark, #1c5176);
+
+  /* Focus: a solid ring plus a soft halo */
+  --focus: var(--if-light, #4f46e5) var(--if-dark, #a5b4fc);
+  --focus-halo: var(--if-light, rgb(79 70 229 / 0.22)) var(--if-dark, rgb(165 180 252 / 0.28));
+
+  /* Type */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --text-xs: 0.78rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: clamp(1.0625rem, 1rem + 0.3vw, 1.1875rem);
+  --text-h3: clamp(1.0625rem, 1rem + 0.35vw, 1.2rem);
+  --text-h2: clamp(1.25rem, 1.1rem + 0.7vw, 1.6rem);
+  --text-h1: clamp(1.7rem, 1.35rem + 1.5vw, 2.35rem);
+  --text-display: clamp(2.3rem, 1.4rem + 3.9vw, 4rem);
+  --track-tight: -0.022em;
+  --track-tighter: -0.035em;
+
+  /* Spacing (4px scale), radii, motion */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur: 220ms;
+
+  /* Elevation */
+  --shadow-color: var(--if-light, rgb(24 32 66 / 0.09)) var(--if-dark, rgb(0 0 0 / 0.55));
+  --shadow-xs: 0 1px 2px var(--shadow-color);
+  --shadow-sm: 0 1px 2px var(--shadow-color), 0 2px 6px -1px var(--shadow-color);
+  --shadow-md: 0 2px 4px var(--shadow-color), 0 10px 24px -8px var(--shadow-color);
+  --shadow-lg: 0 4px 8px var(--shadow-color), 0 24px 48px -12px var(--shadow-color);
+  --shadow-brand: 0 1px 2px rgb(79 70 229 / 0.35), 0 8px 18px -6px rgb(79 70 229 / 0.55);
+
+  /* Layout */
+  --sidebar-w: 264px;
+  --content-max: 1100px;
+  --topbar-h: 60px;
+  --touch: 44px;
+}
+
+/* Scheme switch. The light block is the default (and the answer for browsers that do not report a preference). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --if-light: ;
+    --if-dark: initial;
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --if-light: initial;
+  --if-dark: ;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --if-light: ;
+  --if-dark: initial;
+}

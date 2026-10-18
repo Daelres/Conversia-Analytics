@@ -1,0 +1,13 @@
+<svg class="@CssClass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">@((MarkupString)IconSet.Markup(Name))</svg>
+
+@code {
+    /// <summary>A name of <see cref="IconSet"/>.</summary>
+    [Parameter, EditorRequired]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Extra classes: <c>icon--sm</c>, <c>icon--lg</c>, <c>icon--xl</c> or the ones a parent uses to show/hide it.</summary>
+    [Parameter]
+    public string? Class { get; set; }
+
+    private string CssClass => string.IsNullOrWhiteSpace(Class) ? "icon" : $"icon {Class}";
+}

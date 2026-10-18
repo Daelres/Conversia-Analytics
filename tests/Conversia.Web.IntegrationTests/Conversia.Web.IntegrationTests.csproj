@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AngleSharp" Version="1.5.0" />
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.11" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.14.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Both entry points are named Program; the API one is reached through its alias. -->
+    <ProjectReference Include="..\..\src\Conversia.API\Conversia.API.csproj" Aliases="ApiHost" />
+    <ProjectReference Include="..\..\src\Conversia.Web\Conversia.Web.csproj" />
+    <ProjectReference Include="..\..\src\Conversia.Infrastructure\Conversia.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Conversia.Application\Conversia.Application.csproj" />
+    <ProjectReference Include="..\..\src\Conversia.Domain\Conversia.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- One denylist for every project that checks "all user-facing text is Spanish". -->
+    <Compile Include="..\Shared\EnglishLeaks.cs" Link="Shared\EnglishLeaks.cs" />
+    <!-- The error registry's limits and code shape: one definition for the API and the Web suites. -->
+    <Compile Include="..\Shared\ErrorLimits.cs" Link="Shared\ErrorLimits.cs" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,50 @@
+@using Microsoft.AspNetCore.Diagnostics
+@using Microsoft.AspNetCore.Http.Extensions
+@inject NavigationManager Navigation
+
+@* The page carries <base href="/">, so a bare href="#main" would resolve to /#main and leave the page.
+   This anchor points at the page the browser is on (path and query) plus the fragment, with or without JavaScript.
+   Blazor's enhanced navigation would turn a click into history.pushState, which neither moves the :target of the
+   page (the create panel) nor the focus starting point (the skip link); data-enhance-nav keeps the browser's own jump. *@
+<a href="@Href" data-enhance-nav="false" @attributes="Attributes">@ChildContent</a>
+
+@code {
+    /// <summary>The id of the element to jump to, without the <c>#</c>.</summary>
+    [Parameter, EditorRequired]
+    public string Fragment { get; set; } = string.Empty;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public Dictionary<string, object>? Attributes { get; set; }
+
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string Href => BrowserPathAndQuery() + "#" + Fragment;
+
+    /// <summary>
+    /// The URL the browser asked for. The error and not-found pages are re-executed on their own path (/status/404, /Error),
+    /// which is not the address in the browser, so the original request is read back from the re-execution features.
+    /// </summary>
+    private string BrowserPathAndQuery()
+    {
+        if (HttpContext is null)
+        {
+            return new Uri(Navigation.Uri).PathAndQuery;
+        }
+
+        if (HttpContext.Features.Get<IStatusCodeReExecuteFeature>() is { } reExecuted)
+        {
+            return reExecuted.OriginalPathBase + reExecuted.OriginalPath + reExecuted.OriginalQueryString;
+        }
+
+        if (HttpContext.Features.Get<IExceptionHandlerPathFeature>() is { } failed)
+        {
+            return HttpContext.Request.PathBase + failed.Path + HttpContext.Request.QueryString;
+        }
+
+        return HttpContext.Request.GetEncodedPathAndQuery();
+    }
+}
