@@ -5,6 +5,7 @@ using Conversia.Application.Metrics;
 using Conversia.Application.Time;
 using Conversia.Domain.Common;
 using Conversia.Domain.Enums;
+using Conversia.Domain.Exceptions;
 
 namespace Conversia.Application.Services;
 
@@ -16,6 +17,7 @@ namespace Conversia.Application.Services;
 public class MetricsService : IMetricsService
 {
     public const string UnassignedAdvisorName = "Sin asesor";
+    public const string InvalidPeriodMessage = "El periodo indicado no es válido.";
 
     private static readonly CultureInfo Spanish = SpanishCulture.Info;
 
@@ -44,21 +46,32 @@ public class MetricsService : IMetricsService
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var today = _timeZone.LocalDate(now);
         DateOnly from, to;
-        if (query.From is { } f && query.To is { } t)
+        try
         {
-            (from, to) = (f, t);
+            if (query.From is { } f && query.To is { } t)
+            {
+                (from, to) = (f, t);
+            }
+            else if (query.To is { } onlyTo)
+            {
+                (from, to) = (onlyTo.AddDays(-MetricsOptions.DefaultRangeDays), onlyTo);
+            }
+            else if (query.From is { } onlyFrom)
+            {
+                (from, to) = (onlyFrom, onlyFrom.AddDays(MetricsOptions.DefaultRangeDays));
+            }
+            else
+            {
+                (from, to) = (today.AddDays(1 - MetricsOptions.DefaultRangeDays), today.AddDays(1));
+            }
+
+            // The previous period (alerts) starts one length before: all of it must exist on the calendar.
+            _ = from.AddDays(-(to.DayNumber - from.DayNumber));
         }
-        else if (query.To is { } onlyTo)
+        catch (ArgumentOutOfRangeException)
         {
-            (from, to) = (onlyTo.AddDays(-MetricsOptions.DefaultRangeDays), onlyTo);
-        }
-        else if (query.From is { } onlyFrom)
-        {
-            (from, to) = (onlyFrom, onlyFrom.AddDays(MetricsOptions.DefaultRangeDays));
-        }
-        else
-        {
-            (from, to) = (today.AddDays(1 - MetricsOptions.DefaultRangeDays), today.AddDays(1));
+            // The query validation refuses dates outside DateWindow before they get here; this is for a caller that did not validate.
+            throw new DomainException(InvalidPeriodMessage);
         }
 
         var period = new MetricsPeriod(from, to, _timeZone.Id, to.DayNumber - from.DayNumber);

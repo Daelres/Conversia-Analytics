@@ -84,6 +84,12 @@ public class ExceptionHandlingMiddleware
         {
             await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.DuplicateBranchNameTitle, ex.Message);
         }
+        catch (MetricsQueryTimeoutException ex)
+        {
+            // Expected under load, not a defect: no error code, no registry, and nothing of the statement in the log.
+            _logger.LogWarning("A metrics query exceeded its time limit and was cancelled: {Method} {Path}.", context.Request.Method, RequestPathRedactor.Redact(context.Request.Path.Value));
+            await WriteProblemAsync(context, StatusCodes.Status503ServiceUnavailable, ProblemTexts.QueryTimeoutTitle, ex.Message);
+        }
         catch (DomainException ex)
         {
             await WriteProblemAsync(context, StatusCodes.Status400BadRequest, ProblemTexts.InvalidRequestTitle, ex.Message);

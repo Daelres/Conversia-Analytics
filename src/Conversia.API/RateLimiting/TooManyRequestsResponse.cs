@@ -36,6 +36,7 @@ internal static class TooManyRequestsResponse
         return policy switch
         {
             ErrorReportRateLimitingExtensions.PolicyName => ProblemTexts.TooManyReportsDetail,
+            HeavyQueryRateLimitingExtensions.PolicyName => ProblemTexts.TooManyQueriesDetail,
             _ => ProblemTexts.TooManyLoginsDetail,
         };
     }

@@ -9,7 +9,9 @@ public sealed record MetricsOptions(
     int TopLossReasons,
     int MinSampleSize,
     int ConversionDropAlertPoints,
-    int BranchBelowAveragePoints)
+    int BranchBelowAveragePoints,
+    int RateLimitPerMinute = 60,
+    int QueryTimeoutSeconds = 15)
 {
     public const string SectionName = "Metrics";
     public const string FirstResponseSlaMinutesKey = SectionName + ":FirstResponseSlaMinutes";
@@ -18,6 +20,8 @@ public sealed record MetricsOptions(
     public const string MinSampleSizeKey = SectionName + ":MinSampleSize";
     public const string ConversionDropAlertPointsKey = SectionName + ":ConversionDropAlertPoints";
     public const string BranchBelowAveragePointsKey = SectionName + ":BranchBelowAveragePoints";
+    public const string RateLimitPerMinuteKey = SectionName + ":RateLimitPerMinute";
+    public const string QueryTimeoutSecondsKey = SectionName + ":QueryTimeoutSeconds";
 
     /// <summary>The oldest range a request may ask for.</summary>
     public const int MaxRangeDays = 366;
@@ -29,7 +33,10 @@ public sealed record MetricsOptions(
     public const int MaxUnansweredListed = 20;
 
     public static MetricsOptions Default { get; } = new(
-        FirstResponseSlaMinutes: 30, ConversionMaturityDays: 7, TopLossReasons: 5, MinSampleSize: 20, ConversionDropAlertPoints: 10, BranchBelowAveragePoints: 15);
+        FirstResponseSlaMinutes: 30, ConversionMaturityDays: 7, TopLossReasons: 5, MinSampleSize: 20, ConversionDropAlertPoints: 10, BranchBelowAveragePoints: 15,
+        RateLimitPerMinute: 60, QueryTimeoutSeconds: 15);
 
     public TimeSpan FirstResponseSla => TimeSpan.FromMinutes(FirstResponseSlaMinutes);
+
+    public TimeSpan QueryTimeout => TimeSpan.FromSeconds(QueryTimeoutSeconds);
 }

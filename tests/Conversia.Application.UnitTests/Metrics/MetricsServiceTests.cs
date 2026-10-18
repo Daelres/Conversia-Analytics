@@ -131,6 +131,24 @@ public class MetricsServiceTests
     }
 
     [Fact]
+    public async Task AnExtremeDate_IsADomainError_NotAnOverflow()
+    {
+        // The API validates the dates before the service sees them; a caller that does not must not get an ArgumentOutOfRangeException either.
+        var asked = new[]
+        {
+            new MetricsQuery { From = DateOnly.MaxValue }, // the open end would be 30 days after the last day of the calendar
+            new MetricsQuery { To = DateOnly.MinValue }, // 30 days before the first
+            new MetricsQuery { From = new DateOnly(1, 1, 10), To = new DateOnly(1, 1, 20) }, // the previous period would start before year 1
+        };
+
+        foreach (var query in asked)
+        {
+            var failure = await Assert.ThrowsAsync<Conversia.Domain.Exceptions.DomainException>(() => Sut().GetAlertsAsync(query));
+            Assert.Equal(MetricsService.InvalidPeriodMessage, failure.Message);
+        }
+    }
+
+    [Fact]
     public async Task TheFiltersTravelToTheQueries()
     {
         var branch = Guid.NewGuid();

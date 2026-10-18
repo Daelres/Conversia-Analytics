@@ -6,16 +6,40 @@ namespace Conversia.Application.UnitTests.DTOs;
 /// <summary>The DataAnnotations of the conversation requests, run the way MVC runs them.</summary>
 public class ConversationRequestValidationTests
 {
-    private static List<ValidationResult> Validate(object instance)
-    {
-        var results = new List<ValidationResult>();
-        Validator.TryValidateObject(instance, new ValidationContext(instance), results, validateAllProperties: true);
-        return results;
-    }
+    private static List<ValidationResult> Validate(object instance) => FixedClockValidation.Validate(instance);
 
     private static bool Fails(object instance, string member) => Validate(instance).Any(r => r.MemberNames.Contains(member));
 
     // ---- ConversationQuery --------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("9999-12-31")]
+    [InlineData("0001-01-05")]
+    [InlineData("2014-12-31")]
+    [InlineData("2027-10-20")]
+    public void AnImplausibleFrom_OrTo_IsRefusedByItself(string date)
+    {
+        var day = DateOnly.Parse(date);
+
+        Assert.True(Fails(new ConversationQuery { From = day }, nameof(ConversationQuery.From)));
+        Assert.True(Fails(new ConversationQuery { To = day }, nameof(ConversationQuery.To)));
+        Assert.Equal("El campo Desde debe ser una fecha entre el 2015-01-01 y el 2027-10-19.", Validate(new ConversationQuery { From = day }).Single().ErrorMessage);
+    }
+
+    [Fact]
+    public void TheEdgesOfTheWindow_AreValid()
+    {
+        Assert.Empty(Validate(new ConversationQuery { From = new DateOnly(2015, 1, 1), To = new DateOnly(2027, 10, 19) }));
+        Assert.Empty(Validate(new ConversationQuery { To = new DateOnly(2015, 1, 1) }));
+    }
+
+    [Fact]
+    public void OpenAndClosedUnanswered_CannotBeAskedTogether()
+    {
+        Assert.True(Fails(new ConversationQuery { Unanswered = true, ClosedUnanswered = true }, nameof(ConversationQuery.Unanswered)));
+        Assert.Empty(Validate(new ConversationQuery { Unanswered = true, ClosedUnanswered = false }));
+        Assert.Empty(Validate(new ConversationQuery { ClosedUnanswered = true }));
+    }
 
     [Fact]
     public void TheDefaultQuery_IsValid()

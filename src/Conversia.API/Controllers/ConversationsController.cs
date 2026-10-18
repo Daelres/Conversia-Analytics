@@ -1,9 +1,11 @@
+using Conversia.API.RateLimiting;
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Products;
 using Conversia.Application.Interfaces;
 using Conversia.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Conversia.API.Controllers;
 
@@ -22,6 +24,7 @@ public class ConversationsController : ControllerBase
     /// <summary>The caller's conversations, newest first, filtered by branch, advisor, stage, source, status, start date and whether they are unanswered.</summary>
     [HttpGet]
     [Authorize(Policy = nameof(Permission.ConversationsView))]
+    [EnableRateLimiting(HeavyQueryRateLimitingExtensions.PolicyName)]
     public async Task<ActionResult<PagedResponse<ConversationListItem>>> GetConversations([FromQuery] ConversationQuery query, CancellationToken cancellationToken)
         => Ok(await _conversations.ListAsync(query, cancellationToken));
 

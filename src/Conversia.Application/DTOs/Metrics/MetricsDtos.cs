@@ -33,7 +33,20 @@ public class MetricsQuery : IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        if (From is { } from && To is { } to)
+        // Each date alone first: an extreme one must be refused before any arithmetic with it, also when the other end is missing.
+        var fromProblem = DateWindow.Check(From, "Desde", nameof(From), validationContext);
+        var toProblem = DateWindow.Check(To, "Hasta", nameof(To), validationContext);
+        if (fromProblem is not null)
+        {
+            yield return fromProblem;
+        }
+
+        if (toProblem is not null)
+        {
+            yield return toProblem;
+        }
+
+        if (fromProblem is null && toProblem is null && From is { } from && To is { } to)
         {
             if (from >= to)
             {

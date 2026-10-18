@@ -36,6 +36,10 @@ public sealed class TenantTimeZone
         }
 
         var offset = Zone.IsAmbiguousTime(local) ? Zone.GetAmbiguousTimeOffsets(local).Max() : Zone.GetUtcOffset(local);
-        return DateTime.SpecifyKind(local - offset, DateTimeKind.Utc);
+
+        // The first and the last day the calendar has are a few hours away from their UTC instant: clamp instead of overflowing. (The API refuses
+        // such dates long before; this keeps any other caller from turning an edge date into an exception.)
+        var ticks = Math.Clamp(local.Ticks - offset.Ticks, DateTime.MinValue.Ticks, DateTime.MaxValue.Ticks);
+        return new DateTime(ticks, DateTimeKind.Utc);
     }
 }

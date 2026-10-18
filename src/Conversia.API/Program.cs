@@ -115,10 +115,11 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// Before authentication and model binding so throttled logins cost no DB or hashing work.
-app.UseRateLimiter();
-
+// The limiter runs after authentication because the heavy-query policy tells users apart by their token (the login and error-report policies
+// key on the client address and are unaffected). Authentication only validates a token's signature: no database, no hashing, so a throttled
+// login still costs nothing, and it is still before authorization and model binding.
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 // Anonymous and minimal on purpose: the status word only (Healthy, Degraded or Unhealthy), nothing about tenants, events or errors.

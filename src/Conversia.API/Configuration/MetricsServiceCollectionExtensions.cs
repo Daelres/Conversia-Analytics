@@ -1,3 +1,4 @@
+using Conversia.API.RateLimiting;
 using Conversia.Application.Interfaces;
 using Conversia.Application.Metrics;
 using Conversia.Application.Services;
@@ -14,7 +15,9 @@ public static class MetricsServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddMetrics(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddSingleton(GetValidatedOptions(configuration));
+        var options = GetValidatedOptions(configuration);
+        services.AddSingleton(options);
+        services.AddHeavyQueryRateLimiting(options);
         services.AddScoped<IMetricsQueries, MetricsQueries>();
         services.AddScoped<IMetricsService, MetricsService>();
         return services;
@@ -29,7 +32,9 @@ public static class MetricsServiceCollectionExtensions
             TopLossReasons: ConfigurationReader.ReadInt(configuration, MetricsOptions.TopLossReasonsKey, defaults.TopLossReasons, 1, 20),
             MinSampleSize: ConfigurationReader.ReadInt(configuration, MetricsOptions.MinSampleSizeKey, defaults.MinSampleSize, 1, 100_000),
             ConversionDropAlertPoints: ConfigurationReader.ReadInt(configuration, MetricsOptions.ConversionDropAlertPointsKey, defaults.ConversionDropAlertPoints, 1, 100),
-            BranchBelowAveragePoints: ConfigurationReader.ReadInt(configuration, MetricsOptions.BranchBelowAveragePointsKey, defaults.BranchBelowAveragePoints, 1, 100));
+            BranchBelowAveragePoints: ConfigurationReader.ReadInt(configuration, MetricsOptions.BranchBelowAveragePointsKey, defaults.BranchBelowAveragePoints, 1, 100),
+            RateLimitPerMinute: ConfigurationReader.ReadInt(configuration, MetricsOptions.RateLimitPerMinuteKey, defaults.RateLimitPerMinute, 1, 100_000),
+            QueryTimeoutSeconds: ConfigurationReader.ReadInt(configuration, MetricsOptions.QueryTimeoutSecondsKey, defaults.QueryTimeoutSeconds, 1, 300));
 
         // The conversion rate is computed over conversations old enough to have settled. The job that closes idle conversations (and gives the
         // silent ones up as lost) acts after AutoCloseAfterDays; a maturity shorter than that would rate conversations the job is still going to

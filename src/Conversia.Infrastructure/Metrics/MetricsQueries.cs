@@ -1,4 +1,7 @@
+using System.Reflection;
+using Conversia.Application.Exceptions;
 using Conversia.Application.Interfaces;
+using Conversia.Application.Metrics;
 using Conversia.Domain.Enums;
 using Conversia.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -17,7 +20,7 @@ namespace Conversia.Infrastructure.Metrics;
 /// request), on each table it reads. The integration tests prove that no number depends on another tenant's data.
 /// </para>
 /// </summary>
-public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantService tenant) : IMetricsQueries
+public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantService tenant, MetricsOptions options) : IMetricsQueries
 {
     private const string Won = nameof(OpportunityStage.Won);
     private const string Lost = nameof(OpportunityStage.Lost);
@@ -94,9 +97,7 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
             {join}
             {group}
             """;
-        var rows = await db.Database
-            .SqlQueryRaw<ConversionRow>(sql, [.. Parameters(filter), Timestamp("matureBefore", matureBeforeUtc)])
-            .ToListAsync(cancellationToken);
+        var rows = await RunAsync<ConversionRow>(sql, [.. Parameters(filter), Timestamp("matureBefore", matureBeforeUtc)], cancellationToken);
         return rows.Select(r => new ConversionRaw(r.GroupId, r.GroupName, r.Total, r.Won, r.Lost, r.InFollowUp, r.New, r.Stale, r.Matured, r.MaturedWon, r.MaturedLost)).ToList();
     }
 
@@ -150,9 +151,7 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
             {join}
             {group}
             """;
-        var rows = await db.Database
-            .SqlQueryRaw<ResponseRow>(sql, [.. Parameters(filter), new NpgsqlParameter("sla", NpgsqlDbType.Interval) { Value = sla }, Timestamp("slaDeadline", nowUtc - sla)])
-            .ToListAsync(cancellationToken);
+        var rows = await RunAsync<ResponseRow>(sql, [.. Parameters(filter), new NpgsqlParameter("sla", NpgsqlDbType.Interval) { Value = sla }, Timestamp("slaDeadline", nowUtc - sla)], cancellationToken);
         return rows.Select(r => new ResponseRaw(
             r.GroupId, r.GroupName, r.Conversations, r.Answered, r.UnansweredOpen, r.UnansweredClosed, r.AvgSeconds, r.MedianSeconds, r.P90Seconds, r.WithinSla,
             r.UnansweredOpenOverSla, r.OldestUnansweredOpenInboundAt)).ToList();
@@ -176,18 +175,14 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
 
     public async Task<IReadOnlyList<LossReasonRaw>> LossReasonsAsync(MetricsFilter filter, CancellationToken cancellationToken = default)
     {
-        var rows = await db.Database
-            .SqlQueryRaw<LossReasonRow>(
-                $"""{Cohort} SELECT k."LossReason" AS "Reason", count(*)::int AS "Count" FROM cohort k WHERE k."Stage" = '{Lost}' GROUP BY k."LossReason" """, Parameters(filter))
-            .ToListAsync(cancellationToken);
+        var rows = await RunAsync<LossReasonRow>(
+            $"""{Cohort} SELECT k."LossReason" AS "Reason", count(*)::int AS "Count" FROM cohort k WHERE k."Stage" = '{Lost}' GROUP BY k."LossReason" """, Parameters(filter), cancellationToken);
         return rows.Select(r => new LossReasonRaw(r.Reason, r.Count)).ToList();
     }
 
     public async Task<IReadOnlyList<ObjectionRaw>> ObjectionsAsync(MetricsFilter filter, CancellationToken cancellationToken = default)
     {
-        var rows = await db.Database
-            .SqlQueryRaw<ObjectionRow>($"""{Cohort} SELECT k."Objection" AS "Objection", count(*)::int AS "Count" FROM cohort k GROUP BY k."Objection" """, Parameters(filter))
-            .ToListAsync(cancellationToken);
+        var rows = await RunAsync<ObjectionRow>($"""{Cohort} SELECT k."Objection" AS "Objection", count(*)::int AS "Count" FROM cohort k GROUP BY k."Objection" """, Parameters(filter), cancellationToken);
         return rows.Select(r => new ObjectionRaw(r.Objection, r.Count)).ToList();
     }
 
@@ -220,10 +215,8 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
 
     public async Task<IReadOnlyList<DayRaw>> ConversationsPerDayAsync(MetricsFilter filter, string timeZone, CancellationToken cancellationToken = default)
     {
-        var rows = await db.Database
-            .SqlQueryRaw<DayRow>(
-                $"""{Cohort} SELECT (k."StartedAt" AT TIME ZONE @tz)::date AS "Date", count(*)::int AS "Count" FROM cohort k GROUP BY 1""", [.. Parameters(filter), Text("tz", timeZone)])
-            .ToListAsync(cancellationToken);
+        var rows = await RunAsync<DayRow>(
+            $"""{Cohort} SELECT (k."StartedAt" AT TIME ZONE @tz)::date AS "Date", count(*)::int AS "Count" FROM cohort k GROUP BY 1""", [.. Parameters(filter), Text("tz", timeZone)], cancellationToken);
         return rows.Select(r => new DayRaw(r.Date, r.Count)).ToList();
     }
 
@@ -241,7 +234,7 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
               {ConversationFilters}
             GROUP BY 1
             """;
-        var rows = await db.Database.SqlQueryRaw<DayMessagesRow>(sql, [.. Parameters(filter), Text("tz", timeZone)]).ToListAsync(cancellationToken);
+        var rows = await RunAsync<DayMessagesRow>(sql, [.. Parameters(filter), Text("tz", timeZone)], cancellationToken);
         return rows.Select(r => new DayMessagesRaw(r.Date, r.Inbound, r.Outbound)).ToList();
     }
 
@@ -255,7 +248,7 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
             FROM cohort k
             GROUP BY 1, 2
             """;
-        var rows = await db.Database.SqlQueryRaw<HourRow>(sql, [.. Parameters(filter), Text("tz", timeZone)]).ToListAsync(cancellationToken);
+        var rows = await RunAsync<HourRow>(sql, [.. Parameters(filter), Text("tz", timeZone)], cancellationToken);
         return rows.Select(r => new HourRaw(r.DayOfWeek, r.Hour, r.Count)).ToList();
     }
 
@@ -273,7 +266,7 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
               {ConversationFilters}
             GROUP BY 1, 2
             """;
-        var rows = await db.Database.SqlQueryRaw<HourRow>(sql, [.. Parameters(filter), Text("tz", timeZone)]).ToListAsync(cancellationToken);
+        var rows = await RunAsync<HourRow>(sql, [.. Parameters(filter), Text("tz", timeZone)], cancellationToken);
         return rows.Select(r => new HourRaw(r.DayOfWeek, r.Hour, r.Count)).ToList();
     }
 
@@ -304,9 +297,7 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
         const string Waiting = $"""k."FirstResponseAt" IS NULL AND k."Status" = '{nameof(ConversationStatus.Open)}' AND k."FirstInboundAt" < @olderThan""";
         var olderThan = Timestamp("olderThan", olderThanUtc);
 
-        var total = await db.Database
-            .SqlQueryRaw<CountRow>($"""{Cohort} SELECT count(*)::int AS "Value" FROM cohort k WHERE {Waiting}""", [.. Parameters(filter), olderThan])
-            .SingleAsync(cancellationToken);
+        var total = (await RunAsync<CountRow>($"""{Cohort} SELECT count(*)::int AS "Value" FROM cohort k WHERE {Waiting}""", [.. Parameters(filter), olderThan], cancellationToken)).Single();
 
         var sql = $"""
             {Cohort}
@@ -318,13 +309,87 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
             ORDER BY k."FirstInboundAt", k."Id"
             LIMIT @limit
             """;
-        var rows = await db.Database
-            .SqlQueryRaw<UnansweredRow>(sql, [.. Parameters(filter), Timestamp("olderThan", olderThanUtc), new NpgsqlParameter("limit", NpgsqlDbType.Integer) { Value = limit }])
-            .ToListAsync(cancellationToken);
+        var rows = await RunAsync<UnansweredRow>(sql, [.. Parameters(filter), Timestamp("olderThan", olderThanUtc), new NpgsqlParameter("limit", NpgsqlDbType.Integer) { Value = limit }], cancellationToken);
         return (total.Value, rows.Select(r => new UnansweredRaw(r.ConversationId, r.BranchId, r.BranchName, r.AdvisorId, r.AdvisorName, r.FirstInboundAt)).ToList());
     }
 
     // ---- Shared pieces --------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Runs one statement with the command timeout of <c>Metrics:QueryTimeoutSeconds</c> and reads its rows into <typeparamref name="T"/> by column name.
+    /// When the limit passes, the driver asks the server to cancel the statement and this throws <see cref="MetricsQueryTimeoutException"/>, which carries
+    /// nothing of the statement. It goes through the connection of the context directly and not through <c>SqlQueryRaw</c> on purpose: EF Core logs a failed
+    /// command at error level with its SQL text and the whole exception, and a statement that merely ran out of time is not worth that in a log. (A caller
+    /// that went away, through its token, is a plain cancellation.)
+    /// </summary>
+    private async Task<List<T>> RunAsync<T>(string sql, IEnumerable<NpgsqlParameter> parameters, CancellationToken cancellationToken)
+        where T : new()
+    {
+        await db.Database.OpenConnectionAsync(cancellationToken);
+        try
+        {
+            var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+            await using var command = new NpgsqlCommand(sql, connection) { CommandTimeout = options.QueryTimeoutSeconds };
+            command.Parameters.AddRange(parameters.ToArray());
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+            var columns = new PropertyInfo?[reader.FieldCount];
+            for (var i = 0; i < columns.Length; i++)
+            {
+                columns[i] = typeof(T).GetProperty(reader.GetName(i), BindingFlags.Public | BindingFlags.Instance);
+            }
+
+            var rows = new List<T>();
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var row = new T();
+                for (var i = 0; i < columns.Length; i++)
+                {
+                    if (columns[i] is { } property && !await reader.IsDBNullAsync(i, cancellationToken))
+                    {
+                        property.SetValue(row, ReadValue(reader, i, Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType));
+                    }
+                }
+
+                rows.Add(row);
+            }
+
+            return rows;
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && IsTimeout(ex))
+        {
+            throw new MetricsQueryTimeoutException();
+        }
+        finally
+        {
+            await db.Database.CloseConnectionAsync();
+        }
+    }
+
+    private static object ReadValue(NpgsqlDataReader reader, int ordinal, Type type)
+        => type == typeof(Guid) ? reader.GetGuid(ordinal)
+            : type == typeof(string) ? reader.GetString(ordinal)
+            : type == typeof(int) ? reader.GetInt32(ordinal)
+            : type == typeof(double) ? reader.GetDouble(ordinal)
+            : type == typeof(bool) ? reader.GetBoolean(ordinal)
+            : type == typeof(DateOnly) ? reader.GetFieldValue<DateOnly>(ordinal)
+            : type == typeof(DateTime) ? DateTime.SpecifyKind(reader.GetDateTime(ordinal), DateTimeKind.Utc)
+            : throw new NotSupportedException($"The metrics rows have no reader for {type.Name}.");
+
+    // The server's answer to a cancelled statement is "query_canceled" (57014); the driver reports its own expired timeout as a TimeoutException, which
+    // EF Core wraps (an NpgsqlException inside an InvalidOperationException that suggests enabling retries): look through the causes.
+    private static bool IsTimeout(Exception exception)
+    {
+        for (var cause = exception; cause is not null; cause = cause.InnerException)
+        {
+            if (cause is TimeoutException or PostgresException { SqlState: PostgresErrorCodes.QueryCanceled })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     // The columns that name a group, the join that brings its name, and the GROUP BY. Names come from the tenant's own branches/advisors.
     private static (string Keys, string Join, string Group) Grouping(MetricsGroupBy by) => by switch

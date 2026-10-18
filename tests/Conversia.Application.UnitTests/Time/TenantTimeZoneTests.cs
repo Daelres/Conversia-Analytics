@@ -55,4 +55,16 @@ public class TenantTimeZoneTests
     [Fact]
     public void AnUnknownZone_Throws()
         => Assert.Throws<TimeZoneNotFoundException>(() => new TenantTimeZone("Mars/Olympus_Mons"));
+
+    [Fact]
+    public void TheFirstAndLastDaysOfTheCalendar_DoNotOverflow()
+    {
+        // 0001-01-01 00:00 in a zone ahead of UTC (Tokyo) is before the first UTC instant: it is clamped, not an exception.
+        var tokyo = new TenantTimeZone("Asia/Tokyo");
+
+        Assert.Equal(DateTime.MinValue.Ticks, tokyo.StartOfDayUtc(DateOnly.MinValue).Ticks);
+        Assert.Equal(DateTimeKind.Utc, tokyo.StartOfDayUtc(DateOnly.MinValue).Kind);
+        Assert.Equal(new DateTime(9999, 12, 31, 5, 0, 0, DateTimeKind.Utc), Bogota.StartOfDayUtc(DateOnly.MaxValue));
+        Assert.True(tokyo.StartOfDayUtc(DateOnly.MaxValue) <= DateTime.MaxValue);
+    }
 }

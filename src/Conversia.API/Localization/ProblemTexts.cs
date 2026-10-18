@@ -17,12 +17,14 @@ public static class ProblemTexts
     public const string ConversationNotFoundTitle = "Conversación no encontrada";
     public const string DuplicateBranchNameTitle = "Sucursal duplicada";
     public const string InvalidRequestTitle = "Solicitud no válida";
+    public const string QueryTimeoutTitle = "Consulta demasiado lenta";
 
     public const string UnexpectedTitle = "Ocurrió un error inesperado";
     public const string UnexpectedDetail = "Ocurrió un error inesperado. Inténtalo de nuevo más tarde.";
 
     public const string TooManyRequestsTitle = "Demasiadas solicitudes";
     public const string TooManyLoginsDetail = "Demasiados intentos de inicio de sesión. Inténtalo de nuevo más tarde.";
+    public const string TooManyQueriesDetail = "Demasiadas consultas en poco tiempo. Espera unos segundos e inténtalo de nuevo.";
     public const string TooManyWebhooksDetail = "Demasiadas llamadas al webhook desde esta dirección. Inténtalo de nuevo más tarde.";
     public const string WebhookUnauthorizedTitle = "Webhook no autorizado";
     public const string WebhookUnauthorizedDetail = "El canal o el secreto del webhook no son válidos.";

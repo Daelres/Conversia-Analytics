@@ -29,6 +29,14 @@ All endpoints need the `MetricsView` permission, are scoped to the caller's tena
 cannot be computed (no data, an empty denominator) is `null`, never `0`: that includes every `sharePercent` over an empty set. Every answer repeats the
 `period` it was computed for (`from`, `to`, `timeZone`, `days`).
 
+Dates are validated one by one: each of `from` and `to` must fall between **2015-01-01** and **today + 366 days** (UTC today), alone or together, and the range
+(`from` before `to`, at most 366 days) is checked when both are given. So `from=9999-12-31` or `to=0001-01-05`, which would overflow the 30 days an open end implies,
+is a `400` with a Spanish message (`El campo Desde debe ser una fecha entre el 2015-01-01 y el ...`), never a `500`. `GET /api/conversations` takes the same window.
+
+**Throttling.** The six endpoints and `GET /api/conversations` share one limit per authenticated user (the `sub` of the token, not the address),
+`Metrics:RateLimitPerMinute` (default 60, a fixed one-minute window): the next request answers `429` with `Retry-After` and a Spanish problem. Each statement of the metrics queries has a time limit, `Metrics:QueryTimeoutSeconds` (default 15); a statement that exceeds
+it answers `503` (a Spanish problem, no SQL and no stack in the answer or the logs) and the next request tries again.
+
 ## Time zone
 
 `Metrics:TimeZone` (default `America/Bogota`, UTC-5 with no daylight saving; any IANA name the machine knows works). Dates are **local**
@@ -155,6 +163,8 @@ with `GET /api/conversations/{id}`, which needs its own permission.
 | `Metrics:MinSampleSize` | `20` | Minimum decided conversations for the rate alerts. 1 to 100000. |
 | `Metrics:ConversionDropAlertPoints` | `10` | Points of drop that raise `CONVERSION_DROP`. 1 to 100. |
 | `Metrics:BranchBelowAveragePoints` | `15` | Points below the tenant average that raise `BRANCH_BELOW_AVERAGE`. 1 to 100. |
+| `Metrics:RateLimitPerMinute` | `60` | Requests per minute and authenticated user for the metrics endpoints and `GET /api/conversations`. 1 to 100000. |
+| `Metrics:QueryTimeoutSeconds` | `15` | Time limit of each metrics SQL statement. 1 to 300. |
 
 ## How it is computed
 

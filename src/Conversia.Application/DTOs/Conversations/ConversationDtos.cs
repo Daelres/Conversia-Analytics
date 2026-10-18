@@ -63,7 +63,19 @@ public class ConversationQuery : IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        if (From is { } from && To is { } to && from >= to)
+        var fromProblem = DateWindow.Check(From, "Desde", nameof(From), validationContext);
+        var toProblem = DateWindow.Check(To, "Hasta", nameof(To), validationContext);
+        if (fromProblem is not null)
+        {
+            yield return fromProblem;
+        }
+
+        if (toProblem is not null)
+        {
+            yield return toProblem;
+        }
+
+        if (fromProblem is null && toProblem is null && From is { } from && To is { } to && from >= to)
         {
             yield return new ValidationResult("El campo Desde debe ser anterior al campo Hasta.", [nameof(From), nameof(To)]);
         }

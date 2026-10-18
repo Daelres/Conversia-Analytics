@@ -1,8 +1,10 @@
+using Conversia.API.RateLimiting;
 using Conversia.Application.DTOs.Metrics;
 using Conversia.Application.Interfaces;
 using Conversia.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Conversia.API.Controllers;
 
@@ -10,6 +12,7 @@ namespace Conversia.API.Controllers;
 [ApiController]
 [Route("api/metrics")]
 [Authorize]
+[EnableRateLimiting(HeavyQueryRateLimitingExtensions.PolicyName)]
 public class MetricsController : ControllerBase
 {
     private readonly IMetricsService _metrics;
