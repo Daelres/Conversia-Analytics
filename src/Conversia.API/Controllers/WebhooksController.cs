@@ -6,7 +6,6 @@ using Conversia.Application.Exceptions;
 using Conversia.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 
 namespace Conversia.API.Controllers;
 
@@ -21,28 +20,42 @@ public class WebhooksController : ControllerBase
 {
     private readonly IWebhookIngestionService _ingestion;
     private readonly WebhookEndpointOptions _options;
+    private readonly WebhookRateLimiter _rateLimiter;
 
-    public WebhooksController(IWebhookIngestionService ingestion, WebhookEndpointOptions options)
+    public WebhooksController(IWebhookIngestionService ingestion, WebhookEndpointOptions options, WebhookRateLimiter rateLimiter)
     {
         _ingestion = ingestion;
         _options = options;
+        _rateLimiter = rateLimiter;
     }
 
     [HttpPost("{channelKey}")]
-    [EnableRateLimiting(WebhookRateLimitingExtensions.PolicyName)]
     public async Task<IActionResult> Receive360Dialog(string channelKey, CancellationToken cancellationToken)
     {
         var secret = Request.Headers[WebhookRoutes.SecretHeader].ToString();
+        var clientIp = ClientPartition.Of(HttpContext);
+
+        // An address that already failed too often is refused before anything else is spent on it.
+        if (_rateLimiter.RetryAfterIfBlocked(clientIp) is { } blockedFor)
+        {
+            return TooManyRequests(blockedFor);
+        }
 
         // Authenticate before reading the body: a caller without the secret never gets us to read (or store) anything. An unknown
         // key, an inactive channel and a wrong secret are the same answer.
         var channel = await _ingestion.AuthenticateAsync(channelKey, secret, cancellationToken);
         if (channel is null)
         {
+            _rateLimiter.RegisterFailedAuthentication(clientIp);
             return Problem(
                 statusCode: StatusCodes.Status401Unauthorized,
                 title: ProblemTexts.WebhookUnauthorizedTitle,
                 detail: ProblemTexts.WebhookUnauthorizedDetail);
+        }
+
+        if (_rateLimiter.RetryAfterIfChannelOverLimit(channel.ChannelId) is { } overLimitFor)
+        {
+            return TooManyRequests(overLimitFor);
         }
 
         var body = await ReadBodyAsync(cancellationToken);
@@ -63,6 +76,15 @@ public class WebhooksController : ControllerBase
                 title: ProblemTexts.InvalidRequestTitle,
                 detail: InvalidWebhookPayloadException.DefaultMessage),
         };
+    }
+
+    private ObjectResult TooManyRequests(int retryAfterSeconds)
+    {
+        Response.Headers.RetryAfter = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return Problem(
+            statusCode: StatusCodes.Status429TooManyRequests,
+            title: ProblemTexts.TooManyRequestsTitle,
+            detail: ProblemTexts.TooManyWebhooksDetail);
     }
 
     // The whole body, or null when it is over the limit. Reading stops at the limit, so an oversized (or endless) body costs no more than that.

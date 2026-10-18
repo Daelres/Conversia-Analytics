@@ -122,4 +122,33 @@ public class WebhookIngestionServiceTests
 
         Assert.Equal(WebhookStoreResult.InvalidPayload, await CreateSut().StoreAsync(Access(), "{}"u8.ToArray()));
     }
+
+    // ---- JSON that PostgreSQL jsonb cannot hold is refused here, before it costs a database error ---------------------------
+
+    [Theory]
+    [InlineData("{\"text\": \"a\\u0000b\"}")] // a NUL escape in a value
+    [InlineData("{\"\\u0000\": 1}")] // ...in a property name
+    [InlineData("{\"deep\": [ {\"text\": \"\\u0000\"} ]}")]
+    [InlineData("{\"text\": \"\\ud800\"}")] // a high surrogate without its pair
+    [InlineData("{\"text\": \"\\udc00\"}")] // a low surrogate without its pair
+    [InlineData("{\"text\": \"\\ud800x\"}")]
+    public async Task Store_RefusesEscapesJsonbCannotStore_WithoutTouchingTheRepository(string body)
+    {
+        var result = await CreateSut().StoreAsync(Access(), Encoding.UTF8.GetBytes(body));
+
+        Assert.Equal(WebhookStoreResult.InvalidPayload, result);
+        _events.Verify(r => r.AddIfNewAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("{\"text\": \"\\\\u0000\"}")] // the characters \u0000 typed by a customer (the backslash is escaped)
+    [InlineData("{\"text\": \"\\ud83d\\ude00\"}")] // a valid surrogate pair as two escapes
+    [InlineData("{\"text\": \"caf\\u00e9 \\n \\t\"}")]
+    [InlineData("{\"text\": \"😀 plain emoji\"}")]
+    public async Task Store_AcceptsEscapesThatAreStorable(string body)
+    {
+        _events.Setup(r => r.AddIfNewAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        Assert.Equal(WebhookStoreResult.Stored, await CreateSut().StoreAsync(Access(), Encoding.UTF8.GetBytes(body)));
+    }
 }

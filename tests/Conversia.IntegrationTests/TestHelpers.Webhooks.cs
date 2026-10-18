@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Conversia.Tests.Shared;
 
 namespace Conversia.IntegrationTests;
@@ -19,7 +20,7 @@ internal static partial class TestHelpers
     {
         public void Dispose() => Tenant.Dispose();
 
-        public string Path => Channel.WebhookPath;
+        public string Path => Channel.WebhookPath!;
 
         public string Secret => Channel.WebhookSecret;
 
@@ -101,9 +102,15 @@ internal static partial class TestHelpers
 
     /// <summary>A host on the same container whose webhook settings are overridden (and optionally whose services are replaced).</summary>
     internal static WebApplicationFactory<Program> WebhookHost(
-        CustomWebApplicationFactory factory, Dictionary<string, string> settings, Action<IServiceCollection>? configureServices = null)
+        CustomWebApplicationFactory factory, Dictionary<string, string> settings, Action<IServiceCollection>? configureServices = null,
+        Action<Microsoft.Extensions.Logging.ILoggingBuilder>? configureLogging = null)
         => factory.WithWebHostBuilder(builder =>
         {
+            if (configureLogging is not null)
+            {
+                builder.ConfigureLogging(configureLogging);
+            }
+
             foreach (var (key, value) in settings)
             {
                 builder.UseSetting(key, value);
@@ -114,4 +121,63 @@ internal static partial class TestHelpers
                 builder.ConfigureServices(configureServices);
             }
         });
+
+    /// <summary>Every log entry of a host, as text: category, level, the formatted message and the whole exception, which is what a log sink would store.</summary>
+    internal sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<Entry> _entries = new();
+
+        internal sealed record Entry(string Category, LogLevel Level, string Text);
+
+        private readonly object _gate = new();
+        private readonly List<(Func<Entry, bool> Match, TaskCompletionSource<Entry> Done)> _waiters = [];
+
+        public IReadOnlyList<Entry> Entries => _entries.ToArray();
+
+        /// <summary>Completes when an entry matching <paramref name="match"/> has been logged (already or later): no polling, no sleeping.</summary>
+        public Task<Entry> WhenLoggedAsync(Func<Entry, bool> match)
+        {
+            lock (_gate)
+            {
+                var existing = _entries.FirstOrDefault(match);
+                if (existing is not null)
+                {
+                    return Task.FromResult(existing);
+                }
+
+                var done = new TaskCompletionSource<Entry>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _waiters.Add((match, done));
+                return done.Task;
+            }
+        }
+
+        private void Record(Entry entry)
+        {
+            lock (_gate)
+            {
+                _entries.Enqueue(entry);
+                foreach (var waiter in _waiters.Where(w => w.Match(entry)).ToList())
+                {
+                    waiter.Done.TrySetResult(entry);
+                    _waiters.Remove(waiter);
+                }
+            }
+        }
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(categoryName, Record);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class CapturingLogger(string category, Action<Entry> record) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+                => record(new Entry(category, logLevel, formatter(state, exception) + (exception is null ? string.Empty : "\n" + exception)));
+        }
+    }
 }

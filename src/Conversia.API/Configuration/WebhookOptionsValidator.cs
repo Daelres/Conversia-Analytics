@@ -4,13 +4,14 @@ using Conversia.Infrastructure.Configuration;
 namespace Conversia.API.Configuration;
 
 /// <summary>The validated <c>Webhooks</c> section of the endpoint.</summary>
-public sealed record WebhookEndpointOptions(int MaxBodyBytes, int RateLimitPerMinute)
+public sealed record WebhookEndpointOptions(int MaxBodyBytes, int FailedAuthRateLimitPerMinute, int ChannelRateLimitPerMinute)
 {
     public const string SectionName = "Webhooks";
     public const string MaxBodyBytesKey = SectionName + ":MaxBodyBytes";
-    public const string RateLimitPerMinuteKey = SectionName + ":RateLimitPerMinute";
+    public const string FailedAuthRateLimitPerMinuteKey = SectionName + ":FailedAuthRateLimitPerMinute";
+    public const string ChannelRateLimitPerMinuteKey = SectionName + ":ChannelRateLimitPerMinute";
 
-    public static WebhookEndpointOptions Default { get; } = new(MaxBodyBytes: 1_048_576, RateLimitPerMinute: 600);
+    public static WebhookEndpointOptions Default { get; } = new(MaxBodyBytes: 1_048_576, FailedAuthRateLimitPerMinute: 60, ChannelRateLimitPerMinute: 6000);
 }
 
 /// <summary>Fails fast at startup (<see cref="InvalidOperationException"/> naming the key) on an invalid <c>Webhooks</c> section.</summary>
@@ -21,7 +22,8 @@ public static class WebhookOptionsValidator
         var defaults = WebhookEndpointOptions.Default;
         return new WebhookEndpointOptions(
             MaxBodyBytes: ReadInt(configuration, WebhookEndpointOptions.MaxBodyBytesKey, defaults.MaxBodyBytes, 1024, 16 * 1024 * 1024),
-            RateLimitPerMinute: ReadInt(configuration, WebhookEndpointOptions.RateLimitPerMinuteKey, defaults.RateLimitPerMinute, 1, int.MaxValue));
+            FailedAuthRateLimitPerMinute: ReadInt(configuration, WebhookEndpointOptions.FailedAuthRateLimitPerMinuteKey, defaults.FailedAuthRateLimitPerMinute, 1, int.MaxValue),
+            ChannelRateLimitPerMinute: ReadInt(configuration, WebhookEndpointOptions.ChannelRateLimitPerMinuteKey, defaults.ChannelRateLimitPerMinute, 1, int.MaxValue));
     }
 
     public static WebhookProcessingOptions GetValidatedProcessingOptions(IConfiguration configuration)

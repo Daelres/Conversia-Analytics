@@ -31,6 +31,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddLoginRateLimiting(builder.Configuration);
 builder.Services.AddErrorLogging(builder.Configuration);
 builder.Services.AddWebhookIngestion(builder.Configuration);
+builder.Services.AddOptionalForwardedHeaders(builder.Configuration);
 builder.Services.AddDemoData(builder.Configuration, builder.Environment);
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -99,6 +100,9 @@ var app = builder.Build();
 // unhandled should ever reach the caller as a raw 500 (docs/WORKFLOW.md).
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseSpanishCulture();
+
+// Before everything that reads the client address (the rate limiters); does nothing unless proxies are configured.
+app.UseOptionalForwardedHeaders();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

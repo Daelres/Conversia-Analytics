@@ -91,7 +91,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         builder.UseSetting("Webhooks:Processing:Enabled", "false");
         builder.UseSetting("Webhooks:Retention:Enabled", "false");
         // Every call from the in-process client shares one address; the webhook rate-limit tests use a derived host with a small budget.
-        builder.UseSetting("Webhooks:RateLimitPerMinute", "1000000");
+        builder.UseSetting("Webhooks:FailedAuthRateLimitPerMinute", "1000000");
+        builder.UseSetting("Webhooks:ChannelRateLimitPerMinute", "1000000");
 
         builder.ConfigureServices(services =>
         {

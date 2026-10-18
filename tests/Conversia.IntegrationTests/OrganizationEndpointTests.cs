@@ -171,7 +171,7 @@ public class OrganizationEndpointTests
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
         var raw = await response.Content.ReadAsStringAsync();
         var created = JsonSerializer.Deserialize<CreateChannelResponse>(raw, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-        Assert.True(created.ChannelKey.Length >= 32);
+        Assert.True(created.ChannelKey!.Length >= 32);
         Assert.Equal($"/api/webhooks/360dialog/{created.ChannelKey}", created.WebhookPath);
         Assert.True(created.WebhookSecret.Length >= 32);
         Assert.True(created.IsActive);

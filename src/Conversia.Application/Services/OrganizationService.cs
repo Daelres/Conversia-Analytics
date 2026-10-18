@@ -75,6 +75,30 @@ public class OrganizationService : IOrganizationService
         return CreateChannelResponse.From(channel, secret);
     }
 
+    public async Task<ChannelResponse> SetChannelActiveAsync(Guid id, bool active, CancellationToken cancellationToken = default)
+    {
+        var channel = await _channels.GetForUpdateAsync(id, cancellationToken) ?? throw new ChannelNotFoundException();
+        if (active)
+        {
+            channel.Activate();
+        }
+        else
+        {
+            channel.Deactivate();
+        }
+
+        await _channels.UpdateAsync(channel, cancellationToken);
+        return ChannelResponse.From(channel);
+    }
+
+    public async Task<CreateChannelResponse> RotateChannelSecretAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var channel = await _channels.GetForUpdateAsync(id, cancellationToken) ?? throw new ChannelNotFoundException();
+        var secret = channel.RotateWebhookSecret();
+        await _channels.UpdateAsync(channel, cancellationToken);
+        return CreateChannelResponse.From(channel, secret);
+    }
+
     // A branch of another tenant is invisible through the query filter, so it fails exactly like an unknown id.
     private async Task<Guid> RequireBranchAsync(Guid? branchId, CancellationToken cancellationToken)
     {

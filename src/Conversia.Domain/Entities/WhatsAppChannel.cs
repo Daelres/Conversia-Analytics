@@ -80,6 +80,17 @@ public class WhatsAppChannel : BaseEntity
         return (channel, secret);
     }
 
+    /// <summary>
+    /// Replaces the webhook secret and returns the new one, shown to the caller once (only its hash is kept). The old secret stops
+    /// working at once.
+    /// </summary>
+    public string RotateWebhookSecret()
+    {
+        var secret = GenerateToken();
+        WebhookSecretHash = HashSecret(secret);
+        return secret;
+    }
+
     public void Activate() => IsActive = true;
 
     public void Deactivate() => IsActive = false;

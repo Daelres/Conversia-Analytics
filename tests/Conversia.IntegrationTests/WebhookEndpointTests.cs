@@ -269,17 +269,21 @@ public class WebhookEndpointTests
     }
 
     [Fact]
-    public async Task TooManyCalls_AreThrottledWith429AndRetryAfter_WhateverTheirSecret()
+    public async Task AnAddressThatFailsToAuthenticateTooOften_IsThrottledWith429AndRetryAfter_ButOthersAreNot()
     {
-        using var host = WebhookHost(_factory, new() { ["Webhooks:RateLimitPerMinute"] = "3" });
+        using var host = WebhookHost(_factory, new() { ["Webhooks:FailedAuthRateLimitPerMinute"] = "3" });
         using var client = host.CreateClient();
         using var f = await StartChannelAsync(_factory, _client);
+        var junkAddress = TestClientIp.Next();
 
         var statuses = new List<HttpStatusCode>();
         HttpResponseMessage? throttled = null;
         for (var i = 0; i < 5; i++)
         {
-            var response = await PostWebhookAsync(client, f.Path, i % 2 == 0 ? f.Secret : "wrong", Dialog360Samples.InboundText($"wamid.RL-{i}"));
+            var request = new HttpRequestMessage(HttpMethod.Post, f.Path) { Content = new StringContent(Dialog360Samples.InboundText(), Encoding.UTF8, "application/json") };
+            request.Headers.Add("X-Webhook-Secret", "wrong");
+            request.Headers.Add(TestClientIp.HeaderName, junkAddress);
+            var response = await client.SendAsync(request);
             statuses.Add(response.StatusCode);
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
@@ -287,9 +291,116 @@ public class WebhookEndpointTests
             }
         }
 
-        Assert.Equal([HttpStatusCode.OK, HttpStatusCode.Unauthorized, HttpStatusCode.OK, HttpStatusCode.TooManyRequests, HttpStatusCode.TooManyRequests], statuses);
+        Assert.Equal([HttpStatusCode.Unauthorized, HttpStatusCode.Unauthorized, HttpStatusCode.Unauthorized, HttpStatusCode.TooManyRequests, HttpStatusCode.TooManyRequests], statuses);
         Assert.NotNull(throttled!.Headers.RetryAfter);
         Assert.Contains("webhook", (await ReadProblemJsonAsync(throttled)).Detail, StringComparison.OrdinalIgnoreCase);
+
+        // The blocked address is refused even with the right secret (it is not even authenticated)...
+        var blockedRight = new HttpRequestMessage(HttpMethod.Post, f.Path) { Content = new StringContent(Dialog360Samples.InboundText(), Encoding.UTF8, "application/json") };
+        blockedRight.Headers.Add("X-Webhook-Secret", f.Secret);
+        blockedRight.Headers.Add(TestClientIp.HeaderName, junkAddress);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await client.SendAsync(blockedRight)).StatusCode);
+
+        // ...while another address delivers normally.
+        var other = new HttpRequestMessage(HttpMethod.Post, f.Path) { Content = new StringContent(Dialog360Samples.InboundText(), Encoding.UTF8, "application/json") };
+        other.Headers.Add("X-Webhook-Secret", f.Secret);
+        other.Headers.Add(TestClientIp.HeaderName, TestClientIp.Next());
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(other)).StatusCode);
+    }
+
+    [Fact]
+    public async Task AuthenticatedDeliveries_DoNotSpendTheJunkBudgetOfTheirAddress_ButAreLimitedPerChannel()
+    {
+        using var host = WebhookHost(_factory, new() { ["Webhooks:FailedAuthRateLimitPerMinute"] = "2", ["Webhooks:ChannelRateLimitPerMinute"] = "4" });
+        using var client = host.CreateClient();
+        using var busy = await StartChannelAsync(_factory, _client);
+        using var quiet = await StartChannelAsync(_factory, _client);
+        var sharedAddress = TestClientIp.Next(); // the provider's address, the same for every channel
+
+        async Task<HttpStatusCode> DeliverFromSharedAddress(ChannelFixture f, int n)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, f.Path) { Content = new StringContent(Dialog360Samples.InboundText($"wamid.RL-{n}-{Guid.NewGuid():N}"), Encoding.UTF8, "application/json") };
+            request.Headers.Add("X-Webhook-Secret", f.Secret);
+            request.Headers.Add(TestClientIp.HeaderName, sharedAddress);
+            return (await client.SendAsync(request)).StatusCode;
+        }
+
+        var busyStatuses = new List<HttpStatusCode>();
+        for (var i = 0; i < 6; i++)
+        {
+            busyStatuses.Add(await DeliverFromSharedAddress(busy, i));
+        }
+
+        // More successful deliveries than the junk budget (2) were fine; the channel's own budget (4) is what ends them.
+        Assert.Equal([HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.TooManyRequests, HttpStatusCode.TooManyRequests], busyStatuses);
+        Assert.Equal(HttpStatusCode.OK, await DeliverFromSharedAddress(quiet, 0)); // another channel behind the same address is not starved
+    }
+
+    // ---- Forwarded headers: off unless proxies are named --------------------------------------------------------
+
+    private async Task<List<HttpStatusCode>> FailFromBehindProxyAsync(HttpClient client, string path, string proxy, params string[] forwardedFor)
+    {
+        var statuses = new List<HttpStatusCode>();
+        foreach (var address in forwardedFor)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+            request.Headers.Add("X-Webhook-Secret", "wrong");
+            request.Headers.Add(TestClientIp.HeaderName, proxy);
+            request.Headers.Add("X-Forwarded-For", address);
+            statuses.Add((await client.SendAsync(request)).StatusCode);
+        }
+
+        return statuses;
+    }
+
+    [Fact]
+    public async Task ByDefaultTheForwardedForHeaderIsIgnored_SoCallersBehindOneProxyShareTheBudget()
+    {
+        using var host = WebhookHost(_factory, new() { ["Webhooks:FailedAuthRateLimitPerMinute"] = "2" });
+        using var client = host.CreateClient();
+        using var f = await StartChannelAsync(_factory, _client);
+
+        var statuses = await FailFromBehindProxyAsync(client, f.Path, TestClientIp.Next(), "203.0.113.1", "203.0.113.2", "203.0.113.3");
+
+        Assert.Equal([HttpStatusCode.Unauthorized, HttpStatusCode.Unauthorized, HttpStatusCode.TooManyRequests], statuses); // a spoofed header buys nothing
+    }
+
+    [Fact]
+    public async Task WithTheProxyNamed_EachClientBehindItGetsItsOwnBudget()
+    {
+        var proxy = TestClientIp.Next();
+        using var host = WebhookHost(_factory, new() { ["Webhooks:FailedAuthRateLimitPerMinute"] = "2", ["ForwardedHeaders:KnownProxies:0"] = proxy });
+        using var client = host.CreateClient();
+        using var f = await StartChannelAsync(_factory, _client);
+
+        var statuses = await FailFromBehindProxyAsync(client, f.Path, proxy, "203.0.113.1", "203.0.113.1", "203.0.113.1", "203.0.113.2");
+
+        Assert.Equal([HttpStatusCode.Unauthorized, HttpStatusCode.Unauthorized, HttpStatusCode.TooManyRequests, HttpStatusCode.Unauthorized], statuses);
+    }
+
+    [Fact]
+    public async Task AForwardedForHeaderFromANetworkThatIsNotTrusted_IsStillIgnored()
+    {
+        using var host = WebhookHost(_factory, new() { ["Webhooks:FailedAuthRateLimitPerMinute"] = "2", ["ForwardedHeaders:KnownNetworks:0"] = "192.168.77.0/24" });
+        using var client = host.CreateClient();
+        using var f = await StartChannelAsync(_factory, _client);
+
+        var statuses = await FailFromBehindProxyAsync(client, f.Path, TestClientIp.Next(), "203.0.113.1", "203.0.113.2", "203.0.113.3");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, statuses[2]);
+    }
+
+    [Theory]
+    [InlineData("ForwardedHeaders:KnownProxies:0", "not-an-ip")]
+    [InlineData("ForwardedHeaders:KnownNetworks:0", "10.0.0.0/99")]
+    [InlineData("ForwardedHeaders:KnownNetworks:0", "10.0.0.1")]
+    public void InvalidForwardedHeaderSettings_StopTheApiAtStartup_NamingTheKey(string key, string value)
+    {
+        using var host = WebhookHost(_factory, new() { [key] = value });
+
+        var ex = Assert.ThrowsAny<Exception>(() => host.CreateClient());
+
+        Assert.Contains(key[..key.LastIndexOf(':')], ex.ToString());
     }
 
     private async Task DeactivateAsync(Guid channelId)

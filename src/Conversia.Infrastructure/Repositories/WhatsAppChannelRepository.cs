@@ -24,6 +24,12 @@ public class WhatsAppChannelRepository : IWhatsAppChannelRepository
     public Task<WhatsAppChannel?> GetByChannelKeyAsync(string channelKey, CancellationToken cancellationToken = default)
         => _dbContext.WhatsAppChannels.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(c => c.ChannelKey == channelKey, cancellationToken);
 
+    public Task<WhatsAppChannel?> GetForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
+        => _dbContext.WhatsAppChannels.FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
+
+    public Task UpdateAsync(WhatsAppChannel channel, CancellationToken cancellationToken = default)
+        => _dbContext.SaveChangesAsync(cancellationToken);
+
     public async Task AddAsync(WhatsAppChannel channel, CancellationToken cancellationToken = default)
     {
         await _dbContext.WhatsAppChannels.AddAsync(channel, cancellationToken);

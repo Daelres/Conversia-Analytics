@@ -32,7 +32,7 @@ worker's job, so a parsing bug can never lose a message.
 | `400` | The body is empty, not a single JSON object, or JSON that PostgreSQL `jsonb` cannot hold (a `\u0000` escape, an unpaired surrogate). `application/problem+json`. |
 | `401` | Unknown key, malformed key, inactive channel, missing secret or wrong secret. **One identical answer** for all of them, so nothing tells an attacker which part failed. The body is not read. |
 | `413` | Body over the limit (checked on `Content-Length` and, for chunked bodies, while reading). |
-| `429` | More than `Webhooks:RateLimitPerMinute` calls (default 600) from one client IP in a minute; has `Retry-After`. This is a policy of its own and does not spend the login budget. |
+| `429` | The client IP failed to authenticate more than `Webhooks:FailedAuthRateLimitPerMinute` times (default 60) in a minute (it is then refused before being authenticated), or the channel received more than `Webhooks:ChannelRateLimitPerMinute` deliveries (default 6000). Has `Retry-After`. See [Rate limits](#rate-limits-and-proxies). |
 
 The channel (key and secret) is created with `POST /api/channels` (permission
 `OrganizationManage`). The `201` answer holds the relative `webhookPath` and the
@@ -40,6 +40,35 @@ The channel (key and secret) is created with `POST /api/channels` (permission
 256 random bits (43 URL-safe characters), unique across all tenants; the secret is
 another 256 random bits. The call compares `SHA-256(received secret)` with the
 stored hash using `CryptographicOperations.FixedTimeEquals`.
+
+### Rate limits and proxies
+
+Two limits, both fixed one-minute windows without queueing, kept in memory per instance (idle partitions are evicted
+by the limiter, so memory stays bounded):
+
+- **Unauthenticated junk, per client IP**: only *failed* authentications count. An address over its budget gets `429` before it
+  is authenticated, so guessing keys and secrets is throttled and a legitimate provider never spends this budget.
+- **Authenticated deliveries, per channel**: generous, counted after the secret matched. One misbehaving channel cannot starve the others,
+  and tenants behind the same proxy IP do not compete.
+
+Behind a reverse proxy or tunnel every request arrives from the proxy's address, so all failed attempts would share one IP
+budget. `X-Forwarded-For` is therefore supported but **off by default and never trusted blindly**: name the proxies explicitly with
+`ForwardedHeaders:KnownProxies:0=10.0.0.5` (addresses) and/or `ForwardedHeaders:KnownNetworks:0=10.0.0.0/8` (CIDR). The header is
+honored only when the immediate sender is one of them, one hop (`ForwardLimit = 1`); otherwise it is ignored. Invalid entries stop
+the API at startup. It applies to the whole API (the login limiter too), as the template documents.
+
+### Managing a channel
+
+| Call | Permission | Effect |
+|---|---|---|
+| `POST /api/channels/{id}/deactivate` | `OrganizationManage` | The provider gets the same `401` as for a wrong secret. Idempotent. |
+| `POST /api/channels/{id}/activate` | `OrganizationManage` | Turns it back on. Idempotent. |
+| `POST /api/channels/{id}/rotate-secret` | `OrganizationManage` | Returns the **new** `webhookSecret` once (`Cache-Control: no-store`); the old one stops working immediately. The URL (channel key) does not change: update the secret header at 360dialog right after. |
+
+`GET /api/channels` shows `channelKey` and `webhookPath` only to callers who hold `OrganizationManage` (the owner included); a caller with
+only `OrganizationView` sees the channel without them, because the key is half of the webhook credential. Another tenant's channel is a `404`.
+The channel key of the URL is also redacted (`/api/webhooks/360dialog/{channelKey}`) from the paths and route values stored in the error
+registry and from the log lines of unexpected errors.
 
 ### Tenant context
 
@@ -218,8 +247,18 @@ runs of 7 or more masked, because database errors can quote values such as phone
 ## Configuration
 
 See the README configuration table: `Webhooks:MaxBodyBytes`,
-`Webhooks:RateLimitPerMinute`, `Webhooks:Processing:*`, `Webhooks:Retention:*`, `Webhooks:Health:*` and
+`Webhooks:FailedAuthRateLimitPerMinute`, `Webhooks:ChannelRateLimitPerMinute`, `ForwardedHeaders:*`, `Webhooks:Processing:*`, `Webhooks:Retention:*`, `Webhooks:Health:*` and
 `Dialog360:ApiKey` (bound, not used yet). Invalid values stop the API at startup naming the key.
+
+## Logs
+
+The ingestion never logs a raw exception nor a payload. A failing event is described by `WebhookErrors.Describe` (exception type and
+innermost message, sanitized, digit runs of 7 or more masked) in the log, in `LastError` and in the error registry; an unexpected
+failure of the webhook request is registered and logged the same way (no stack trace, channel key redacted). A repeated delivery is
+`INSERT ... ON CONFLICT DO NOTHING`, so routine retries throw nothing. JSON that PostgreSQL `jsonb` cannot store (a `\u0000` escape, an
+unpaired surrogate) is recognized and refused with `400` before the insert. Because Npgsql's error text can quote the offending value,
+`appsettings.json` sets the EF Core categories `Microsoft.EntityFrameworkCore.Update` and
+`Microsoft.EntityFrameworkCore.Database.Command` to `None`; keep them off in production, and never enable sensitive data logging.
 
 ## Health and backlog
 

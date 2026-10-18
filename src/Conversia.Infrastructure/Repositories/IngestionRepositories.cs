@@ -10,27 +10,31 @@ namespace Conversia.Infrastructure.Repositories;
 
 // Every query is scoped to the current tenant by the global query filter of each entity; none repeats a TenantId predicate.
 
-public class WebhookEventRepository(ApplicationDbContext dbContext) : IWebhookEventRepository
+public class WebhookEventRepository(ApplicationDbContext dbContext, TimeProvider timeProvider) : IWebhookEventRepository
 {
     public async Task<bool> AddIfNewAsync(WebhookEvent webhookEvent, CancellationToken cancellationToken = default)
     {
-        await dbContext.WebhookEvents.AddAsync(webhookEvent, cancellationToken);
+        // INSERT ... ON CONFLICT DO NOTHING: the provider re-sending the same body is routine, so it must not be an exception (and with it an
+        // error log line that can quote the payload). The unique (ChannelId, BodyHash) index is still the arbiter of concurrent deliveries.
+        // The audit date is stamped here because this path does not go through SaveChanges.
+        var createdAt = DatabaseTime.Truncate(timeProvider.GetUtcNow().UtcDateTime);
+        var status = webhookEvent.Status.ToString();
 
         try
         {
-            await dbContext.SaveChangesAsync(cancellationToken);
-            return true;
+            var inserted = await dbContext.Database.ExecuteSqlAsync($"""
+                INSERT INTO "WebhookEvents"
+                    ("Id", "TenantId", "ChannelId", "BodyHash", "RawPayload", "ReceivedAt", "Status", "Attempts", "NextAttemptAt", "CreatedAt")
+                VALUES
+                    ({webhookEvent.Id}, {webhookEvent.TenantId}, {webhookEvent.ChannelId}, {webhookEvent.BodyHash}, {webhookEvent.RawPayload}::jsonb,
+                     {webhookEvent.ReceivedAt}, {status}, {webhookEvent.Attempts}, {webhookEvent.NextAttemptAt}, {createdAt})
+                ON CONFLICT ("ChannelId", "BodyHash") DO NOTHING
+                """, cancellationToken);
+            return inserted > 0;
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+        catch (PostgresException ex) when (ex.SqlState.StartsWith("22", StringComparison.Ordinal))
         {
-            // The unique (ChannelId, BodyHash) index is the arbiter: the provider delivered this exact body before.
-            dbContext.Entry(webhookEvent).State = EntityState.Detached;
-            return false;
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg && pg.SqlState.StartsWith("22", StringComparison.Ordinal))
-        {
-            // SQLSTATE class 22 (data exception): well-formed JSON that jsonb cannot hold, such as a \u0000 escape.
-            dbContext.Entry(webhookEvent).State = EntityState.Detached;
+            // SQLSTATE class 22 (data exception): JSON that jsonb cannot hold. The service already refuses what it can recognize, so this is the backstop.
             throw new InvalidWebhookPayloadException();
         }
     }

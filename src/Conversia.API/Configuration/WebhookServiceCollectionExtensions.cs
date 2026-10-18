@@ -31,7 +31,7 @@ public static class WebhookServiceCollectionExtensions
         services.AddSingleton(retention);
         services.AddSingleton(health);
         services.AddSingleton(configuration.GetSection(Dialog360Options.SectionName).Get<Dialog360Options>() ?? new Dialog360Options());
-        services.AddWebhookRateLimiting(endpoint);
+        services.AddSingleton<WebhookRateLimiter>();
 
         services.AddScoped<IWebhookEventRepository, WebhookEventRepository>();
         services.AddScoped<IContactRepository, ContactRepository>();

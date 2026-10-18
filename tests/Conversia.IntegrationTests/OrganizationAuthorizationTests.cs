@@ -11,7 +11,7 @@ namespace Conversia.IntegrationTests;
 [Collection(nameof(IntegrationTestCollection))]
 public class OrganizationAuthorizationTests
 {
-    public enum Op { ListBranches, GetBranch, CreateBranch, ListAdvisors, GetAdvisor, CreateAdvisor, ListChannels, GetChannel, CreateChannel }
+    public enum Op { ListBranches, GetBranch, CreateBranch, ListAdvisors, GetAdvisor, CreateAdvisor, ListChannels, GetChannel, CreateChannel, DeactivateChannel, ActivateChannel, RotateSecret }
 
     private static readonly Op[] Reads = [Op.ListBranches, Op.GetBranch, Op.ListAdvisors, Op.GetAdvisor, Op.ListChannels, Op.GetChannel];
 
@@ -42,10 +42,13 @@ public class OrganizationAuthorizationTests
         Op.CreateAdvisor => PostAdvisorAsync(client, UniqueName("Nuevo"), t.BranchId),
         Op.ListChannels => client.GetAsync(ChannelsUrl),
         Op.GetChannel => client.GetAsync($"{ChannelsUrl}/{t.ChannelId}"),
-        _ => PostChannelAsync(client, t.BranchId),
+        Op.CreateChannel => PostChannelAsync(client, t.BranchId),
+        Op.DeactivateChannel => client.PostAsync($"{ChannelsUrl}/{t.ChannelId}/deactivate", null),
+        Op.ActivateChannel => client.PostAsync($"{ChannelsUrl}/{t.ChannelId}/activate", null),
+        _ => client.PostAsync($"{ChannelsUrl}/{t.ChannelId}/rotate-secret", null),
     };
 
-    private static HttpStatusCode SuccessFor(Op op) => Reads.Contains(op) ? HttpStatusCode.OK : HttpStatusCode.Created;
+    private static HttpStatusCode SuccessFor(Op op) => op is Op.CreateBranch or Op.CreateAdvisor or Op.CreateChannel ? HttpStatusCode.Created : HttpStatusCode.OK;
 
     public static TheoryData<Op> AllOps => new(Enum.GetValues<Op>());
 
@@ -93,7 +96,7 @@ public class OrganizationAuthorizationTests
         var targets = await SeedAsync(tenant.Owner.Client);
         using var manager = await tenant.AddMemberAsync("manager", Permission.OrganizationManage);
 
-        var expected = Reads.Contains(op) ? HttpStatusCode.Forbidden : HttpStatusCode.Created;
+        var expected = Reads.Contains(op) ? HttpStatusCode.Forbidden : SuccessFor(op);
         Assert.Equal(expected, (await RunAsync(manager.Client, op, targets)).StatusCode);
     }
 

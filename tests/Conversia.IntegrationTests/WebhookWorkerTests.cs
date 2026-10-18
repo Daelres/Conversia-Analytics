@@ -8,6 +8,8 @@ using Conversia.Tests.Shared;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using static Conversia.IntegrationTests.TestHelpers;
 
@@ -437,32 +439,33 @@ public class WebhookWorkerTests : IAsyncLifetime
     [Fact]
     public async Task TheHostedWorker_PicksUpAStoredEventOnItsOwn()
     {
-        using var host = WebhookHost(_factory, new() { ["Webhooks:Processing:Enabled"] = "true", ["Webhooks:Processing:PollIntervalMilliseconds"] = "50" });
+        var capture = new CapturingLoggerProvider();
+        using var host = WebhookHost(
+            _factory,
+            new() { ["Webhooks:Processing:Enabled"] = "true", ["Webhooks:Processing:PollIntervalMilliseconds"] = "50" },
+            configureLogging: logging => logging.AddProvider(capture));
         using var f = await NewChannelAsync();
         using var client = host.CreateClient(); // starts the host, and with it the worker
 
         await DeliverAsync(client, f, Dialog360Samples.InboundText());
+        var eventId = (await EventAsync(host.Services, f.TenantId)).Id;
+        await capture.WhenLoggedAsync(e => e.Text.Contains("processed") && e.Text.Contains(eventId.ToString())).WaitAsync(TimeSpan.FromSeconds(30));
 
-        var deadline = DateTime.UtcNow.AddSeconds(30);
-        Snapshot s;
-        do
-        {
-            await Task.Delay(100);
-            s = await SnapshotAsync(host.Services, f.TenantId);
-        }
-        while (s.Events.Any(e => e.Status == WebhookEventStatus.Pending) && DateTime.UtcNow < deadline);
-
+        var s = await SnapshotAsync(host.Services, f.TenantId);
         Assert.Equal(WebhookEventStatus.Processed, Assert.Single(s.Events).Status);
         Assert.Single(s.Messages);
         Assert.Single(s.Opportunities);
     }
 
     [Fact]
-    public async Task WithTheWorkerDisabled_EventsStayPending()
+    public async Task WithTheWorkerDisabled_NoHostedWorkerIsRegistered_SoStoredEventsStayPending()
     {
+        Assert.DoesNotContain("WebhookEventProcessingService", _factory.Services.GetServices<IHostedService>().Select(s => s.GetType().Name));
+        using var enabled = WebhookHost(_factory, new() { ["Webhooks:Processing:Enabled"] = "true" });
+        Assert.Contains("WebhookEventProcessingService", enabled.Services.GetServices<IHostedService>().Select(s => s.GetType().Name));
+
         using var f = await NewChannelAsync();
         await DeliverAsync(_client, f, Dialog360Samples.InboundText());
-        await Task.Delay(500);
 
         Assert.Equal(WebhookEventStatus.Pending, Assert.Single((await SnapshotAsync(_factory.Services, f.TenantId)).Events).Status);
     }

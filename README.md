@@ -255,7 +255,10 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `ErrorLogging:ReportKey` | API | *(unset)* | Shared secret (>= 32 characters) of `POST /api/diagnostics/errors`; **unset turns the endpoint off** (`404`). Set it as a secret, never in a committed file. |
 | `Dialog360:ApiKey` | API | *(empty)* | The 360dialog API key. Bound but **not used yet**: nothing calls 360dialog in this phase. In compose it comes from `D360_API_KEY`. Set it as a secret, never in a committed file. |
 | `Webhooks:MaxBodyBytes` | API | `1048576` | Largest accepted body of `POST /api/webhooks/360dialog/{channelKey}`; more is `413`. 1024 to 16777216. |
-| `Webhooks:RateLimitPerMinute` | API | `600` | Webhook calls per client IP and minute (a policy of its own); beyond it `429`. Whole number >= 1. |
+| `Webhooks:FailedAuthRateLimitPerMinute` | API | `60` | Failed webhook authentications per client IP and minute; beyond it the address gets `429` before being authenticated. Whole number >= 1. |
+| `Webhooks:ChannelRateLimitPerMinute` | API | `6000` | Authenticated deliveries per channel and minute; beyond it `429`. Whole number >= 1. |
+| `ForwardedHeaders:KnownProxies:N` | API | *(none: off)* | Addresses of the reverse proxies whose `X-Forwarded-For` is trusted (one hop). With neither this nor `KnownNetworks` set the header is ignored. |
+| `ForwardedHeaders:KnownNetworks:N` | API | *(none)* | CIDR ranges (`10.0.0.0/8`) of trusted proxies. Invalid entries stop the API at startup. |
 | `Webhooks:Processing:Enabled` | API | `true` | Runs the background worker that processes stored webhook events. `false`: events are stored and stay pending. |
 | `Webhooks:Processing:PollIntervalMilliseconds` | API | `2000` | Pause of the worker when the queue is empty. 10 to 600000. |
 | `Webhooks:Processing:BatchSize` | API | `20` | Events processed per cycle before the worker looks at the clock again. 1 to 1000. |
@@ -306,7 +309,9 @@ policy in their own tenant.
 | POST | `/api/branches` | `OrganizationManage` | `201` branch + `Location` | `400`, `401`, `403`, `409` name already in the tenant (any letter case) |
 | GET | `/api/advisors`, `/api/advisors/{id}` | `OrganizationView` | `200` advisors / one advisor | `401`, `403`, `404` |
 | POST | `/api/advisors` | `OrganizationManage` | `201` advisor + `Location` | `400` (also unknown branch or user), `401`, `403` |
-| GET | `/api/channels`, `/api/channels/{id}` | `OrganizationView` | `200` WhatsApp channels (key and webhook path, never the secret) | `401`, `403`, `404` |
+| GET | `/api/channels`, `/api/channels/{id}` | `OrganizationView` | `200` WhatsApp channels; key and webhook path only with `OrganizationManage`, never the secret | `401`, `403`, `404` |
+| POST | `/api/channels/{id}/deactivate`, `/activate` | `OrganizationManage` | `200` channel (webhook answers 401 while inactive) | `401`, `403`, `404` |
+| POST | `/api/channels/{id}/rotate-secret` | `OrganizationManage` | `200` channel + the NEW `webhookSecret` (once); the old one stops at once | `401`, `403`, `404` |
 | POST | `/api/channels` | `OrganizationManage` | `201` channel + `webhookSecret` (shown only once) | `400` (also unknown branch), `401`, `403` |
 | POST | `/api/webhooks/360dialog/{channelKey}` | anonymous; header `X-Webhook-Secret` (the channel's secret); rate limited (`docs/WEBHOOKS.md`) | `200` (also for a body already received) | `400` not a JSON object, `401` unknown/inactive channel or wrong secret (same answer), `413`, `429` |
 | GET | `/health` | anonymous | `200` `Healthy` / `Degraded`, `503` `Unhealthy` (webhook queue; status word only) | |

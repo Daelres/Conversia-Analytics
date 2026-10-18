@@ -12,6 +12,12 @@ public interface IWhatsAppChannelRepository
 
     Task AddAsync(WhatsAppChannel channel, CancellationToken cancellationToken = default);
 
+    /// <summary>Tracked lookup for the load-modify-<see cref="UpdateAsync"/> path; same tenant scoping as <see cref="GetByIdAsync"/>.</summary>
+    Task<WhatsAppChannel?> GetForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>Persists the changes made to a channel loaded through <see cref="GetForUpdateAsync"/>.</summary>
+    Task UpdateAsync(WhatsAppChannel channel, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Untracked lookup by the public key of the webhook URL, <b>across all tenants</b>: the anonymous webhook request has no tenant
     /// until the channel (and its secret) identifies it. The only repository method that ignores the tenant filter on purpose.

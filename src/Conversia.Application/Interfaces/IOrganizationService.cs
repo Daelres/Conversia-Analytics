@@ -31,4 +31,10 @@ public interface IOrganizationService
 
     /// <summary>Creates a channel and returns its webhook secret, which is shown only here. Same branch rule as <see cref="CreateAdvisorAsync"/>.</summary>
     Task<CreateChannelResponse> CreateChannelAsync(Guid callerTenantId, CreateChannelRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Turns the channel's webhook on or off: an inactive channel answers 401 to the provider. Idempotent. Throws <see cref="Exceptions.ChannelNotFoundException"/>.</summary>
+    Task<ChannelResponse> SetChannelActiveAsync(Guid id, bool active, CancellationToken cancellationToken = default);
+
+    /// <summary>Generates a new webhook secret, returned once; the previous one stops working at once. Throws <see cref="Exceptions.ChannelNotFoundException"/>.</summary>
+    Task<CreateChannelResponse> RotateChannelSecretAsync(Guid id, CancellationToken cancellationToken = default);
 }

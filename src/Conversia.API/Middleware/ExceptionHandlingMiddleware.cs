@@ -2,6 +2,7 @@ using Conversia.API.ErrorLogging;
 using Conversia.API.Localization;
 using Conversia.Application.DTOs.Diagnostics;
 using Conversia.Application.Exceptions;
+using Conversia.Application.Ingestion;
 using Conversia.Application.Interfaces;
 using Conversia.Domain.Common;
 using Conversia.Domain.Exceptions;
@@ -159,14 +160,22 @@ public class ExceptionHandlingMiddleware
     {
         try
         {
-            _logger.LogError(exception, "Unhandled exception {ErrorId} processing {Method} {Path}", code, context.Request.Method, context.Request.Path);
+            if (RequestPathRedactor.IsWebhookPath(context.Request.Path.Value))
+            {
+                // The raw exception of a webhook call can quote the customer's data; the masked description cannot.
+                _logger.LogError("Unhandled exception {ErrorId} processing {Method} {Path}: {Error}",
+                    code, context.Request.Method, RequestPathRedactor.Redact(context.Request.Path.Value), WebhookErrors.Describe(exception));
+                return;
+            }
+
+            _logger.LogError(exception, "Unhandled exception {ErrorId} processing {Method} {Path}", code, context.Request.Method, RequestPathRedactor.Redact(context.Request.Path.Value));
         }
         catch (Exception)
         {
             try
             {
                 _logger.LogError("Unhandled {ExceptionType} {ErrorId} processing {Method} {Path}; the exception itself could not be logged.",
-                    TypeNameOf(exception), code, context.Request.Method, context.Request.Path);
+                    TypeNameOf(exception), code, context.Request.Method, RequestPathRedactor.Redact(context.Request.Path.Value));
             }
             catch (Exception)
             {

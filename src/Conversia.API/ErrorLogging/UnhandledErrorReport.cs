@@ -3,6 +3,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Reflection;
 using System.Text.Json;
 using Conversia.Application.DTOs.Diagnostics;
+using Conversia.Application.Ingestion;
 using Conversia.Domain.Enums;
 
 namespace Conversia.API.ErrorLogging;
@@ -17,6 +18,7 @@ internal static class UnhandledErrorReport
     public static ErrorReport From(HttpContext context, Exception exception, string environmentName, DateTime utcNow)
     {
         var request = context.Request;
+        var webhook = RequestPathRedactor.IsWebhookPath(request.Path.Value);
         return new ErrorReport
         {
             OccurredAt = utcNow,
@@ -26,7 +28,7 @@ internal static class UnhandledErrorReport
             ServiceVersion = ServiceVersion,
             Instance = Environment.MachineName,
             HttpMethod = request.Method,
-            Path = request.Path.Value,
+            Path = RequestPathRedactor.Redact(request.Path.Value),
             Query = request.QueryString.Value,
             Endpoint = context.GetEndpoint()?.DisplayName,
             RouteValues = RouteValuesJson(request),
@@ -37,8 +39,9 @@ internal static class UnhandledErrorReport
             TenantId = GuidClaim(context, TenantIdClaimType),
             UserAgent = request.Headers.UserAgent.ToString(),
             ExceptionType = exception.GetType().FullName ?? exception.GetType().Name,
-            ExceptionMessage = exception.Message,
-            ExceptionDetails = exception.ToString(),
+            // A webhook failure can quote the customer's data (a database error with the offending value): only the masked description is kept.
+            ExceptionMessage = webhook ? WebhookErrors.Describe(exception) : exception.Message,
+            ExceptionDetails = webhook ? null : exception.ToString(),
         };
     }
 
@@ -59,7 +62,7 @@ internal static class UnhandledErrorReport
     private static string? RouteValuesJson(HttpRequest request)
         => request.RouteValues.Count == 0
             ? null
-            : JsonSerializer.Serialize(request.RouteValues.ToDictionary(v => v.Key, v => v.Value?.ToString()));
+            : JsonSerializer.Serialize(RequestPathRedactor.RedactRouteValues(request.RouteValues));
 
     private static Guid? GuidClaim(HttpContext context, string claimType)
     {

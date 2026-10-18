@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using static Conversia.IntegrationTests.TestHelpers;
 
 namespace Conversia.IntegrationTests;
@@ -156,11 +157,13 @@ public class WebhookOperationsTests : IAsyncLifetime
         using var f = await StartChannelAsync(_factory, _client);
         var old = await SeedAsync(f, WebhookEventStatus.Processed, TimeSpan.FromDays(30));
         var fresh = await SeedAsync(f, WebhookEventStatus.Processed, TimeSpan.FromHours(1));
-        using var host = WebhookHost(_factory, new() { ["Webhooks:Retention:Enabled"] = "true" });
+        var capture = new CapturingLoggerProvider();
+        using var host = WebhookHost(_factory, new() { ["Webhooks:Retention:Enabled"] = "true" }, configureLogging: logging => logging.AddProvider(capture));
 
         using var client = host.CreateClient(); // starts the host, and with it the retention service
-        await EventuallyAsync(async () => !await ExistsAsync(old), "the old event is purged");
+        await capture.WhenLoggedAsync(e => e.Text.Contains("retention purged")).WaitAsync(TimeSpan.FromSeconds(30));
 
+        Assert.False(await ExistsAsync(old));
         Assert.True(await ExistsAsync(fresh));
     }
 
@@ -190,16 +193,6 @@ public class WebhookOperationsTests : IAsyncLifetime
         {
             var ex = Assert.Throws<InvalidOperationException>(() => WebhookOptionsValidator.GetValidatedRetentionOptions(Config((key, value))));
             Assert.Contains(key, ex.Message);
-        }
-    }
-
-    private static async Task EventuallyAsync(Func<Task<bool>> condition, string description, int timeoutSeconds = 30)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
-        while (!await condition())
-        {
-            Assert.True(DateTime.UtcNow < deadline, $"Not true within {timeoutSeconds}s: {description}");
-            await Task.Delay(50);
         }
     }
 }
