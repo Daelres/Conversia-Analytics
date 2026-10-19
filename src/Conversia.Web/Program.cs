@@ -22,6 +22,7 @@ builder.Services.AddTenantTimeZone(builder.Configuration);
 builder.Services.AddScoped<DashboardLoader>();
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<OneTimeSubmissions>();
+builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
@@ -51,6 +52,10 @@ app.UseAntiforgery();
 app.UseRejectedFormPage();
 
 app.MapStaticAssets();
+
+// Liveness only: anonymous, the status word and nothing else, no dependency checks. The container probe uses it (docs/DOCKER.md).
+app.MapHealthChecks("/health");
+
 app.MapLogout();
 app.MapPermissionEndpoints();
 app.MapRazorComponents<App>();
