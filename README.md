@@ -4,21 +4,12 @@ Clean Architecture template for custom .NET systems. Ships with a
 working Users / Tenants / Permissions foundation so a new client project
 starts from a tested base instead of rebuilding auth from scratch.
 
-## Try the demo
+## Sample data
 
-With Docker Compose (v2) and nothing else installed:
-
-```bash
-cp .env.example .env     # set JWT_SIGNING_KEY (openssl rand -base64 48); the sample POSTGRES_PASSWORD is fine locally
-docker compose -f docker-compose.yml -f docker-compose.demo.yml up --build
-# then open http://localhost:5112 and click "Entrar como lector de Acme"
-```
-
-The overlay seeds two tenants, five accounts with different permissions and a
-product catalog. How to present it, the accounts and a scene-by-scene script:
-[`docs/DEMO.md`](docs/DEMO.md). How to build your own feature the same way
-(and how to remove the demo): [`docs/EXTENDING.md`](docs/EXTENDING.md). The demo
-is for your own machine only: its accounts have a publicly known password.
+To fill a local stack with believable WhatsApp conversations (branches, advisors,
+numbers and chats the classifier and the dashboard can show), use the webhook
+simulator: [`docs/SIMULATOR.md`](docs/SIMULATOR.md). How to build your own feature
+the same way as the existing ones: [`docs/EXTENDING.md`](docs/EXTENDING.md).
 Port already in use, `password authentication failed` or forms failing after a
 restart: see [Docker troubleshooting](docs/DOCKER.md#troubleshooting).
 
@@ -30,8 +21,7 @@ restart: see [Docker troubleshooting](docs/DOCKER.md#troubleshooting).
   current Chrome/Edge 86+, Firefox 85+ and Safari 15.4+, with plain fallbacks for
   `color-mix()`, `oklch()` and `dvh`, see
   [Supported browsers](docs/EXTENDING.md#supported-browsers)).
-  See [Screenshots](#screenshots) and
-  [Using the design system](docs/EXTENDING.md#using-the-design-system).
+  See [Using the design system](docs/EXTENDING.md#using-the-design-system).
 - **Spanish UI and messages** — the user interface and every message the
   API returns to users or clients (problem details, validation messages) are in
   Spanish; code, logs, configuration keys, routes and JSON property names stay
@@ -44,7 +34,7 @@ restart: see [Docker troubleshooting](docs/DOCKER.md#troubleshooting).
   `sub`, `tenant_id` and `is_owner` claims. The API refuses to start
   with a missing, short (< 32 bytes) or placeholder signing key.
 - **Permission-based authorization** — one policy per `Permission` enum
-  value (`UsersView`, `UsersManage`, `ProductsView`, `ProductsManage`,
+  value (`UsersView`, `UsersManage`,
   `OrganizationView`, `OrganizationManage`, `ConversationsView`, `ConversationsManage`, `MetricsView`);
   owners bypass checks inside their own tenant. Permissions are read from the database on every request,
   so a revoke applies immediately.
@@ -53,19 +43,11 @@ restart: see [Docker troubleshooting](docs/DOCKER.md#troubleshooting).
   revoke permissions.
 - **Multi-tenancy** — EF Core global query filters on every
   tenant-scoped table.
-- **Reference feature: Products** — a tenant-scoped catalog (per-tenant
-  unique SKU, search, paging) with optimistic concurrency (`rowVersion`, backed by
-  PostgreSQL's `xmin`; `409` on a stale write) across every layer; copy it to build your own
-  feature (`docs/EXTENDING.md`).
 - **Error registry** — every unexpected API error gets a unique code
   (`ERR-20261018-7K3M9Q`) that is stored with its context in `ErrorLogs`,
   logged, and returned to the client (`errorId` + `X-Error-Id`) so a user can
   quote it; secrets are redacted, repeats are throttled, old rows are purged
   (`docs/ERRORS.md`).
-- **Opt-in demo** — `Demo:Enabled` (API) seeds two tenants, five accounts
-  and sample products; `Demo:ShowAccounts` (Web) adds sign-in shortcuts and a
-  scripted tour. Both are rejected outside the `Development` and `Demo`
-  environments.
 - **Password policy** — 12-128 characters with an uppercase letter, a
   lowercase letter and a digit (registration and user creation).
 - **Login rate limiting** — fixed window per client IP on
@@ -82,40 +64,13 @@ restart: see [Docker troubleshooting](docs/DOCKER.md#troubleshooting).
   `/organizacion` (branches, advisors and WhatsApp numbers; creating a number shows its
   webhook path and secret once, and numbers can be deactivated, activated or have the secret
   rotated after a confirmation),
-  `/users` (user list, create user, grant/revoke permissions),
-  `/products` (the reference feature: list, search, create, edit, delete;
-  prices are shown the Spanish way, `1.234,50`, and typed with a comma or a dot)
-  and `/demo` (a public tour of the template). The API's JWT lives only
+  and `/users` (user list, create user, grant/revoke permissions). The API's JWT lives only
   inside the encrypted HttpOnly auth cookie.
 - **Consistent errors** — every error is `application/problem+json`; an
   unhandled exception is a `500` with no stack trace or message.
 - **Docker** — Dockerfiles for API and Web, a `docker-compose.yml` with
-  PostgreSQL and a one-shot migrations job, a `docker-compose.demo.yml`
-  overlay that boots the demo, and a rename script for starting a client
-  project.
-
-## Screenshots
-
-The Web UI is in Spanish, with a light and a dark theme (it follows the system
-setting; a button in the shell overrides it) and a layout that works down to
-360 px.
-
-| | |
-|---|---|
-| ![Pantalla de inicio de sesión en tema claro, con el panel de marca y las cuentas de demostración](docs/images/login-claro.jpg) | ![Pantalla de inicio de sesión en tema oscuro en un teléfono](docs/images/login-oscuro-movil.jpg) |
-| *Inicio de sesión (tema claro) y en un teléfono (tema oscuro)* | |
-
-![Inicio de un propietario: rol, espacio de trabajo, permisos y accesos rápidos](docs/images/inicio-claro.jpg)
-
-![Lista de productos en tema claro, con estados de stock y acciones por fila](docs/images/productos-claro.jpg)
-
-![Lista de productos en tema oscuro](docs/images/productos-oscuro.jpg)
-
-![Formulario de edición de un producto](docs/images/edicion-producto-claro.jpg)
-
-![Recorrido por la plantilla: funcionalidades, matriz de acceso y cuentas de demostración](docs/images/recorrido-claro.jpg)
-
-![Lista de productos en un teléfono, una tarjeta por producto](docs/images/productos-movil.jpg)
+  PostgreSQL and a one-shot migrations job, and a rename script for starting a
+  client project.
 
 ## Stack
 
@@ -146,13 +101,12 @@ tests/
   Conversia.WebhookSimulator.UnitTests the simulator's chats, plan, payloads and commands (no network)
 tools/
   Conversia.WebhookSimulator           dev-only: fills a local API with believable WhatsApp conversations (docs/SIMULATOR.md)
-docs/                                    ARCHITECTURE, WORKFLOW, USERS_TENANTS_PERMISSIONS, DEMO, EXTENDING, ERRORS, SIMULATOR, DOCKER
+docs/                                    ARCHITECTURE, WORKFLOW, USERS_TENANTS_PERMISSIONS, EXTENDING, ERRORS, SIMULATOR, DOCKER
 scripts/rename.sh                        rename the template for a new project
 docker-compose.yml, .env.example         full local stack
 docker/healthcheck.sh                    container health probe (bash /dev/tcp, no curl in the image)
 scripts/docker-build.sh                  builds the conversia-api, -migrator and -web images
 scripts/docker-smoke-test.sh             image acceptance test: builds and exercises the real stack
-docker-compose.demo.yml                  overlay: the same stack with the demo data and accounts
 ```
 
 Read `docs/ARCHITECTURE.md` before adding anything — it defines the
@@ -189,12 +143,6 @@ start only after the migrator completed successfully.
 Host ports can be changed with `WEB_PORT`, `API_PORT` and `POSTGRES_PORT` in
 `.env`. Open the Web, register a workspace and sign in. Stop with
 `docker compose down`; add `-v` to also delete the database volume.
-
-To start the same stack with the demo data and accounts, add the overlay
-(`-f docker-compose.yml -f docker-compose.demo.yml`, see
-[Try the demo](#try-the-demo)). It runs the API and the Web in the `Demo`
-environment and reads the optional `DEMO_PASSWORD` from `.env` (default
-`Demo-Pass-2026!`). `docker-compose.yml` alone never enables the demo.
 
 The images, their build arguments and labels, health checks, multi-arch builds
 and the smoke test (`scripts/docker-smoke-test.sh`) are described in
@@ -317,10 +265,6 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Metrics:BranchBelowAveragePoints` | API | `15` | Points below the tenant's conversion that raise `BRANCH_BELOW_AVERAGE`. 1 to 100. |
 | `Metrics:RateLimitPerMinute` | API | `60` | Requests per minute and authenticated user for `/api/metrics/*` and `GET /api/conversations`; the next one answers `429` with `Retry-After`. 1 to 100000. |
 | `Metrics:QueryTimeoutSeconds` | API | `15` | Time limit of each SQL statement of the metrics; a slower one is cancelled and answers `503`. 1 to 300. |
-| `Demo:Enabled` | API | `false` | Opt-in demo data seeded at startup (see `docs/USERS_TENANTS_PERMISSIONS.md`, "Demo data"). Only allowed in the `Development` and `Demo` environments; `true` anywhere else, or a value that is not `true`/`false`, stops the API at startup. |
-| `Demo:Password` | API | `Demo-Pass-2026!` | Password of every demo account. Must satisfy the registration password policy, otherwise the API will not start. Only read when `Demo:Enabled` is `true`. |
-| `Demo:ShowAccounts` | Web | `false` | Shows the demo accounts and their password on `/demo` and as sign-in shortcuts on `/login`. Only allowed in the `Development` and `Demo` environments; `true` anywhere else, or a value that is not `true`/`false`, stops the Web at startup. |
-| `Demo:Password` | Web | `Demo-Pass-2026!` | Password shown for the demo accounts; it must be the one the API seeds. Must satisfy the registration password policy, otherwise the Web will not start. Only read when `Demo:ShowAccounts` is `true`. |
 | `ErrorReporting:Enabled` | Web | `true` | `false`: the Web still shows and logs the code of its errors, it does not send them to the API. `true`/`false` only. |
 | `ErrorReporting:ApiKey` | Web | *(unset)* | The API's `ErrorLogging:ReportKey` (>= 32 characters), sent as `X-Error-Report-Key`. **Unset: the Web only logs its codes.** In compose both come from `ERROR_REPORT_KEY`. Set it as a secret, never in a committed file. |
 | `ErrorReporting:TimeoutSeconds` | Web | `2` | How long the Web waits for the API to take a report (one attempt, no retries). 1 to 30. |
@@ -344,11 +288,6 @@ policy in their own tenant.
 | POST | `/api/users` | `UsersManage` | `201` created user | `400`, `401`, `403`, `409` email already registered |
 | POST | `/api/users/{userId}/permissions` | `UsersManage` | `204` (idempotent) | `400`, `401`, `403`, `404` unknown or other-tenant user |
 | DELETE | `/api/users/{userId}/permissions/{permission}` | `UsersManage` | `204` (idempotent) | `400` undefined permission, `401`, `403`, `404` unknown or other-tenant user |
-| GET | `/api/products?page&pageSize&search` | `ProductsView` | `200` `{items,page,pageSize,totalCount}` | `400` bad paging / search over 100 chars, `401`, `403` |
-| GET | `/api/products/{id}` | `ProductsView` | `200` product | `401`, `403`, `404` unknown or other-tenant product |
-| POST | `/api/products` | `ProductsManage` | `201` product + `Location` | `400`, `401`, `403`, `409` SKU already in the tenant |
-| PUT | `/api/products/{id}` | `ProductsManage` | `200` product (send the last `rowVersion`) | `400`, `401`, `403`, `404`, `409` stale `rowVersion` |
-| DELETE | `/api/products/{id}` | `ProductsManage` | `204` | `401`, `403`, `404` |
 | GET | `/api/branches`, `/api/branches/{id}` | `OrganizationView` | `200` branches of the tenant / one branch | `401`, `403`, `404` unknown or other-tenant branch |
 | POST | `/api/branches` | `OrganizationManage` | `201` branch + `Location` | `400`, `401`, `403`, `409` name already in the tenant (any letter case) |
 | GET | `/api/advisors`, `/api/advisors/{id}` | `OrganizationView` | `200` advisors / one advisor | `401`, `403`, `404` |
@@ -366,9 +305,8 @@ policy in their own tenant.
 | GET | `/health` | anonymous | `200` `Healthy` / `Degraded`, `503` `Unhealthy` (webhook queue; status word only) | |
 | POST | `/api/diagnostics/errors` | header `X-Error-Report-Key`, rate limited; off without `ErrorLogging:ReportKey` | `201` `{code,persisted}` | `400`, `401`, `404` (off), `413` over 64 KB, `429` (`Retry-After`) |
 
-The Web exposes `/`, `/login`, `/register`, `/users`, `/products`
-(`/products/{id}/edit` and `/products/{id}/delete` for managers), `/demo` (the
-public tour), `POST /logout` and the form endpoints
+The Web exposes `/`, `/login`, `/register`, `/users`, `/panel`, `/conversaciones`,
+`/conversaciones/{id}`, `/organizacion`, `POST /logout` and the form endpoints
 `POST /users/permissions/grant` and `POST /users/permissions/revoke`.
 Details and the full error contract: `docs/USERS_TENANTS_PERMISSIONS.md`.
 
@@ -397,17 +335,15 @@ same five projects run in CI (`.github/workflows/tests.yml`).
   process used to build every feature in this codebase.
 - `docs/USERS_TENANTS_PERMISSIONS.md` — the concrete data model and
   auth flow already implemented (3 tables: `Tenants`, `Users`,
-  `UserPermissions`), plus the Products behaviours and the demo data.
-- `docs/DEMO.md` — run and present the demo: quick start, accounts, a
-  scene-by-scene presenter script, safety notes, troubleshooting.
+  `UserPermissions`) and the permission catalog.
 - `docs/ERRORS.md` — the error registry: codes, what is stored and what is
   not, sanitization, storm control, the report endpoint, retention, SQL to
   investigate an error.
 - `docs/SIMULATOR.md` — the webhook simulator: fill a local stack with believable
   conversations (setup, populate, play), the safety rules, and how to point the
   360dialog sandbox at your machine (documentation only).
-- `docs/EXTENDING.md` — add a feature the way Products is built, layer by
-  layer, with the pitfalls hit so far and a checklist to remove the demo.
+- `docs/EXTENDING.md` — add a feature the way Branches are built, layer by
+  layer, with the pitfalls hit so far.
 
 ## Using this as a template
 
@@ -428,20 +364,14 @@ references, JWT issuer/audience, docs, Dockerfiles, compose, CI) and
 derives two more forms from the name: `AcmeBilling` (database name,
 auth cookie name) and `acme-billing` (compose project / image names). It
 also generates a fresh `UserSecretsId` for the API project (the only one
-that has one) and deletes stale `bin/`/`obj/` folders. The demo is renamed
-along with everything else and keeps working: only the namespace and the
-three derived names are replaced, so the `Demo` environment name, the
-`*-demo.example` accounts and the Products code keep their meaning, and EF
-Core migrations keep working because migration ids do not contain the
-namespace. Use `--force` to run on a dirty tree.
+that has one) and deletes stale `bin/`/`obj/` folders. EF Core migrations keep
+working because migration ids do not contain the namespace. Use `--force` to run
+on a dirty tree.
 
 Then add client-specific features on top of the
 Domain/Application/Infrastructure/API/Web split, following
-`docs/EXTENDING.md` (the Products reference feature, layer by layer) and
-`docs/WORKFLOW.md` for every new feature. When you no longer need the
-Products example and the demo, `docs/EXTENDING.md#how-to-remove-the-demo`
-lists everything to delete, including what to do with the Products table in
-the migrations.
+`docs/EXTENDING.md` (the Branch reference feature, layer by layer) and
+`docs/WORKFLOW.md` for every new feature.
 
 ## Install as a dotnet new template
 

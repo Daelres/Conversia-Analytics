@@ -56,8 +56,7 @@ public enum Permission
 {
     UsersView = 1,
     UsersManage = 2,
-    ProductsView = 3,
-    ProductsManage = 4,
+    // 3 and 4 were ProductsView and ProductsManage (retired: never reuse them).
     OrganizationView = 5,
     OrganizationManage = 6,
     ConversationsView = 7,
@@ -70,8 +69,6 @@ public enum Permission
 |---|---|---|
 | `UsersView` | 1 | `GET /api/users` |
 | `UsersManage` | 2 | creating users, granting and revoking permissions |
-| `ProductsView` | 3 | `GET /api/products`, `GET /api/products/{id}` |
-| `ProductsManage` | 4 | `POST`, `PUT` and `DELETE` on `/api/products` |
 | `OrganizationView` | 5 | `GET` on `/api/branches`, `/api/advisors` and `/api/channels` |
 | `OrganizationManage` | 6 | `POST` on `/api/branches`, `/api/advisors` and `/api/channels` |
 | `ConversationsView` | 7 | `GET /api/conversations` and `GET /api/conversations/{id}` (the detail includes message text) |
@@ -79,21 +76,14 @@ public enum Permission
 | `MetricsView` | 9 | every `GET /api/metrics/*` endpoint (docs/METRICS.md) |
 
 (`Organization*` gate the Conversia branches, advisors and WhatsApp channels; `Conversations*` the conversations captured from them.
-`Products*` belong to the reference feature that demonstrates the
-tenant-scoped pattern. Client projects add their own values as they add
-features — e.g. `OrdersView`, `OrdersManage`.)
+Client projects add their own values as they add features: the next free number, never a retired one.)
 
-Product behaviours worth knowing:
-
-- SKU uniqueness (per tenant) and the `search` filter ignore letter case,
-  although PostgreSQL compares text case-sensitively by default: the `Sku`
-  column is `citext` (and so is `Users.Email`), and the search uses `ILIKE`.
-  `ABC-1` and `abc-1` are the same SKU (`409`), and a search for `abc` finds
-  `ABC-1`. A plain `text` column would make both case-sensitive.
-- A `PUT` that changes nothing is a no-op: no `UPDATE` is issued and
-  `rowVersion` (PostgreSQL's `xmin`) and the audit fields stay unchanged. A stale `rowVersion`
-  is still rejected with `409`, even when nothing else would change.
-- A whitespace-only `search` means no filter.
+**Retired numbers.** `UserPermissions.Permission` stores the number, so a number that
+was granted once can exist in a database forever. `3` (`ProductsView`) and `4`
+(`ProductsManage`) belonged to the template's Products reference feature, removed on
+2026-10-19; the `RemoveProducts` migration deletes the grants that carried them. Do not
+reuse `3` or `4` for a new permission, and never renumber the others
+(`PermissionCatalogTests` pins every value).
 
 ## Login and tenant resolution
 
@@ -244,60 +234,19 @@ it hides management controls from callers without `UsersManage`, but every
 action is still checked by the API.
 
 All text shown to users is Spanish, including the permission labels: the enum
-names (`UsersView`, `UsersManage`, `ProductsView`, `ProductsManage`) stay in
+names (`UsersView`, `UsersManage`, `OrganizationView`, ...) stay in
 routes, JSON, form values and `data-permission` attributes, while the pages
-show "Ver usuarios", "Gestionar usuarios", "Ver productos" and "Gestionar
-productos" (`Web/Services/PermissionLabels.cs`; a permission added to the enum
-needs a label there). The Web always renders in the `es` culture: prices are
-displayed as `1.234,50` with the raw value in `data-price` (invariant, two
-decimals, `1234.50`) and the stock in `data-stock`. The price field accepts
-`19,99`, `19.99` and `1,5` (1.5); thousands separators, signs, more than two
-decimals, blank or non-numeric text are refused with a message and never saved.
-The edit form pre-fills the price with a comma decimal (`19,99`).
+show "Ver usuarios", "Gestionar usuarios", "Ver organización", ...
+(`Web/Services/PermissionLabels.cs`; a permission added to the enum
+needs a label there). The Web always renders in the `es` culture, whatever
+`Accept-Language` says.
 
 The API's messages are Spanish too, whatever `Accept-Language` says: the `detail`
-of the handled errors is the message of the exception (for example "Producto no
-encontrado.", "Ya existe un producto con ese SKU.", "Correo o contraseña
+of the handled errors is the message of the exception (for example "Sucursal no
+encontrada.", "Ya existe una sucursal con ese nombre.", "Correo o contraseña
 incorrectos."), validation problems are titled "Uno o más errores de validación."
 and the login `429` says "Demasiados intentos de inicio de sesión. Inténtalo de
 nuevo más tarde.".
-
-## Demo data
-
-Opt-in sample data so the template can be shown before real use. It is off
-unless `Demo:Enabled` is `true`; the shipped `appsettings*.json` never enable
-it, and when it is off nothing is registered and the database is not touched.
-Because the accounts have publicly known credentials, `true` is only accepted
-in the `Development` and `Demo` hosting environments: in any other environment
-(or with a value that is not `true`/`false`) the API refuses to start with an
-`InvalidOperationException` naming `Demo:Enabled`. `Demo:Password` (default
-`Demo-Pass-2026!`) must satisfy the registration password policy, otherwise the
-API refuses to start naming `Demo:Password`; the value is never logged.
-
-At startup (before the first request is served) `IDemoDataSeeder` creates:
-
-| Tenant | Account | Permissions |
-|---|---|---|
-| Acme Demo | `owner@acme-demo.example` | owner |
-| | `manager@acme-demo.example` | `ProductsView`, `ProductsManage`, `UsersView` |
-| | `viewer@acme-demo.example` | `ProductsView` |
-| | `noaccess@acme-demo.example` | none |
-| Globex Demo | `owner@globex-demo.example` | owner |
-
-Acme Demo gets 13 products (`ACME-001`..`ACME-012` and `SKU-001`), Globex Demo
-5 (including `SKU-001`, to show that SKUs are unique per tenant). Product names
-are Spanish ("Yunque de 50 kg", "Patines cohete", ...); the account descriptions and
-shortcut labels ("Entrar como propietario de Acme", ...) come from `DemoAccounts`. Each tenant is
-written in one transaction and is seeded only if its owner email does not exist
-yet, so restarts, second API instances and parallel calls never duplicate, restore
-or overwrite anything the user changed or deleted. A seeding failure (database
-unreachable or not migrated yet) is logged at Error level and does not stop
-the API; calling `IDemoDataSeeder.SeedAsync` after the migration works. Seeders are
-serialized with a transaction-level PostgreSQL advisory lock (`pg_advisory_xact_lock`), so
-parallel instances or callers do not race on the unique email index.
-
-Never run a production deployment in an environment named `Demo` and never set
-`Demo:Enabled` in production: the accounts have a publicly known password.
 
 ## Authorization
 

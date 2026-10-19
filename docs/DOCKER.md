@@ -77,7 +77,7 @@ Nothing secret is baked into an image; everything below is supplied at run time.
 | `Api__BaseUrl` | web | yes | Base URL of the API as seen from the Web container. |
 | `ErrorReporting__ApiKey` | web | no | See `ErrorLogging__ReportKey`. |
 | `DataProtection__KeysPath` | web | no | Directory where the Web persists its Data Protection keys. The image sets it to `/keys`. Must exist and be writable or the Web refuses to start. Unset: the framework default (not persisted in a container). |
-| `ASPNETCORE_ENVIRONMENT` | api, web | no | Defaults to Production. `Demo` is for the demo overlay only. |
+| `ASPNETCORE_ENVIRONMENT` | api, web | no | Defaults to Production. |
 | `ASPNETCORE_HTTP_PORTS` | api, web | no | Defaults to 8080 in the images. |
 | `--connection` (argument) | migrator | yes | Same connection string as the API. |
 

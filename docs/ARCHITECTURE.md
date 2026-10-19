@@ -31,7 +31,7 @@ ASP.NET Core) beyond the BCL.
   UpdatedBy). **Every entity in the system inherits from `BaseEntity`.**
   This is the only place audit-trail fields are declared.
 - `Entities/` — aggregate/entity classes (`Tenant`, `User`,
-  `UserPermission`, `Product`, `ErrorLog`, the Conversia model `Branch`,
+  `UserPermission`, `ErrorLog`, the Conversia model `Branch`,
   `Advisor`, `WhatsAppChannel`, `Contact`, `Conversation`, `Message`,
   `Opportunity`, `WebhookEvent`, and whatever business entities a client
   project adds later). `Common/TextRules` and `Common/UtcTime` hold the
@@ -71,10 +71,6 @@ ASP.NET Core.
   into contacts, conversations, messages and opportunities, idempotently).
   `Services/WebhookIngestionService` is the request side: authenticate by
   channel secret, validate, store.
-- `Demo/` — `DemoAccounts`, the single list of demo accounts (emails,
-  short descriptions, permissions, default password) as pure constants.
-  The API's demo-data seeder and the Web's demo pages both read it, so
-  what the Web offers cannot drift from what the API creates.
 
 No CQRS/MediatR pipeline is imposed by this template. Keep it simple:
 one interface + one implementation class per use case. Do not
@@ -92,16 +88,15 @@ Everything that talks to the outside world.
   centrally in `ApplicationDbContext.SaveChangesAsync` via the change
   tracker — **never set them by hand in a service**.
 - `Persistence/Migrations/` — EF Core Code First migrations (Npgsql). The
-  `citext` extension (case-insensitive emails and SKUs) is created by the
+  `citext` extension (case-insensitive emails) is created by the
   first one.
 - `Configuration/` — options bound from configuration (`JwtOptions`,
-  `DemoDataOptions`, `ErrorLoggingOptions`).
+  `ErrorLoggingOptions`).
 - `ErrorLogging/` — `ErrorRegistry` (sanitizes, codes, applies the storm guard
   and writes one `ErrorLogs` row through a scope and `DbContext` of its own,
   never throwing), `ErrorLogPurger` (batched `ExecuteDelete`) and
   `ErrorLogRetentionService` (`BackgroundService`: purge at startup, then every
   24 h). `ErrorLogs` is an operations table: no tenant query filter.
-- `Seeding/` — opt-in demo data (`DemoDataSeeder`, `DemoDataset`).
 - `Webhooks/` — `WebhookEventRunner`, the queue worker's unit of work: claims one
   pending `WebhookEvents` row with `FOR UPDATE SKIP LOCKED`, processes it in a
   savepoint and records failures with exponential back-off.
@@ -132,12 +127,10 @@ project grows.
   `POST /api/diagnostics/errors` endpoint the Web reports through.
 - `Configuration/` — options records plus fail-fast startup validators
   (`JwtSigningKeyValidator`, `LoginRateLimitOptionsValidator`,
-  `DemoDataOptionsValidator`, `ErrorLoggingOptionsValidator`) that refuse to boot on unsafe or invalid
-  settings, plus the `AddDemoData` and `AddErrorLogging` registration extensions.
-- `HostedServices/` — startup work (`DemoDataHostedService` runs the
-  demo data seeder before the first request) and background work
-  (`WebhookEventProcessingService` drains the webhook queue,
-  [docs/WEBHOOKS.md](WEBHOOKS.md)).
+  `ErrorLoggingOptionsValidator`) that refuse to boot on unsafe or invalid
+  settings, plus the `AddErrorLogging` registration extension.
+- `HostedServices/` — background work (`WebhookEventProcessingService`
+  drains the webhook queue, [docs/WEBHOOKS.md](WEBHOOKS.md)).
 - `Controllers/WebhooksController` — the one anonymous endpoint besides
   login/registration: the provider webhook, authenticated by a per-channel
   secret instead of a JWT.
@@ -192,50 +185,23 @@ reaches it transitively through the Application DTOs.)
   request's cookie. `LocalReturnUrl` only lets a `returnUrl` through
   when it is a site-local path.
 - `Http/` — antiforgery helpers for the form endpoints, the
-  `Cache-Control: no-store` middleware, `ProductNotFoundMarker` and
+  `Cache-Control: no-store` middleware, `NotFoundMarker` and
   `RejectedFormMiddleware` (turns the bare 400 of a rejected antiforgery token
   into the "La solicitud no es válida" page, see below).
-- `Demo/` — `AddDemoAccounts` binds the opt-in `Demo:ShowAccounts` /
-  `Demo:Password` into `DemoOptions` and fails fast at startup
-  (`InvalidOperationException` naming the key, never the password) when
-  `ShowAccounts` is not a boolean, is on outside the `Development` and
-  `Demo` environments, or the password breaks the registration policy.
-  Shipped `appsettings*.json` never enable it.
 - `Components/Pages/` — `/` (anonymous landing page, or the profile from
   `GET /api/users/me`), `/login`, `/register`, `/users` (requires
   authentication; user list, create-user form, per-user grant/revoke of
-  every `Permission`), the Products reference views and the tour:
-  - `/products` (list with `?page=&search=`, fixed page size 10, pager,
-    GET search form, inline create form), `/products/{id:guid}/edit`
-    (prefilled form, read-only SKU, base64 `rowVersion` in a hidden
-    field; a stale version shows "Otra persona modificó este producto" with a
-    reload link and overwrites nothing) and `/products/{id:guid}/delete`
-    (GET confirmation, POST deletes). All need authentication and use at
-    most two parallel API calls per render (the product data and
-    `/api/users/me`). `ProductPageBase` holds what they share: the
-    token, and one mapping of a failed API call to a status and message
-    (`401` signs out, `403` is "No tienes permiso para hacer eso.", `404`
-    is "Producto no encontrado.", anything else is "El servicio no está
-    disponible ..."). `ProductInput` keeps price and stock as text and
-    validates them itself (a price is ASCII digits with at most two
-    decimals after one comma or dot, so `19,99`, `19.99` and `1,5` mean what
-    they say; blank, unparsable or ambiguous text such as `1.234,50` is
-    refused, never bound to 0 or 15). A `404` is re-run by the status-code
-    pages into the generic "Página no encontrada" page, so the product pages
-    mark the request (`ProductNotFoundMarker`) and that page says
-    "Producto no encontrado.".
-  - `/demo`, the public template tour: feature list, links, and for a
-    signed-in visitor "Tú, ahora mismo" (tenant, owner flag, permissions,
-    access matrix; one `/api/users/me` call). With `Demo:ShowAccounts`
-    it also lists the demo accounts, the shared password and suggested
-    scenarios, and `/login` gets a "Cuentas de demostración" panel with one
-    "Entrar como ..." form per account that goes through the normal login
-    flow (`DemoLoginForm`). With it off none of this is rendered.
-  Management controls are shown only to callers
-  with `UsersManage` / `ProductsManage` (owner or holder) but the API
+  every `Permission`), and the Conversia pages: `/panel` (the executive
+  dashboard), `/conversaciones` and `/conversaciones/{id:guid}` (the
+  conversation list and detail) and `/organizacion` (branches, advisors and
+  WhatsApp numbers). Management controls are shown only to callers
+  with the matching `...Manage` permission (owner or holder) but the API
   stays the authority: a forged request is refused by the API and shown
   as a "No tienes permiso" message. An API `401` (expired token) signs the
-  user out and redirects to `/login`.
+  user out and redirects to `/login`. A `404` is re-run by the status-code
+  pages into the generic "Página no encontrada" page, so a page that wants
+  to say *what* is missing marks the request (`NotFoundMarker`) and that
+  page says "Conversación no encontrada." or "Número no encontrado.".
 - `Components/Layout/` — the shell. `MainLayout` (signed-in visitors get a
   sidebar, anonymous ones a top bar; `data-shell="app|site"`) and
   `AuthLayout` (split screen for `/login` and `/register`) both render
@@ -250,12 +216,11 @@ reaches it transitively through the Application DTOs.)
   `Icon` (+ `IconSet`, hand-drawn 24 px / 1.75 stroke icons), `BrandMark`,
   `Avatar`, `PageHeader`, `Card`, `Alert` (`role="alert"` for problems,
   `role="status"` for confirmations), `Chip`, `EmptyState`, `Illustration`,
-  `StatusView` (403/404/error pages) with the ready-made `ForbiddenView` and
-  `ProductNotFoundView`, `InPageLink`, `FormField` + `TextInput` (label, icon,
+  `StatusView` (403/404/error pages) with the ready-made `ForbiddenView`,
+  `ConversationNotFoundView` and `ChannelNotFoundView`, `InPageLink`, `FormField` + `TextInput` (label, icon,
   hint, and the local and API error messages wired with `aria-invalid` and
   `aria-describedby`), `ThemeToggle`, and the page parts `ApiFieldErrors`,
-  `ErrorAlert`, `ProductFields`, `PermissionForm`, `DemoLoginForm`,
-  `AccessCell`.
+  `ErrorAlert` and `PermissionForm`.
 - **Design system, no framework.** `wwwroot/css/` holds plain CSS with no build
   step, no CDN and no web fonts: `tokens.css` (custom properties: palette,
   type scale, spacing, radii, shadows; every scheme-dependent colour is a

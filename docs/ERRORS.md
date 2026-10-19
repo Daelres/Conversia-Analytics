@@ -16,7 +16,7 @@ Never registered, never answered with a code:
 
 | Case | Answer | Why |
 |---|---|---|
-| Known application exceptions (duplicate e-mail/SKU, not found, stale `rowVersion`, invalid credentials, domain rules) | their own `4xx` | They are the system working as designed. |
+| Known application exceptions (duplicate e-mail or branch name, not found, invalid credentials, domain rules) | their own `4xx` | They are the system working as designed. |
 | Validation and model-binding problems, unknown routes, `401`, `403`, `429` | their own `4xx` | Same. |
 | The client went away (`OperationCanceledException` while `RequestAborted` is cancelled) | no body, status `499` | Nobody to answer, nothing broken. |
 | `BadHttpRequestException` (malformed, too slow, too big request) | its own `400`/`408`/`413` as Spanish `problem+json` | The caller's doing, not a defect. |
@@ -68,7 +68,7 @@ support across tenants; it stores `TenantId` and `UserId` as data).
 | `Environment`, `ServiceVersion`, `Instance` | `IHostEnvironment` name; `AssemblyInformationalVersion` without the `+sha` build metadata; machine name |
 | `HttpMethod`, `Path` | method and path, **without** the query string |
 | `Query` | the query string, sensitive values redacted |
-| `Endpoint` | the endpoint display name, e.g. `Conversia.API.Controllers.ProductsController.UpdateProduct (Conversia.API)` |
+| `Endpoint` | the endpoint display name, e.g. `Conversia.API.Controllers.ConversationsController.AssignAdvisor (Conversia.API)` |
 | `RouteValues` | JSON of the route values |
 | `StatusCode` | `500` for the API |
 | `TraceId` | W3C trace id (`Activity.Current`) |
@@ -365,7 +365,7 @@ printed). A blank value means "use the default".
 ### ERROR_REPORT_KEY
 
 One shared secret for both sides. `docker-compose.yml` passes `ERROR_REPORT_KEY` to the API as `ErrorLogging__ReportKey` and to the
-Web as `ErrorReporting__ApiKey` (the demo overlay inherits it); it is empty by default, which leaves the endpoint off and the
+Web as `ErrorReporting__ApiKey`; it is empty by default, which leaves the endpoint off and the
 Web logging only. Set it in `.env` (at least 32 characters, `openssl rand -base64 48`), or as a user secret / environment
 variable. The Web sends it only in the `X-Error-Report-Key` header; the API answers `401` to a wrong one and `404` when it has none.
 
@@ -379,6 +379,6 @@ variable. The Web sends it only in the `X-Error-Report-Key` header; the API answ
   one defect (same exception type and top frame), so all its failures share the budget.
 - **The API's answer decides the code:** if it stored the report under another code (a collision), that one is shown.
 - **Not reported:** failures after the response started (logged by the middleware), and Development, where the developer
-  exception page replaces the error page. To see the code for an unhandled exception, run with `ASPNETCORE_ENVIRONMENT=Production`
-  (or `Demo`); the code of an API failure ("service unavailable") is shown in every environment.
+  exception page replaces the error page. To see the code for an unhandled exception, run with `ASPNETCORE_ENVIRONMENT=Production`;
+  the code of an API failure ("service unavailable") is shown in every environment.
 - The report endpoint's own limits apply: 64 KB, a rate limit per IP shared with anonymous traffic behind a proxy, sanitization limits.
