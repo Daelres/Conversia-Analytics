@@ -42,6 +42,11 @@ LABEL org.opencontainers.image.title="conversia-web" \
       org.opencontainers.image.revision="${GIT_SHA}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.source="${SOURCE_URL}"
+# Data Protection keys (sign-in cookie, antiforgery tokens) live in /keys so they survive a container restart. The directory
+# is created and chowned BEFORE the switch to the non-root user: a named volume mounted there copies its ownership on first
+# use, which keeps it writable for the app user. The keys are stored unencrypted (docs/DOCKER.md).
+RUN mkdir /keys && chown $APP_UID /keys && chmod 0700 /keys
+ENV DataProtection__KeysPath=/keys
 # Non-root user (the "app" user, uid 1654, ships with the .NET images).
 USER $APP_UID
 # No secrets are baked into the image. Point the Web at the API at run time

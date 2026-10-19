@@ -93,6 +93,10 @@ services:
       Api__BaseUrl: http://api:8080/
       # Optional. Unset: the Web still shows and logs its error codes, it just does not report them to the API.
       ErrorReporting__ApiKey: ${ERROR_REPORT_KEY:-}
+    # Data Protection keys (the image sets DataProtection__KeysPath=/keys): they survive a restart or recreate, so sign-in
+    # cookies and open forms stay valid. `down -v` deletes them with the database.
+    volumes:
+      - web-keys:/keys
     ports:
       - "${WEB_PORT:-5112}:8080"
     depends_on:
@@ -104,3 +108,4 @@ services:
 
 volumes:
   postgres-data:
+  web-keys:

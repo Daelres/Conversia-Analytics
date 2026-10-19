@@ -358,9 +358,8 @@ done
 # ------------------------------------------------------------------ one request through the Web
 echo
 echo ">> Through the Web: sign in and read the conversation list (the Web calls the API)"
-jar="$work/web.cookies"
-curl -sS --max-time 15 -c "$jar" "$web_url/login" -o "$work/login.html"
-SMOKE_EMAIL="$owner_email" SMOKE_PASSWORD="$owner_password" python3 - "$work/login.html" >"$work/login.form" <<'PY'
+login_form_from() { # <login page html> <email> <password>: the urlencoded body of the first POST form of the page (hidden fields included)
+  SMOKE_EMAIL="$2" SMOKE_PASSWORD="$3" python3 - "$1" <<'PY'
 import os, sys, urllib.parse
 from html.parser import HTMLParser
 
@@ -381,6 +380,11 @@ parser.feed(open(sys.argv[1], encoding="utf-8").read())
 parser.fields += [("Input.Email", os.environ["SMOKE_EMAIL"]), ("Input.Password", os.environ["SMOKE_PASSWORD"])]
 print(urllib.parse.urlencode(parser.fields), end="")
 PY
+}
+
+jar="$work/web.cookies"
+curl -sS --max-time 15 -c "$jar" "$web_url/login" -o "$work/login.html"
+login_form_from "$work/login.html" "$owner_email" "$owner_password" >"$work/login.form"
 login_status="$(curl -s -o "$work/login.out" -w '%{http_code} %{redirect_url}' --max-time 20 -b "$jar" -c "$jar" --data-binary "@$work/login.form" "$web_url/login" || true)"
 if [[ "$login_status" == 30[23]* ]]; then pass "web: POST /login signs in through the API (${login_status%% *})"; else fail "web: POST /login -> $login_status"; fi
 panel_code="$(code_of -b "$jar" "$web_url/panel")"
@@ -388,6 +392,34 @@ panel_code="$(code_of -b "$jar" "$web_url/panel")"
 conversations_html="$(curl -sS --max-time 20 -b "$jar" "$web_url/conversaciones" || true)"
 if grep -q 'Cliente Smoke' <<<"$conversations_html"; then pass "web: /conversaciones lists the conversation read from the API"; else fail "web: /conversaciones does not show the conversation"; fi
 [ "$(code_of "$web_url/panel")" != "200" ] && pass "web: /panel is not served without a session" || fail "web: /panel is served without a session"
+
+# ------------------------------------------------------------------ Data Protection keys survive a restart of the Web
+echo
+echo ">> Recreating only the Web: a form opened before the restart must still be accepted"
+# The Web protects its antiforgery tokens (and the sign-in cookie) with Data Protection keys. They live in the web-keys volume;
+# without it a new container generates new keys and every form opened before fails with an antiforgery 400. The container is
+# RECREATED, not just restarted: `docker compose restart` keeps the container's file system, so the default key folder would
+# survive it and the check could not tell a persisted key ring from a lucky one. `up --build` recreates, which is the real case.
+jar_before="$work/web-before-restart.cookies"
+curl -sS --max-time 15 -c "$jar_before" "$web_url/login" -o "$work/login-before-restart.html"
+login_form_from "$work/login-before-restart.html" "$owner_email" "wrong-$owner_password" >"$work/login-before-restart.form"
+if [ -s "$work/login-before-restart.form" ] && [ "$(tr '&' '\n' <"$work/login-before-restart.form" | awk -F= '$1 == "__RequestVerificationToken"' | wc -l | tr -d ' ')" = "1" ]; then
+  pass "web: the login page carries an antiforgery token and cookie before the restart"
+else
+  fail "web: the login page carries no antiforgery token"
+fi
+web_container_before="$(cid web)"
+dc up -d --no-build --no-deps --force-recreate web >/dev/null 2>&1 || true
+if [ -n "$(cid web)" ] && [ "$(cid web)" != "$web_container_before" ] && wait_until 90 is_healthy web; then pass "web container was recreated and is healthy again"; else fail "web container was not recreated or did not come back healthy ($(health_of web))"; fi
+resubmit_status="$(curl -s -o "$work/login-after-restart.html" -w '%{http_code}' --max-time 20 -b "$jar_before" --data-binary "@$work/login-before-restart.form" "$web_url/login" || true)"
+if [ "$resubmit_status" = "400" ]; then
+  fail "web: the form opened before the restart was rejected (400, antiforgery): the Data Protection keys were not persisted"
+elif [[ "$resubmit_status" == 2* || "$resubmit_status" == 30[23] ]]; then
+  pass "web: a form opened before the restart is still accepted afterwards ($resubmit_status)"
+else
+  fail "web: the form opened before the restart got an unexpected answer ($resubmit_status)"
+fi
+if dc exec -T web sh -c 'ls /keys/key-*.xml' >/dev/null 2>&1; then pass "web: the Data Protection key ring is stored in the /keys volume"; else fail "web: no key file in /keys"; fi
 
 # ------------------------------------------------------------------ logs
 echo

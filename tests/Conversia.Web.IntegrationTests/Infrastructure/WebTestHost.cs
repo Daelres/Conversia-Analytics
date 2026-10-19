@@ -35,6 +35,8 @@ internal sealed class WebTestHost : IDisposable
 
     public CapturedLogs Logs { get; }
 
+    public IServiceProvider Services => _factory.Services;
+
     /// <param name="apiHost">The API host to reach; defaults to the shared, unthrottled one.</param>
     /// <param name="settings">The Web's own hosting environment and <c>Demo:*</c> settings; defaults to Production with nothing set.</param>
     /// <param name="configureServices">Replaces or adds services of the Web (for example a stand-in for <c>IApiClient</c>), applied after the Web's own registrations.</param>

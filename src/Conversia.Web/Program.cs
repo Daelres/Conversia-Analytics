@@ -1,6 +1,7 @@
 using Conversia.Domain.Common;
 using Conversia.Web.Authentication;
 using Conversia.Web.Components;
+using Conversia.Web.DataProtection;
 using Conversia.Web.Dashboard;
 using Conversia.Web.Demo;
 using Conversia.Web.ErrorReporting;
@@ -13,6 +14,7 @@ using Microsoft.AspNetCore.Localization;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorComponents();
+builder.Services.AddWebDataProtection(builder.Configuration);
 builder.Services.AddWebAuthentication();
 builder.Services.AddApiClient();
 builder.Services.AddWebErrorReporting();

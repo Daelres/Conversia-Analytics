@@ -41,6 +41,15 @@ internal sealed class WebSession : IDisposable
 
     public bool HasAuthCookie => AuthCookies.Count > 0;
 
+    /// <summary>The same browser talking to another server process: carries over every cookie <paramref name="other"/> holds.</summary>
+    public void CopyCookiesFrom(WebSession other)
+    {
+        foreach (Cookie cookie in other._cookies.GetCookies(WebTestHost.BaseAddress))
+        {
+            _cookies.Add(WebTestHost.BaseAddress, new Cookie(cookie.Name, cookie.Value, cookie.Path, cookie.Domain));
+        }
+    }
+
     public async Task<PageResponse> GetAsync(string url, params (string Name, string Value)[] headers)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
