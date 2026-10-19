@@ -8,7 +8,7 @@
     else
     {
         <div class="table-wrap table-wrap--flat" role="region" aria-label="@Title" tabindex="0">
-            <table class="table">
+            <table class="table table--compact">
                 <caption class="sr-only">@Title: conversión y primera respuesta</caption>
                 <thead>
                     <tr>
@@ -82,9 +82,9 @@
     private IReadOnlyList<Column> Columns => new Column[]
     {
         new("name", NameLabel),
-        new("total", "Conversaciones"),
+        new("total", "Chats"),
         new("conversion", "Conversión"),
-        new("response", "Primera respuesta"),
+        new("response", "1.ª respuesta"),
         new("sla", "Dentro del plazo"),
         new("unanswered", "Sin responder"),
     };

@@ -122,7 +122,7 @@ else if (!Redirected)
                    without ConversationsManage who forges one must still reach the API and be refused there, not crash here. *@
                 <div hidden="@(!CanManage)" data-testid="manage-panel">
                     <div class="stack">
-                        <Card Title="Asignar asesor" Subtitle="Solo se ofrecen los asesores activos de la sucursal de esta conversación." IconName="user">
+                        <Card Title="Asignar asesor" Subtitle="Asesores activos de esta sucursal." IconName="user">
                             <EditForm Model="Assign" FormName="assign-advisor" OnValidSubmit="AssignAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="assign-form">
                                 <DataAnnotationsValidator />
                                 <FormField TValue="string" For="() => Assign.AdvisorId" Id="assign-advisor" Label="Asesor" IconName="user" ApiErrors="_assignErrors" Context="field">
@@ -144,10 +144,10 @@ else if (!Redirected)
                             </EditForm>
                         </Card>
 
-                        <Card Title="Definir el resultado" Subtitle="Tu decisión manda: el clasificador automático dejará de cambiar la etapa de esta conversación." IconName="tag">
+                        <Card Title="Definir el resultado" Subtitle="Tu decisión manda sobre el clasificador." IconName="tag">
                             <EditForm Model="Outcome" FormName="set-outcome" OnValidSubmit="SaveOutcomeAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="outcome-form">
                                 <DataAnnotationsValidator />
-                                <FormField TValue="string" For="() => Outcome.Stage" Id="outcome-stage" Label="Resultado" IconName="check-circle" ApiErrors="_outcomeErrors" Context="field">
+                                <FormField TValue="string" For="() => Outcome.Stage" Id="outcome-stage" Label="Resultado" IconName="check-circle" Hint="Ganada: compró o agendó. Perdida: no se concretó. Al guardar, el clasificador automático ya no cambia esta etapa." ApiErrors="_outcomeErrors" Context="field">
                                     <InputSelect id="outcome-stage" class="input" name="@($"{nameof(Outcome)}.{nameof(OutcomeInput.Stage)}")" @bind-Value="Outcome.Stage" @attributes="field">
                                         <option value="">Elige un resultado</option>
                                         @* Written as a loop so each option is its own element: the server can then mark the chosen one as selected. *@
@@ -222,9 +222,9 @@ else if (!Redirected)
 
     private static readonly (string Value, string Label)[] StageChoices =
     [
-        ("Won", "Ganada: el cliente compró o agendó"),
-        ("Lost", "Perdida: no se concretó"),
-        ("InFollowUp", "En seguimiento: sigue abierta"),
+        ("Won", "Ganada"),
+        ("Lost", "Perdida"),
+        ("InFollowUp", "En seguimiento"),
     ];
 
     private string Heading => _conversation is null

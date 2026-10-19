@@ -1171,6 +1171,7 @@ a.card--link:hover {
 .heat__cell[data-level="4"], .heat__swatch[data-level="4"] { background: var(--brand-hover); }
 
 @supports (background: color-mix(in srgb, red 50%, blue)) {
+  .heat__cell[data-level="1"], .heat__swatch[data-level="1"] { background: color-mix(in srgb, var(--brand) 22%, var(--surface)); }
   .heat__cell[data-level="2"], .heat__swatch[data-level="2"] { background: color-mix(in srgb, var(--brand) 45%, var(--surface)); }
   .heat__cell[data-level="3"], .heat__swatch[data-level="3"] { background: color-mix(in srgb, var(--brand) 72%, var(--surface)); }
   .heat__cell[data-level="4"], .heat__swatch[data-level="4"] { background: var(--brand); }
@@ -1448,3 +1449,47 @@ a.card--link:hover {
 /* Copying needs a script; without one the value above is still selectable with one click. */
 .copy-btn { display: none; }
 .js .copy-btn { display: inline-flex; }
+
+/* ---- Tables that must fit a laptop without scrolling sideways ---- */
+.table--compact th,
+.table--compact td {
+  padding: 0.7rem var(--space-3);
+}
+
+.table--compact thead th {
+  white-space: normal;
+  letter-spacing: 0.04em;
+  vertical-align: bottom;
+}
+
+.table--compact [data-align="end"] {
+  white-space: nowrap;
+}
+
+/* A short note after a value (who assigned an advisor, who decided a stage) goes on its own line. */
+.kv dd > .muted {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+/* An element hidden with .sr-only is absolutely positioned: keep it inside the box that scrolls, or a wide table widens the whole page. */
+.table-wrap,
+.heat__scroll {
+  position: relative;
+}
+
+.alert__actions .btn {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+
+/* A table that is a stack of cards on a phone keeps no cell padding (the compact padding above must not win over the card layout). */
+@media (max-width: 719px) {
+  .table--cards.table--compact th,
+  .table--cards.table--compact td {
+    padding: 0;
+  }
+}
