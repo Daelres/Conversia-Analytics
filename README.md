@@ -141,7 +141,10 @@ tests/
   Conversia.Infrastructure.UnitTests   permission authorization handler
   Conversia.IntegrationTests           the API against real PostgreSQL (Testcontainers)
   Conversia.Web.IntegrationTests       the Web against the real API + PostgreSQL (Testcontainers)
-docs/                                    ARCHITECTURE, WORKFLOW, USERS_TENANTS_PERMISSIONS, DEMO, EXTENDING, ERRORS
+  Conversia.WebhookSimulator.UnitTests the simulator's chats, plan, payloads and commands (no network)
+tools/
+  Conversia.WebhookSimulator           dev-only: fills a local API with believable WhatsApp conversations (docs/SIMULATOR.md)
+docs/                                    ARCHITECTURE, WORKFLOW, USERS_TENANTS_PERMISSIONS, DEMO, EXTENDING, ERRORS, SIMULATOR
 scripts/rename.sh                        rename the template for a new project
 docker-compose.yml, .env.example         full local stack
 docker-compose.demo.yml                  overlay: the same stack with the demo data and accounts
@@ -391,6 +394,9 @@ same five projects run in CI (`.github/workflows/tests.yml`).
 - `docs/ERRORS.md` — the error registry: codes, what is stored and what is
   not, sanitization, storm control, the report endpoint, retention, SQL to
   investigate an error.
+- `docs/SIMULATOR.md` — the webhook simulator: fill a local stack with believable
+  conversations (setup, populate, play), the safety rules, and how to point the
+  360dialog sandbox at your machine (documentation only).
 - `docs/EXTENDING.md` — add a feature the way Products is built, layer by
   layer, with the pitfalls hit so far and a checklist to remove the demo.
 

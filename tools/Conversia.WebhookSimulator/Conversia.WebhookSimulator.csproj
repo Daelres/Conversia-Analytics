@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Conversia.WebhookSimulator</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Only for the DTOs of the API (login, branches, advisors, channels, conversations): the simulator talks to the API over HTTP like any client. -->
+    <ProjectReference Include="..\..\src\Conversia.Application\Conversia.Application.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -29,6 +29,7 @@
 
 # Not needed to build the images
 tests
+tools
 docs
 scripts
 pack

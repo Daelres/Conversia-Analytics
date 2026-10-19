@@ -34,6 +34,9 @@ jobs:
       - name: Unit tests — Infrastructure
         run: dotnet test tests/Conversia.Infrastructure.UnitTests --no-build --configuration Release --logger "trx"
 
+      - name: Unit tests — webhook simulator
+        run: dotnet test tests/Conversia.WebhookSimulator.UnitTests --no-build --configuration Release --logger "trx"
+
       - name: Integration tests
         run: dotnet test tests/Conversia.IntegrationTests --no-build --configuration Release --logger "trx"
 

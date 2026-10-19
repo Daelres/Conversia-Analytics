@@ -1,0 +1,13 @@
+# Overlay for trying the webhook simulator on your own machine (tools/Conversia.WebhookSimulator, docs/SIMULATOR.md):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.simulator.yml up -d --build
+#
+# It only makes two background workers quicker, so a populated dashboard shows its stages and closed conversations in seconds instead of
+# minutes. For local development: do not use it in production (the defaults are the ones that protect the classifier from half-written chats).
+services:
+  api:
+    environment:
+      # A conversation is classified once it has been quiet this long (default 60 s).
+      Classification__DebounceSeconds: "5"
+      # The job that closes idle conversations (older than Conversations:AutoCloseAfterDays) runs this often (default every 15 minutes).
+      Conversations__AutoCloseIntervalMinutes: "1"

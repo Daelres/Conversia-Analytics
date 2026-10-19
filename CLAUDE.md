@@ -105,12 +105,15 @@ docs/
   WEBHOOKS.md                # ingesta del webhook de 360dialog (endpoint, mapeo, reintentos, cierre de conversaciones, formato no verificado)
   CLASSIFICATION.md          # clasificador de conversaciones (reglas en español; cómo conectar un LLM)
   METRICS.md                 # definición exacta de cada métrica del tablero, alertas y configuración
+  SIMULATOR.md               # simulador de webhooks (solo desarrollo): uso, seguridad y cómo probar con el sandbox de 360dialog
 src/
   Conversia.Domain/          # sin dependencias
   Conversia.Application/     # referencia Domain
   Conversia.Infrastructure/  # referencia Application; EF Core + Npgsql, migraciones en Persistence/Migrations
   Conversia.API/             # controllers; referencia Application e Infrastructure
   Conversia.Web/             # Blazor Web; referencia Application y habla con la API por HTTP. `/panel` es el tablero ejecutivo (aterrizaje tras iniciar sesión); sus piezas viven en Components/Dashboard y Dashboard/; `/conversaciones` y `/conversaciones/{id}` son el listado y el detalle de chats (Components/Conversations); `/organizacion` administra sucursales, asesores y números (el secreto del webhook se muestra una sola vez, Components/Organization)
+tools/
+  Conversia.WebhookSimulator/      # solo desarrollo: llena una API local con conversaciones de WhatsApp creíbles (docs/SIMULATOR.md); su proyecto de pruebas es Conversia.WebhookSimulator.UnitTests
 tests/
   Conversia.Domain.UnitTests/, Conversia.Application.UnitTests/, Conversia.Infrastructure.UnitTests/   # xUnit
   Conversia.IntegrationTests/      # API contra PostgreSQL real (Testcontainers; requiere Docker)
