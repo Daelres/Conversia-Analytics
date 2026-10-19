@@ -1,4 +1,5 @@
 using Conversia.Application.DTOs.Auth;
+using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Metrics;
 using Conversia.Application.DTOs.Organization;
 using Conversia.Application.DTOs.Products;
@@ -54,4 +55,18 @@ public interface IApiClient
     // ---- organization (OrganizationView) ----
 
     Task<ApiResult<IReadOnlyList<BranchResponse>>> GetBranchesAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<IReadOnlyList<AdvisorResponse>>> GetAdvisorsAsync(string token, CancellationToken cancellationToken = default);
+
+    // ---- conversations (ConversationsView; the two writes need ConversationsManage) ----
+
+    Task<ApiResult<PagedResponse<ConversationListItem>>> GetConversationsAsync(string token, ConversationQuery query, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ConversationDetailResponse>> GetConversationAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary><c>PUT /api/conversations/{id}/advisor</c>; a null <see cref="AssignAdvisorRequest.AdvisorId"/> leaves the conversation unassigned.</summary>
+    Task<ApiResult<ConversationListItem>> AssignAdvisorAsync(string token, Guid id, AssignAdvisorRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary><c>PUT /api/conversations/{id}/opportunity</c>: a person decides the outcome.</summary>
+    Task<ApiResult<OpportunityResponse>> SetOpportunityOutcomeAsync(string token, Guid id, SetOpportunityOutcomeRequest request, CancellationToken cancellationToken = default);
 }

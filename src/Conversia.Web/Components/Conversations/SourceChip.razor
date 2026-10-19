@@ -1,0 +1,16 @@
+@* Where the customer came from: an ad, their own initiative, or unknown. *@
+<Chip Tone="Tone" IconName="@Icon" data-testid="source-chip" data-source="@Source">@ConversationLabels.Source(Source)</Chip>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Source { get; set; } = string.Empty;
+
+    private ChipTone Tone => Source == "Ads" ? ChipTone.Accent : ChipTone.Neutral;
+
+    private string Icon => Source switch
+    {
+        "Ads" => "sparkles",
+        "Organic" => "user",
+        _ => "info",
+    };
+}

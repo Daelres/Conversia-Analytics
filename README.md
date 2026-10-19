@@ -74,6 +74,9 @@ is for your own machine only: its accounts have a publicly known password.
   numbers, alerts, breakdowns by branch, advisor and source, loss reasons, volume by day
   and a day-by-hour heat map, all drawn with inline SVG/CSS and driven by the query string,
   `docs/METRICS.md`),
+  `/conversaciones` (the chats: filterable list with masked numbers, and a detail with the
+  chat thread, the classifier's reading and, for `ConversationsManage`, advisor assignment and
+  a manual outcome),
   `/users` (user list, create user, grant/revoke permissions),
   `/products` (the reference feature: list, search, create, edit, delete;
   prices are shown the Spanish way, `1.234,50`, and typed with a comma or a dot)

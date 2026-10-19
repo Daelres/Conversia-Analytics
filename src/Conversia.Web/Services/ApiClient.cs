@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Conversia.Application.DTOs.Auth;
+using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Metrics;
 using Conversia.Application.DTOs.Organization;
 using Conversia.Application.DTOs.Products;
@@ -89,6 +90,21 @@ public sealed class ApiClient : IApiClient
 
     public Task<ApiResult<IReadOnlyList<BranchResponse>>> GetBranchesAsync(string token, CancellationToken cancellationToken = default)
         => SendAsync<IReadOnlyList<BranchResponse>>(HttpMethod.Get, "api/branches", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<IReadOnlyList<AdvisorResponse>>> GetAdvisorsAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<AdvisorResponse>>(HttpMethod.Get, "api/advisors", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<PagedResponse<ConversationListItem>>> GetConversationsAsync(string token, ConversationQuery query, CancellationToken cancellationToken = default)
+        => SendAsync<PagedResponse<ConversationListItem>>(HttpMethod.Get, "api/conversations" + ConversationsQueryString.Build(query), token, body: null, response => response.Items is not null, cancellationToken);
+
+    public Task<ApiResult<ConversationDetailResponse>> GetConversationAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<ConversationDetailResponse>(HttpMethod.Get, $"api/conversations/{id}", token, body: null, response => response.Messages is not null && response.Contact is not null && response.Opportunity is not null, cancellationToken);
+
+    public Task<ApiResult<ConversationListItem>> AssignAdvisorAsync(string token, Guid id, AssignAdvisorRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<ConversationListItem>(HttpMethod.Put, $"api/conversations/{id}/advisor", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<OpportunityResponse>> SetOpportunityOutcomeAsync(string token, Guid id, SetOpportunityOutcomeRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<OpportunityResponse>(HttpMethod.Put, $"api/conversations/{id}/opportunity", token, request, isUsable: null, cancellationToken);
 
     private static string ProductListPath(int page, int pageSize, string? search)
     {

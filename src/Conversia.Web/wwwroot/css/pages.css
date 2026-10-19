@@ -554,3 +554,34 @@
 .range-row .range {
   margin-top: 0;
 }
+
+/* ---- Conversations ---- */
+.filters--wide .field {
+  flex: 1 1 10rem;
+  max-width: 14rem;
+}
+
+.filters__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.conversation-layout {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+@media (min-width: 1000px) {
+  .conversation-layout {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  }
+}
+
+.conversation__chips {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

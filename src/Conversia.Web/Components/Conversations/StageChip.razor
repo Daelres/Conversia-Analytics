@@ -1,0 +1,23 @@
+@* The stage of an opportunity as a badge: the word, an icon and a colour, so the colour is never the only signal. *@
+<Chip Tone="Tone" IconName="@Icon" data-testid="stage-chip" data-stage="@Stage">@ConversationLabels.Stage(Stage)</Chip>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Stage { get; set; } = string.Empty;
+
+    private ChipTone Tone => Stage switch
+    {
+        "Won" => ChipTone.Success,
+        "Lost" => ChipTone.Danger,
+        "InFollowUp" => ChipTone.Brand,
+        _ => ChipTone.Neutral,
+    };
+
+    private string Icon => Stage switch
+    {
+        "Won" => "check-circle",
+        "Lost" => "x-circle",
+        "InFollowUp" => "clock",
+        _ => "sparkles",
+    };
+}

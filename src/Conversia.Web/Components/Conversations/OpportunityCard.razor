@@ -1,0 +1,85 @@
+@using Conversia.Application.DTOs.Conversations
+@* What the system understood from the conversation, and whether it was the system or a person who decided the outcome. *@
+<Card Title="Oportunidad" Subtitle="Lo que se entendió de la conversación." IconName="tag" data-testid="opportunity">
+    <dl class="kv">
+        <div>
+            <dt>Etapa</dt>
+            <dd><StageChip Stage="@Opportunity.Stage" /></dd>
+        </div>
+        <div>
+            <dt>Quién la decidió</dt>
+            <dd data-testid="stage-source" data-stage-source="@Opportunity.StageSource">
+                @if (Opportunity.StageSource == "Manual")
+                {
+                    <Chip Tone="ChipTone.Accent" IconName="user">Manual</Chip>
+                    @if (Opportunity.StageChangedBy is { } by)
+                    {
+                        <span class="muted" data-testid="stage-changed-by" data-user-id="@by">Cambiada por el usuario @ConversationFormat.ShortId(by)@(Opportunity.StageChangedAt is { } at ? $" el {MetricsFormat.Moment(ToLocal(at))}" : "").</span>
+                    }
+                }
+                else
+                {
+                    <Chip IconName="activity">Automática</Chip>
+                    <span class="muted">La decidió el sistema al leer la conversación.</span>
+                }
+            </dd>
+        </div>
+        <div>
+            <dt>Confianza del clasificador</dt>
+            <dd data-testid="confidence" data-value="@(Opportunity.ClassificationConfidence?.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture))">@ConversationFormat.Confidence(Opportunity.ClassificationConfidence)</dd>
+        </div>
+        <div>
+            <dt>Servicio de interés</dt>
+            <dd data-testid="service">@(Opportunity.ServiceInterest ?? MetricsFormat.NoData)</dd>
+        </div>
+        <div>
+            <dt>Motivo de interés</dt>
+            <dd>@(Opportunity.InterestReason ?? MetricsFormat.NoData)</dd>
+        </div>
+        <div>
+            <dt>Objeción</dt>
+            <dd data-testid="objection">@ConversationLabels.Objection(Opportunity.Objection)</dd>
+        </div>
+        @if (Opportunity.Stage == "Lost")
+        {
+            <div>
+                <dt>Motivo de pérdida</dt>
+                <dd data-testid="loss-reason">@(Opportunity.LossReason is null ? MetricsFormat.NoData : ConversationLabels.LossReason(Opportunity.LossReason))</dd>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(Opportunity.LossDetail))
+            {
+                <div>
+                    <dt>Detalle</dt>
+                    <dd data-testid="loss-detail">@Opportunity.LossDetail</dd>
+                </div>
+            }
+        }
+        @if (Opportunity.ClassifiedAt is { } classified)
+        {
+            <div>
+                <dt>Última clasificación</dt>
+                <dd>@MetricsFormat.Moment(ToLocal(classified))</dd>
+            </div>
+        }
+    </dl>
+    @if (!string.IsNullOrWhiteSpace(Opportunity.ClassificationRules))
+    {
+        <details class="chart__data" data-testid="rules">
+            <summary>Por qué se clasificó así</summary>
+            <ul class="cluster">
+                @foreach (var rule in Opportunity.ClassificationRules.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    <li><Chip Mono="true">@rule</Chip></li>
+                }
+            </ul>
+        </details>
+    }
+</Card>
+
+@code {
+    [Parameter, EditorRequired]
+    public OpportunityResponse Opportunity { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public Func<DateTime, DateTime> ToLocal { get; set; } = utc => utc;
+}

@@ -11,6 +11,12 @@
 
     <ProductNotFoundView />
 }
+else if (ConversationNotFoundMarker.IsMarked(HttpContext))
+{
+    <PageTitle>Conversación no encontrada - Conversia</PageTitle>
+
+    <ConversationNotFoundView />
+}
 else
 {
     <PageTitle>Página no encontrada - Conversia</PageTitle>

@@ -1,0 +1,298 @@
+@page "/conversaciones"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Conversations
+@using Conversia.Application.DTOs.Organization
+@using Conversia.Application.DTOs.Products
+@using Conversia.Application.Time
+@using Conversia.Domain.Enums
+@using Conversia.Web.Components.Conversations
+@using Conversia.Web.Time
+@inherits AuthenticatedPageBase
+@inject TenantTimeZone TimeZone
+@inject TimeProvider Clock
+
+<PageTitle>Conversaciones - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <StatusView DataPage="forbidden" Code="403" Title="Sin acceso a las conversaciones" Art="locked"
+                Hint="Pide acceso a la persona propietaria de tu espacio de trabajo.">
+        <ChildContent>Tu cuenta no tiene el permiso «@PermissionLabels.For(Permission.ConversationsView)». Con él podrás ver los chats de ventas y su resultado.</ChildContent>
+        <Actions>
+            <a class="btn btn--primary" href="/"><Icon Name="home" />Ir al inicio</a>
+        </Actions>
+    </StatusView>
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="conversations">
+        <PageHeader Eyebrow="Ventas" EyebrowIcon="message" Title="Conversaciones"
+                    Description="Los chats de WhatsApp con tus clientes: quién los atiende, cuánto tardaron en responder y cómo terminaron." />
+
+        <ErrorAlert Message="@Message" />
+
+        <form method="get" action="/conversaciones" class="filters filters--wide" role="search" aria-label="Filtros de conversaciones" data-testid="conversation-filters">
+            @if (_branches is { Count: > 0 })
+            {
+                <div class="field">
+                    <label for="f-branch" class="field__label">Sucursal</label>
+                    <select id="f-branch" name="branch" class="input">
+                        <option value="">Todas</option>
+                        @foreach (var branch in _branches)
+                        {
+                            <option value="@branch.Id" selected="@(branch.Id == Filters.BranchId)">@branch.Name@(branch.IsActive ? "" : " (inactiva)")</option>
+                        }
+                    </select>
+                </div>
+            }
+            else if (Filters.BranchId is { } branchId)
+            {
+                <input type="hidden" name="branch" value="@branchId" />
+            }
+            @if (_advisors is { Count: > 0 })
+            {
+                <div class="field">
+                    <label for="f-advisor" class="field__label">Asesor</label>
+                    <select id="f-advisor" name="advisor" class="input">
+                        <option value="">Todos</option>
+                        <option value="@ConversationFilters.NoAdvisor" selected="@Filters.Unassigned">Sin asignar</option>
+                        @foreach (var advisor in _advisors)
+                        {
+                            <option value="@advisor.Id" selected="@(advisor.Id == Filters.AdvisorId)">@advisor.Name@(advisor.IsActive ? "" : " (inactivo)")</option>
+                        }
+                    </select>
+                </div>
+            }
+            else if (Filters.Unassigned || Filters.AdvisorId is not null)
+            {
+                <input type="hidden" name="advisor" value="@(Filters.Unassigned ? ConversationFilters.NoAdvisor : Filters.AdvisorId.ToString())" />
+            }
+            <div class="field">
+                <label for="f-stage" class="field__label">Etapa</label>
+                <select id="f-stage" name="stage" class="input">
+                    <option value="">Todas</option>
+                    @foreach (var stage in ConversationLabels.Stages)
+                    {
+                        <option value="@stage" selected="@(stage == Filters.Stage)">@ConversationLabels.Stage(stage)</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label for="f-source" class="field__label">Origen</label>
+                <select id="f-source" name="source" class="input">
+                    <option value="">Todos</option>
+                    @foreach (var source in ConversationLabels.Sources)
+                    {
+                        <option value="@source" selected="@(source == Filters.Source)">@ConversationLabels.Source(source)</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label for="f-status" class="field__label">Estado</label>
+                <select id="f-status" name="status" class="input">
+                    <option value="">Todos</option>
+                    @foreach (var status in ConversationLabels.Statuses)
+                    {
+                        <option value="@status" selected="@(status == Filters.Status)">@ConversationLabels.Status(status)</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label for="f-reply" class="field__label">Respuesta</label>
+                <select id="f-reply" name="reply" class="input">
+                    <option value="">Todas</option>
+                    <option value="@ConversationFilters.ReplyOpen" selected="@Filters.UnansweredOpen">Sin responder (abiertas)</option>
+                    <option value="@ConversationFilters.ReplyClosed" selected="@Filters.ClosedUnanswered">Cerradas sin responder</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="f-from" class="field__label">Desde</label>
+                <input id="f-from" name="from" type="date" class="input" value="@DateText(Filters.From)" />
+            </div>
+            <div class="field">
+                <label for="f-to" class="field__label">Hasta (sin incluir)</label>
+                <input id="f-to" name="to" type="date" class="input" value="@DateText(Filters.To)" />
+            </div>
+            <div class="filters__actions">
+                <button type="submit" class="btn btn--secondary"><Icon Name="filter" />Filtrar</button>
+                @if (Filters.IsFiltered)
+                {
+                    <a class="btn btn--ghost" href="/conversaciones" data-testid="clear-filters"><Icon Name="x" />Borrar filtros</a>
+                }
+            </div>
+        </form>
+
+        @if (_page is not null)
+        {
+            @if (_page.TotalCount == 0)
+            {
+                @if (Filters.IsFiltered)
+                {
+                    <EmptyState Title="Ninguna conversación coincide" Art="search"
+                                Text="Prueba con otros filtros o con un rango de fechas más amplio.">
+                        <Actions>
+                            <a class="btn btn--secondary" href="/conversaciones"><Icon Name="x" />Borrar filtros</a>
+                        </Actions>
+                    </EmptyState>
+                }
+                else
+                {
+                    <EmptyState Title="Aún no hay conversaciones" Art="box"
+                                Text="Cuando un cliente escriba al WhatsApp de tu negocio, su chat aparecerá aquí.">
+                        <Actions>
+                            <a class="btn btn--primary" href="/organizacion"><Icon Name="building" />Ver los números conectados</a>
+                        </Actions>
+                    </EmptyState>
+                }
+            }
+            else
+            {
+                @if (_page.Items.Count == 0)
+                {
+                    <p class="muted" data-testid="page-beyond">Esta página ya no tiene conversaciones: la lista terminó antes. Vuelve a una página anterior.</p>
+                }
+                else
+                {
+                    <div class="table-wrap" role="region" aria-label="Lista de conversaciones" tabindex="0">
+                        <table class="table table--cards" data-testid="conversation-table">
+                            <caption class="sr-only">Conversaciones, de la más reciente a la más antigua</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Cliente</th>
+                                    <th scope="col">Sucursal y asesor</th>
+                                    <th scope="col">Etapa</th>
+                                    <th scope="col">Origen</th>
+                                    <th scope="col">Primera respuesta</th>
+                                    <th scope="col" data-align="end">Inicio</th>
+                                    <th scope="col" data-align="end">Mensajes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in _page.Items)
+                                {
+                                    <tr data-testid="conversation-row" data-conversation-id="@item.Id" data-stage="@item.Opportunity.Stage" data-status="@item.Status">
+                                        <th scope="row" data-label="Cliente">
+                                            <a class="conversation__link" href="@ConversationLinks.Detail(item.Id)" data-testid="conversation-link">@ConversationFormat.ListTitle(item.Contact)</a>
+                                            @if (!string.IsNullOrWhiteSpace(item.Contact.DisplayName))
+                                            {
+                                                <span class="muted conversation__phone" data-testid="conversation-phone">@ConversationFormat.MaskedPhone(item.Contact.WaId)</span>
+                                            }
+                                        </th>
+                                        <td data-label="Sucursal y asesor">
+                                            <span data-testid="conversation-branch">@(item.BranchName ?? MetricsFormat.NoData)</span>
+                                            <span class="muted conversation__phone" data-testid="conversation-advisor">@(item.AdvisorName ?? "Sin asignar")</span>
+                                        </td>
+                                        <td data-label="Etapa"><StageChip Stage="@item.Opportunity.Stage" /></td>
+                                        <td data-label="Origen"><SourceChip Source="@item.Source" /></td>
+                                        <td data-label="Primera respuesta"><ReplyChip Conversation="item" NowUtc="_nowUtc" /></td>
+                                        <td data-label="Inicio" data-align="end">
+                                            <span>@MetricsFormat.Moment(TimeZone.ToLocal(item.StartedAt))</span>
+                                            <span class="muted conversation__phone">@ConversationFormat.Age(item.StartedAt, _nowUtc) · @ConversationLabels.Status(item.Status).ToLowerInvariant()</span>
+                                        </td>
+                                        <td data-label="Mensajes" data-align="end">@MetricsFormat.Whole(item.MessageCount)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                <nav aria-label="Paginación" class="pager" data-testid="pager"
+                     data-page="@_page.Page" data-page-count="@PageCount" data-total-count="@_page.TotalCount">
+                    <div class="pager__group">
+                        @if (_page.Page > 1)
+                        {
+                            <a class="btn btn--ghost btn--sm" data-testid="pager-prev" href="@Filters.ToUrl(Math.Min(_page.Page - 1, PageCount))"><Icon Name="chevron-left" Class="icon--sm" />Anterior</a>
+                        }
+                        else
+                        {
+                            <span class="btn btn--ghost btn--sm" data-testid="pager-prev" aria-disabled="true"><Icon Name="chevron-left" Class="icon--sm" />Anterior</span>
+                        }
+                        <span class="pager__status">Página @_page.Page de @PageCount</span>
+                        @if (_page.Page < PageCount)
+                        {
+                            <a class="btn btn--ghost btn--sm" data-testid="pager-next" href="@Filters.ToUrl(_page.Page + 1)">Siguiente<Icon Name="chevron-right" Class="icon--sm" /></a>
+                        }
+                        else
+                        {
+                            <span class="btn btn--ghost btn--sm" data-testid="pager-next" aria-disabled="true">Siguiente<Icon Name="chevron-right" Class="icon--sm" /></span>
+                        }
+                    </div>
+                    <span class="pager__total">@MetricsFormat.Conversations(_page.TotalCount)</span>
+                </nav>
+            }
+        }
+    </div>
+}
+
+@code {
+    private PagedResponse<ConversationListItem>? _page;
+    private IReadOnlyList<BranchResponse>? _branches;
+    private IReadOnlyList<AdvisorResponse>? _advisors;
+    private DateTime _nowUtc;
+
+    [SupplyParameterFromQuery(Name = "branch")] public string? BranchText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "advisor")] public string? AdvisorText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "stage")] public string? StageText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "source")] public string? SourceText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "status")] public string? StatusText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "from")] public string? FromText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "to")] public string? ToText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "reply")] public string? ReplyText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "unanswered")] public string? UnansweredText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "page")] public string? PageText { get; set; }
+
+    private ConversationFilters Filters => ConversationFilters.Parse(BranchText, AdvisorText, StageText, SourceText, StatusText, FromText, ToText, ReplyText, UnansweredText, PageText);
+
+    private int PageCount => Math.Max(1, (int)Math.Ceiling(_page!.TotalCount / (double)ConversationFilters.PageSize));
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        _nowUtc = Clock.GetUtcNow().UtcDateTime;
+        var listTask = Api.GetConversationsAsync(Token!, Filters.ToQuery());
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        var branchesTask = Api.GetBranchesAsync(Token!);
+        var advisorsTask = Api.GetAdvisorsAsync(Token!);
+        await Task.WhenAll(listTask, profileTask, branchesTask, advisorsTask);
+
+        if (await TryFailAsync(listTask.Result, profileTask.Result))
+        {
+            // A filter the API refuses (an end date before the start) is said in the API's own words, so the person knows what to change.
+            if (listTask.Result.Status == ApiResultStatus.ValidationFailed)
+            {
+                Message = string.Join(' ', listTask.Result.ValidationErrors.Values.SelectMany(messages => messages));
+            }
+
+            return;
+        }
+
+        Shell.Remember(profileTask.Result.Value!);
+
+        // The people who may see conversations need not be allowed to see the organization: then the filters by branch and advisor are simply absent.
+        if (!profileTask.Result.Value!.Can(Permission.ConversationsView))
+        {
+            Deny();
+            return;
+        }
+
+        _page = listTask.Result.Value;
+        _branches = branchesTask.Result.IsSuccess ? branchesTask.Result.Value : null;
+        _advisors = advisorsTask.Result.IsSuccess ? advisorsTask.Result.Value : null;
+    }
+
+    private static string? DateText(DateOnly? date) => date?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+}

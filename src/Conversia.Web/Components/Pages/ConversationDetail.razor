@@ -1,0 +1,365 @@
+@page "/conversaciones/{Id:guid}"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Conversations
+@using Conversia.Application.DTOs.Organization
+@using Conversia.Application.Time
+@using Conversia.Domain.Enums
+@using Conversia.Web.Components.Conversations
+@using Conversia.Web.Http
+@using Conversia.Web.Time
+@inherits AuthenticatedPageBase
+@inject TenantTimeZone TimeZone
+@inject TimeProvider Clock
+
+<PageTitle>Conversación - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <StatusView DataPage="forbidden" Code="403" Title="Sin acceso a las conversaciones" Art="locked"
+                Hint="Pide acceso a la persona propietaria de tu espacio de trabajo.">
+        <ChildContent>Tu cuenta no tiene el permiso «@PermissionLabels.For(Permission.ConversationsView)». Con él podrás ver los chats de ventas y su resultado.</ChildContent>
+        <Actions>
+            <a class="btn btn--primary" href="/"><Icon Name="home" />Ir al inicio</a>
+        </Actions>
+    </StatusView>
+}
+else if (_missing)
+{
+    <ConversationNotFoundView />
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="conversation" data-conversation-id="@Id">
+        <PageHeader Eyebrow="Conversaciones" EyebrowIcon="message" Title="@Heading" Description="@Subheading">
+            <a class="btn btn--secondary" href="/conversaciones"><Icon Name="arrow-left" />Volver a conversaciones</a>
+        </PageHeader>
+
+        @if (ConversationsNotice.Describe(Notice) is { } notice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">@notice</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_modified)
+        {
+            <Alert Kind="AlertKind.Warning" data-testid="notice-modified">
+                <ChildContent>Otra persona modificó esta conversación mientras la editabas. Recárgala para ver la última versión.</ChildContent>
+                <Actions>
+                    <a class="btn btn--secondary btn--sm" href="@ConversationLinks.Detail(Id)"><Icon Name="refresh" Class="icon--sm" />Recargar</a>
+                </Actions>
+            </Alert>
+        }
+
+        @if (_conversation is not null)
+        {
+            <ul class="cluster conversation__chips" aria-label="Resumen de la conversación" data-testid="conversation-summary">
+                <li><StageChip Stage="@_conversation.Opportunity.Stage" /></li>
+                <li><SourceChip Source="@_conversation.Source" /></li>
+                <li><Chip IconName="@(_conversation.Status == "Open" ? "message" : "check")" data-testid="status-chip" data-status="@_conversation.Status">@ConversationLabels.Status(_conversation.Status)</Chip></li>
+                <li><Chip IconName="building" data-testid="branch-chip">@(_conversation.BranchName ?? MetricsFormat.NoData)</Chip></li>
+                <li><Chip IconName="user" data-testid="advisor-chip">@(_conversation.AdvisorName ?? "Sin asignar")</Chip></li>
+                <li><ReplyChip Conversation="_conversation" NowUtc="_nowUtc" /></li>
+            </ul>
+        }
+
+        <div class="conversation-layout">
+            @if (_conversation is not null)
+            {
+                <Card Title="Chat" Subtitle="@ChatSubtitle" IconName="message" data-testid="chat-card">
+                    <ChatThread Messages="_conversation.Messages" ToLocal="TimeZone.ToLocal" />
+                    @if (_conversation.MessageCount > _conversation.Messages.Count)
+                    {
+                        <p class="muted" data-testid="chat-truncated">Se muestran los primeros @MetricsFormat.Whole(_conversation.Messages.Count) de @MetricsFormat.Whole(_conversation.MessageCount) mensajes.</p>
+                    }
+                </Card>
+            }
+
+            <div class="stack conversation-side">
+                @if (_conversation is not null)
+                {
+                    <OpportunityCard Opportunity="_conversation.Opportunity" ToLocal="TimeZone.ToLocal" />
+
+                    <Card Title="Datos de la conversación" IconName="info" data-testid="conversation-facts">
+                        <dl class="kv">
+                            <div>
+                                <dt>Inicio</dt>
+                                <dd>@MetricsFormat.Moment(TimeZone.ToLocal(_conversation.StartedAt))</dd>
+                            </div>
+                            <div>
+                                <dt>Último mensaje</dt>
+                                <dd>@MetricsFormat.Moment(TimeZone.ToLocal(_conversation.LastMessageAt)) · @ConversationFormat.Age(_conversation.LastMessageAt, _nowUtc)</dd>
+                            </div>
+                            @if (_conversation.ClosedAt is { } closed)
+                            {
+                                <div>
+                                    <dt>Cierre</dt>
+                                    <dd>@MetricsFormat.Moment(TimeZone.ToLocal(closed))</dd>
+                                </div>
+                            }
+                            <div>
+                                <dt>Asesor asignado</dt>
+                                <dd data-testid="assigned-advisor">
+                                    @(_conversation.AdvisorName ?? "Sin asignar")
+                                    @if (_conversation.AdvisorAssignedBy is { } by)
+                                    {
+                                        <span class="muted" data-testid="advisor-assigned-by" data-user-id="@by">Asignado por el usuario @ConversationFormat.ShortId(by)@(_conversation.AdvisorAssignedAt is { } at ? $" el {MetricsFormat.Moment(TimeZone.ToLocal(at))}" : "").</span>
+                                    }
+                                </dd>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_conversation.SourceReference))
+                            {
+                                <div>
+                                    <dt>Anuncio de origen</dt>
+                                    <dd class="mono" data-testid="source-reference">@_conversation.SourceReference</dd>
+                                </div>
+                            }
+                        </dl>
+                    </Card>
+                }
+
+                @* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller
+                   without ConversationsManage who forges one must still reach the API and be refused there, not crash here. *@
+                <div hidden="@(!CanManage)" data-testid="manage-panel">
+                    <div class="stack">
+                        <Card Title="Asignar asesor" Subtitle="Solo se ofrecen los asesores activos de la sucursal de esta conversación." IconName="user">
+                            <EditForm Model="Assign" FormName="assign-advisor" OnValidSubmit="AssignAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="assign-form">
+                                <DataAnnotationsValidator />
+                                <FormField TValue="string" For="() => Assign.AdvisorId" Id="assign-advisor" Label="Asesor" IconName="user" ApiErrors="_assignErrors" Context="field">
+                                    <InputSelect id="assign-advisor" class="input" name="@($"{nameof(Assign)}.{nameof(AssignAdvisorInput.AdvisorId)}")" @bind-Value="Assign.AdvisorId" @attributes="field">
+                                        <option value="">Sin asesor</option>
+                                        @foreach (var advisor in BranchAdvisors)
+                                        {
+                                            <option value="@advisor.Id">@advisor.Name@(advisor.IsActive ? "" : " (inactivo)")</option>
+                                        }
+                                    </InputSelect>
+                                </FormField>
+                                <ApiFieldErrors Errors="_assignErrors" KnownFields="@(["AdvisorId"])" />
+                                <div class="form-actions">
+                                    @if (CanManage)
+                                    {
+                                        <button type="submit" class="btn btn--primary"><Icon Name="check" />Guardar asesor</button>
+                                    }
+                                </div>
+                            </EditForm>
+                        </Card>
+
+                        <Card Title="Definir el resultado" Subtitle="Tu decisión manda: el clasificador automático dejará de cambiar la etapa de esta conversación." IconName="tag">
+                            <EditForm Model="Outcome" FormName="set-outcome" OnValidSubmit="SaveOutcomeAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="outcome-form">
+                                <DataAnnotationsValidator />
+                                <FormField TValue="string" For="() => Outcome.Stage" Id="outcome-stage" Label="Resultado" IconName="check-circle" ApiErrors="_outcomeErrors" Context="field">
+                                    <InputSelect id="outcome-stage" class="input" name="@($"{nameof(Outcome)}.{nameof(OutcomeInput.Stage)}")" @bind-Value="Outcome.Stage" @attributes="field">
+                                        <option value="">Elige un resultado</option>
+                                        @* Written as a loop so each option is its own element: the server can then mark the chosen one as selected. *@
+                                        @foreach (var (value, label) in StageChoices)
+                                        {
+                                            <option value="@value">@label</option>
+                                        }
+                                    </InputSelect>
+                                </FormField>
+                                <FormField TValue="string" For="() => Outcome.LossReason" Id="outcome-reason" Label="Motivo de pérdida" Hint="Solo si la venta se perdió." ApiErrors="_outcomeErrors" Context="field">
+                                    <InputSelect id="outcome-reason" class="input" name="@($"{nameof(Outcome)}.{nameof(OutcomeInput.LossReason)}")" @bind-Value="Outcome.LossReason" @attributes="field">
+                                        <option value="">Sin motivo</option>
+                                        @foreach (var reason in ConversationLabels.LossReasons)
+                                        {
+                                            <option value="@reason">@ConversationLabels.LossReason(reason)</option>
+                                        }
+                                    </InputSelect>
+                                </FormField>
+                                <FormField TValue="string" For="() => Outcome.Detail" Id="outcome-detail" Label="Detalle" Hint="Opcional, hasta 500 caracteres. No incluyas datos personales." ApiErrors="_outcomeErrors" Context="field">
+                                    <InputTextArea id="outcome-detail" class="input" rows="3" maxlength="500" name="@($"{nameof(Outcome)}.{nameof(OutcomeInput.Detail)}")" @bind-Value="Outcome.Detail" @attributes="field" />
+                                </FormField>
+                                <ApiFieldErrors Errors="_outcomeErrors" KnownFields="@(["Stage", "LossReason", "Detail"])" />
+                                <div class="form-actions">
+                                    @if (CanManage)
+                                    {
+                                        <button type="submit" class="btn btn--primary"><Icon Name="check" />Guardar resultado</button>
+                                    }
+                                </div>
+                            </EditForm>
+                        </Card>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private ConversationDetailResponse? _conversation;
+    private IReadOnlyList<AdvisorResponse>? _advisors;
+    private bool _missing;
+    private bool _modified;
+    private bool _prefilled;
+    private DateTime _nowUtc;
+    private IReadOnlyDictionary<string, string[]>? _assignErrors;
+    private IReadOnlyDictionary<string, string[]>? _outcomeErrors;
+
+    private AssignAdvisorInput? _assign;
+    private OutcomeInput? _outcome;
+
+    [SupplyParameterFromForm(FormName = "assign-advisor")]
+    private AssignAdvisorInput Assign
+    {
+        get => _assign ??= new();
+        set => _assign = value;
+    }
+
+    [SupplyParameterFromForm(FormName = "set-outcome")]
+    private OutcomeInput Outcome
+    {
+        get => _outcome ??= new();
+        set => _outcome = value;
+    }
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [SupplyParameterFromQuery]
+    public string? Notice { get; set; }
+
+    private bool CanManage { get; set; }
+
+    private static readonly (string Value, string Label)[] StageChoices =
+    [
+        ("Won", "Ganada: el cliente compró o agendó"),
+        ("Lost", "Perdida: no se concretó"),
+        ("InFollowUp", "En seguimiento: sigue abierta"),
+    ];
+
+    private string Heading => _conversation is null
+        ? "Conversación"
+        : string.IsNullOrWhiteSpace(_conversation.Contact.DisplayName) ? $"Cliente {ConversationFormat.MaskedPhone(_conversation.Contact.WaId)}" : _conversation.Contact.DisplayName.Trim();
+
+    private string? Subheading => _conversation is null ? null : $"WhatsApp {_conversation.Contact.WaId}";
+
+    private string ChatSubtitle => _conversation is null
+        ? string.Empty
+        : $"{MetricsFormat.Whole(_conversation.MessageCount)} {(_conversation.MessageCount == 1 ? "mensaje" : "mensajes")}, a la hora de tu negocio.";
+
+    // Only the advisors of this conversation's branch can take it; the current one is listed even if it was deactivated since.
+    private IEnumerable<AdvisorResponse> BranchAdvisors
+        => (_advisors ?? []).Where(advisor => _conversation is not null && advisor.BranchId == _conversation.BranchId && (advisor.IsActive || advisor.Id == _conversation.AdvisorId));
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        _nowUtc = Clock.GetUtcNow().UtcDateTime;
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    protected override void OnNotFound()
+    {
+        _missing = true;
+        ConversationNotFoundMarker.Mark(HttpContext);
+        SetStatusCode(StatusCodes.Status404NotFound);
+        Message = null;
+    }
+
+    private async Task LoadAsync()
+    {
+        var detailTask = Api.GetConversationAsync(Token!, Id);
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        var advisorsTask = Api.GetAdvisorsAsync(Token!);
+        await Task.WhenAll(detailTask, profileTask, advisorsTask);
+
+        if (await TryFailAsync(detailTask.Result, profileTask.Result))
+        {
+            return;
+        }
+
+        Shell.Remember(profileTask.Result.Value!);
+        if (!profileTask.Result.Value!.Can(Permission.ConversationsView))
+        {
+            Deny();
+            return;
+        }
+
+        _conversation = detailTask.Result.Value;
+        CanManage = profileTask.Result.Value!.Can(Permission.ConversationsManage);
+
+        // Choosing an advisor needs to see them: without OrganizationView the list is simply empty (the current advisor is still named).
+        _advisors = advisorsTask.Result.IsSuccess ? advisorsTask.Result.Value : null;
+
+        if (!IsPost && !_prefilled)
+        {
+            _prefilled = true;
+            Assign.AdvisorId = _conversation!.AdvisorId?.ToString();
+            Outcome.Stage = OutcomeInput.Stages.Contains(_conversation.Opportunity.Stage) ? _conversation.Opportunity.Stage : null;
+            Outcome.LossReason = _conversation.Opportunity.Stage == "Lost" ? _conversation.Opportunity.LossReason : null;
+            Outcome.Detail = _conversation.Opportunity.Stage == "Lost" ? _conversation.Opportunity.LossDetail : null;
+        }
+    }
+
+    private async Task AssignAsync()
+    {
+        if (!Assign.IsValid)
+        {
+            _assignErrors = new Dictionary<string, string[]> { ["AdvisorId"] = ["Elige un asesor de la lista."] };
+            await LoadAsync();
+            return;
+        }
+
+        var result = await Api.AssignAdvisorAsync(Token!, Id, Assign.ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo(ConversationsNotice.Url(Id, ConversationsNotice.AdvisorChanged));
+            return;
+        }
+
+        switch (result.Status)
+        {
+            case ApiResultStatus.ValidationFailed:
+                _assignErrors = result.ValidationErrors;
+                SetStatusCode(StatusCodes.Status400BadRequest);
+                break;
+            case ApiResultStatus.Conflict:
+                _modified = true;
+                break;
+            default:
+                await TryFailAsync(result);
+                break;
+        }
+
+        if (!Redirected && !_missing && !Denied)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task SaveOutcomeAsync()
+    {
+        var result = await Api.SetOpportunityOutcomeAsync(Token!, Id, Outcome.ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo(ConversationsNotice.Url(Id, ConversationsNotice.OutcomeSaved));
+            return;
+        }
+
+        switch (result.Status)
+        {
+            case ApiResultStatus.ValidationFailed:
+                _outcomeErrors = result.ValidationErrors;
+                SetStatusCode(StatusCodes.Status400BadRequest);
+                break;
+            case ApiResultStatus.Conflict:
+                _modified = true;
+                break;
+            default:
+                await TryFailAsync(result);
+                break;
+        }
+
+        if (!Redirected && !_missing && !Denied)
+        {
+            await LoadAsync();
+        }
+    }
+}

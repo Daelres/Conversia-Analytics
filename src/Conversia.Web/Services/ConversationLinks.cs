@@ -13,16 +13,35 @@ public static class ConversationLinks
     /// <summary>The list, filtered. <paramref name="range"/> is in local dates, <c>To</c> exclusive, as the API takes them.</summary>
     public static string List(
         DateRange? range = null, Guid? branchId = null, Guid? advisorId = null, string? stage = null, string? source = null, string? status = null, bool unanswered = false)
+        => List(new ConversationFilters
+        {
+            BranchId = branchId,
+            AdvisorId = advisorId,
+            Stage = stage,
+            Source = source,
+            Status = status,
+            From = range?.From,
+            To = range?.To,
+            UnansweredOpen = unanswered,
+        });
+
+    /// <summary>The list with these filters; the first page carries no <c>page</c>.</summary>
+    public static string List(ConversationFilters filters)
     {
         var parts = new List<string>();
-        Add(parts, "branch", branchId?.ToString());
-        Add(parts, "advisor", advisorId?.ToString());
-        Add(parts, "stage", stage);
-        Add(parts, "source", source);
-        Add(parts, "status", status);
-        Add(parts, "unanswered", unanswered ? "true" : null);
-        Add(parts, "from", range?.From.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
-        Add(parts, "to", range?.To.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        Add(parts, "branch", filters.BranchId?.ToString());
+        Add(parts, "advisor", filters.Unassigned ? ConversationFilters.NoAdvisor : filters.AdvisorId?.ToString());
+        Add(parts, "stage", filters.Stage);
+        Add(parts, "source", filters.Source);
+        Add(parts, "status", filters.Status);
+        Add(parts, "reply", filters.UnansweredOpen ? ConversationFilters.ReplyOpen : filters.ClosedUnanswered ? ConversationFilters.ReplyClosed : null);
+        Add(parts, "from", filters.From?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        Add(parts, "to", filters.To?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        if (filters.Page > 1)
+        {
+            Add(parts, "page", filters.Page.ToString(CultureInfo.InvariantCulture));
+        }
+
         return parts.Count == 0 ? ListPath : $"{ListPath}?{string.Join('&', parts)}";
     }
 

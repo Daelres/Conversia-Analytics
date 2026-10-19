@@ -1,0 +1,29 @@
+@using Conversia.Application.DTOs.Conversations
+@* The first reply of a conversation in one badge: how long it took, how long they have waited, or that it closed unanswered. *@
+@if (Conversation.Unanswered)
+{
+    <Chip Tone="ChipTone.Danger" IconName="alert-circle" data-testid="reply-chip" data-reply="waiting">Sin responder · @Wait</Chip>
+}
+else if (Conversation.ClosedUnanswered)
+{
+    <Chip Tone="ChipTone.Warning" IconName="x-circle" data-testid="reply-chip" data-reply="closed-unanswered">Se cerró sin respuesta</Chip>
+}
+else if (ConversationFormat.FirstResponseMinutes(Conversation) is { } minutes)
+{
+    <span data-testid="reply-chip" data-reply="answered" data-minutes="@minutes.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)">@MetricsFormat.Duration(minutes)</span>
+}
+else
+{
+    <span class="muted" data-testid="reply-chip" data-reply="none">—</span>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public ConversationListItem Conversation { get; set; } = default!;
+
+    /// <summary>The instant "now" is taken at (UTC); the page passes its clock so a render and its tests agree.</summary>
+    [Parameter, EditorRequired]
+    public DateTime NowUtc { get; set; }
+
+    private string Wait => MetricsFormat.Duration(Math.Max(0, (NowUtc - Conversation.FirstInboundAt!.Value).TotalMinutes));
+}

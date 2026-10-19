@@ -155,7 +155,7 @@ public class PanelPageTests
         Assert.Contains("hace más de 30 minutos", alerts[0].Plain());
         var unansweredLink = alerts[0].QuerySelector("a")!.GetAttribute("href")!;
         Assert.StartsWith("/conversaciones?", unansweredLink);
-        Assert.Contains("unanswered=true", unansweredLink);
+        Assert.Contains("reply=unanswered", unansweredLink);
         Assert.Equal($"/panel?branch={MetricsStub.Norte}", alerts[1].QuerySelector("a")!.GetAttribute("href"));
         Assert.Null(page.Document.QuerySelector("[data-testid=alerts-calm]"));
         var firstSection = page.Select("main section").First();
@@ -196,7 +196,7 @@ public class PanelPageTests
 
         var page = (await harness.OpenAsync()).ShouldBe(HttpStatusCode.OK);
 
-        Assert.Empty(page.Select("a[href^='/conversaciones']"));
+        Assert.Empty(page.Select("main a[href^='/conversaciones']"));
         Assert.NotEmpty(page.Select("[data-testid=alert]"));
     }
 

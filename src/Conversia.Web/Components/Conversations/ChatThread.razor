@@ -1,0 +1,61 @@
+@using Conversia.Application.DTOs.Conversations
+@* The messages of a conversation, oldest first: the customer on the left, the business on the right. Direction is written in words too, not only by the side. *@
+@if (Messages.Count == 0)
+{
+    <p class="muted" data-testid="chat-empty">Esta conversación no tiene mensajes guardados.</p>
+}
+else
+{
+    <ol class="chat" data-testid="chat" aria-label="Mensajes de la conversación">
+        @foreach (var entry in Entries)
+        {
+            @if (entry.NewDay)
+            {
+                <li class="chat__day" data-testid="chat-day"><span>@entry.DayLabel</span></li>
+            }
+            <li class="chat__item chat__item--@entry.Side" data-testid="chat-message" data-direction="@entry.Message.Direction" data-message-id="@entry.Message.Id">
+                <div class="chat__bubble">
+                    <span class="chat__who">@(entry.Side == "in" ? "Cliente" : "Negocio")</span>
+                    @if (string.IsNullOrEmpty(entry.Message.Text))
+                    {
+                        <p class="chat__text chat__text--empty">[@ConversationFormat.MessageType(entry.Message.Type) sin texto]</p>
+                    }
+                    else
+                    {
+                        <p class="chat__text">@entry.Message.Text</p>
+                    }
+                    <time class="chat__time" datetime="@entry.Message.SentAt.ToString("O")">@MetricsFormat.Clock(entry.Local)</time>
+                </div>
+            </li>
+        }
+    </ol>
+}
+
+@code {
+    private sealed record Entry(MessageResponse Message, DateTime Local, string Side, bool NewDay, string DayLabel);
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<MessageResponse> Messages { get; set; } = [];
+
+    /// <summary>Turns an instant the API sent (UTC) into the wall-clock time of the business.</summary>
+    [Parameter, EditorRequired]
+    public Func<DateTime, DateTime> ToLocal { get; set; } = utc => utc;
+
+    private IReadOnlyList<Entry> Entries
+    {
+        get
+        {
+            var entries = new List<Entry>(Messages.Count);
+            DateOnly? previous = null;
+            foreach (var message in Messages)
+            {
+                var local = ToLocal(message.SentAt);
+                var day = DateOnly.FromDateTime(local);
+                entries.Add(new Entry(message, local, message.Direction == "Inbound" ? "in" : "out", previous != day, MetricsFormat.Day(day)));
+                previous = day;
+            }
+
+            return entries;
+        }
+    }
+}
