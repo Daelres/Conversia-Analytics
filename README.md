@@ -144,9 +144,12 @@ tests/
   Conversia.WebhookSimulator.UnitTests the simulator's chats, plan, payloads and commands (no network)
 tools/
   Conversia.WebhookSimulator           dev-only: fills a local API with believable WhatsApp conversations (docs/SIMULATOR.md)
-docs/                                    ARCHITECTURE, WORKFLOW, USERS_TENANTS_PERMISSIONS, DEMO, EXTENDING, ERRORS, SIMULATOR
+docs/                                    ARCHITECTURE, WORKFLOW, USERS_TENANTS_PERMISSIONS, DEMO, EXTENDING, ERRORS, SIMULATOR, DOCKER
 scripts/rename.sh                        rename the template for a new project
 docker-compose.yml, .env.example         full local stack
+docker/healthcheck.sh                    container health probe (bash /dev/tcp, no curl in the image)
+scripts/docker-build.sh                  builds the conversia-api, -migrator and -web images
+scripts/docker-smoke-test.sh             image acceptance test: builds and exercises the real stack
 docker-compose.demo.yml                  overlay: the same stack with the demo data and accounts
 ```
 
@@ -190,6 +193,10 @@ To start the same stack with the demo data and accounts, add the overlay
 [Try the demo](#try-the-demo)). It runs the API and the Web in the `Demo`
 environment and reads the optional `DEMO_PASSWORD` from `.env` (default
 `Demo-Pass-2026!`). `docker-compose.yml` alone never enables the demo.
+
+The images, their build arguments and labels, health checks, multi-arch builds
+and the smoke test (`scripts/docker-smoke-test.sh`) are described in
+[docs/DOCKER.md](docs/DOCKER.md).
 
 Notes: the containers listen on plain HTTP (port 8080 inside), so put a
 TLS-terminating reverse proxy in front for anything beyond local use.
