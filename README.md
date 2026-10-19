@@ -19,6 +19,8 @@ product catalog. How to present it, the accounts and a scene-by-scene script:
 [`docs/DEMO.md`](docs/DEMO.md). How to build your own feature the same way
 (and how to remove the demo): [`docs/EXTENDING.md`](docs/EXTENDING.md). The demo
 is for your own machine only: its accounts have a publicly known password.
+Port already in use, `password authentication failed` or forms failing after a
+restart: see [Docker troubleshooting](docs/DOCKER.md#troubleshooting).
 
 ## Features
 

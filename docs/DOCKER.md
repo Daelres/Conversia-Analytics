@@ -76,11 +76,23 @@ Nothing secret is baked into an image; everything below is supplied at run time.
 | `Dialog360__ApiKey` | api | no | Passed through; nothing calls 360dialog yet. |
 | `Api__BaseUrl` | web | yes | Base URL of the API as seen from the Web container. |
 | `ErrorReporting__ApiKey` | web | no | See `ErrorLogging__ReportKey`. |
+| `DataProtection__KeysPath` | web | no | Directory where the Web persists its Data Protection keys. The image sets it to `/keys`. Must exist and be writable or the Web refuses to start. Unset: the framework default (not persisted in a container). |
 | `ASPNETCORE_ENVIRONMENT` | api, web | no | Defaults to Production. `Demo` is for the demo overlay only. |
 | `ASPNETCORE_HTTP_PORTS` | api, web | no | Defaults to 8080 in the images. |
 | `--connection` (argument) | migrator | yes | Same connection string as the API. |
 
 Compose-level variables (`.env`, see `.env.example`): `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ERROR_REPORT_KEY`, `D360_API_KEY`, `API_PORT`, `WEB_PORT`, `POSTGRES_PORT`, `CONVERSIA_TAG`, `CONVERSIA_VERSION`, `CONVERSIA_GIT_SHA`, `CONVERSIA_BUILD_DATE`.
+
+### Volumes
+
+| Volume | Mounted at | Holds |
+|---|---|---|
+| `postgres-data` | `/var/lib/postgresql/data` (postgres) | The database. The password is fixed here when the volume is first created. |
+| `web-keys` | `/keys` (web) | The Web's ASP.NET Core Data Protection keys. |
+
+The Web uses Data Protection to protect the sign-in cookie and the antiforgery tokens of every form. Without persisted keys, each container restart or recreate (`docker compose up --build` included) generates a new key ring, so every cookie and every form that was open before the restart is rejected. The `web-keys` volume keeps the ring across restarts; the application name is fixed (`Conversia.Web`) so the keys belong to this app only. The Dockerfile creates `/keys` owned by the non-root app user before dropping privileges, so a fresh named volume inherits a writable directory.
+
+The keys are stored **unencrypted** on the volume. That is acceptable on a single host and for development, where the volume is as private as the machine; keep it that way and do not share it. `docker compose down -v` deletes the keys together with the database (everyone has to sign in again). Follow-up for production: protect the ring with Azure Key Vault and Blob Storage (`PersistKeysToAzureBlobStorage` + `ProtectKeysWithAzureKeyVault`) and share it across replicas; not configured yet.
 
 ## Health checks
 
@@ -113,15 +125,40 @@ It builds the three images with a throwaway tag (`smoke-<random>`), starts its o
 - non-root and read-only `/app` in the running containers, secrets present only as run-time environment;
 - end to end: register a tenant, log in, create a branch, an advisor and a channel, post an inbound message and an echo to the webhook with the secret returned once, a redelivery (idempotent), a wrong secret and an unknown key (401), wait for the conversation, all six metrics endpoints, and a sign-in and conversation list through the Web;
 - logs: no Error-level entries or stack traces (the migrator's expected first read of a missing `__EFMigrationsHistory` aside), no phone number, contact name or message text, no secret;
+- Data Protection keys: a login form is fetched (cookie and antiforgery token), only the Web container is recreated (a plain `restart` keeps the container file system and would hide the problem), and the same form is submitted afterwards; an antiforgery rejection (400) fails the check, and a key file must exist in `/keys`;
 - failure mode: with PostgreSQL stopped the API `/health` answers 503 and Docker marks the container unhealthy without a crash loop; the Web stays healthy; everything recovers when PostgreSQL returns.
 
 It only creates and removes resources of its own project (`down -v --rmi local` plus its own tags) and never reads the repository's `.env`. CI runs it as the `docker` job of `.github/workflows/tests.yml`.
+
+## Troubleshooting
+
+Start with the logs of the failing service: `docker compose logs --tail 50 api` (also `web`, `migrator`, `postgres`), and `docker compose ps -a` for the state and health of every container.
+
+**Port already allocated.** Symptoms: `Bind for 127.0.0.1:5432 failed: port is already allocated` (or `0.0.0.0:5030` / `5112`) on `docker compose up`; some containers show as `Created`; the postgres container runs but is detached from the compose network, so the migrator or the API fails with `Name or service not known` for host `postgres`. Another program (often another project's PostgreSQL on 5432) owns the host port. Fix: pick free ports in `.env` and recreate the stack.
+
+```bash
+# .env
+POSTGRES_PORT=15432
+API_PORT=15030
+WEB_PORT=15112
+```
+
+```bash
+docker compose down && docker compose up -d
+```
+
+Only the host side changes; containers keep talking to each other on the internal ports. The URLs become `http://localhost:15030` (API) and `http://localhost:15112` (Web).
+
+**`password authentication failed` (`28P01`).** The PostgreSQL password is written into the data volume the first time the volume is created; changing `POSTGRES_PASSWORD` in `.env` afterwards does not change it, so the API and the migrator are refused. Either put the old password back in `.env`, change the password inside the database (`docker compose exec postgres psql -U <user> -d <db> -c "ALTER USER <user> PASSWORD '<new>'"`), or recreate the volume with `docker compose down -v` (**this deletes this project's database and the Web's keys**) and start again.
+
+**A form fails after a restart (`AntiforgeryValidationException`, "key not found in the key ring").** A form or session opened before the restart was protected with keys the new container did not have. Current compose files keep the keys in the `web-keys` volume (see Volumes), so this no longer happens on a normal restart or `up --build`. Browser tabs left open from before you first got the volume still hold tokens made with the lost keys: reload them (and sign in again once). If it keeps happening, check `docker volume ls` for `<project>_web-keys` and that the Web logs do not say it stores keys in `/home/app/.aspnet/DataProtection-Keys`, which means `DataProtection__KeysPath` is not set. `down -v` also wipes the keys.
 
 ## Security properties
 
 - All three images run as the non-root `app` user (uid 1654); `/app` is owned by root and is not writable by the process.
 - No secret is baked in. Secrets arrive as environment variables or arguments at run time; the smoke test searches the image metadata for them.
 - The build context is strict (`.dockerignore`), so `.env` files, tests, docs and tools never reach the daemon or an image layer.
+- The Web's Data Protection keys live in the `web-keys` volume, unencrypted (see Volumes); the directory is mode 0700 and owned by the app user.
 - The healthcheck script is root-owned, mode 0555, and only talks to localhost.
 - Containers listen on plain HTTP (8080). Terminate TLS in a reverse proxy and configure forwarded headers (see `docs/WEBHOOKS.md`).
 - The EF Core bundle is built with a placeholder signing key that exists only for that single build command.
