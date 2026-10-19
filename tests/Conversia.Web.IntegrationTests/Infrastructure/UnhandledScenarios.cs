@@ -14,9 +14,9 @@ internal static class UnhandledScenarios
 
     public static readonly IReadOnlyList<string> Names =
     [
-        "GET /", "GET /users", "GET /products", "GET /products/{id}/edit", "GET /products/{id}/delete", "GET /demo",
-        "enhanced GET /users", "enhanced GET /products",
-        "POST /login", "POST /register", "POST /users", "POST /products", "POST /products/{id}/edit", "POST /products/{id}/delete",
+        "GET /", "GET /users", "GET /conversaciones", "GET /conversaciones/{id}", "GET /organizacion",
+        "enhanced GET /users", "enhanced GET /conversaciones",
+        "POST /login", "POST /register", "POST /users", "POST /organizacion", "POST /conversaciones/{id}",
     ];
 
     public static TheoryData<string> All
@@ -34,10 +34,10 @@ internal static class UnhandledScenarios
     }
 
     /// <summary>The pages of the scenarios that are plain reads: a smaller axis for the tests that need many hosts.</summary>
-    public static TheoryData<string> Representative => new() { "GET /users", "POST /login", "enhanced GET /products", "POST /products" };
+    public static TheoryData<string> Representative => new() { "GET /users", "POST /login", "enhanced GET /conversaciones", "POST /organizacion" };
 
-    public static string PathOf(string scenario, Guid productId)
-        => scenario.Split(' ')[^1].Replace("{id}", productId.ToString());
+    public static string PathOf(string scenario, Guid conversationId)
+        => scenario.Split(' ')[^1].Replace("{id}", conversationId.ToString());
 
     /// <summary>The scenarios that are a plain page read or a form post (no enhanced navigation): the pages a person can fail on.</summary>
     public static TheoryData<string> Pages
@@ -60,11 +60,11 @@ internal static class UnhandledScenarios
     /// signed-in scenarios use <paramref name="email"/>.
     /// </summary>
     public static async Task<PageResponse> TriggerAsync(
-        WebScenario scenario, string name, string email = "owner@example.test", Guid? productId = null, WebSession? existing = null, Action<WebScenario>? breakIt = null)
+        WebScenario scenario, string name, string email = "owner@example.test", Guid? conversationId = null, WebSession? existing = null, Action<WebScenario>? breakIt = null)
     {
         void Break() => (breakIt ?? (s => s.BreakTheWeb()))(scenario);
 
-        var id = productId ?? Guid.NewGuid();
+        var id = conversationId ?? ConversationsStub.Waiting;
         var anonymous = name is "POST /login" or "POST /register";
         var session = existing ?? (anonymous ? scenario.Anonymous() : await scenario.SignInAsync(email));
 
@@ -95,31 +95,24 @@ internal static class UnhandledScenarios
                 return await session.SubmitAsync(form);
             }
 
-            case "POST /products":
+            case "POST /organizacion":
             {
-                var (_, form) = await ProductFlows.OpenCreateFormAsync(session);
-                form = ProductFlows.FillCreate(form, "NEW-1", "Yunque", "10,50", "3");
+                var page = (await session.GetAsync("/organizacion")).ShouldBe(HttpStatusCode.OK);
+                var form = FormModel.From(page, page.FindForm(f => f.GetAttribute("data-testid") == "branch-form", "branch-form")).Set("Name", "Poblado");
                 Break();
                 return await session.SubmitAsync(form);
             }
 
-            case "POST /products/{id}/edit":
+            case "POST /conversaciones/{id}":
             {
-                var (_, form) = await ProductFlows.OpenEditFormAsync(session, id);
-                form = ProductFlows.FillEdit(form, "Yunque 2", "11,00", "4");
-                Break();
-                return await session.SubmitAsync(form);
-            }
-
-            case "POST /products/{id}/delete":
-            {
-                var (_, form) = await ProductFlows.OpenDeleteFormAsync(session, id);
+                var page = (await session.GetAsync(PathOf(name, id))).ShouldBe(HttpStatusCode.OK);
+                var form = FormModel.From(page, page.FindForm(f => f.GetAttribute("data-testid") == "assign-form", "assign-form"));
                 Break();
                 return await session.SubmitAsync(form);
             }
 
             case "enhanced GET /users":
-            case "enhanced GET /products":
+            case "enhanced GET /conversaciones":
                 Break();
                 return await session.GetAsync(PathOf(name, id), ("Accept", EnhancedNavigationAccept));
 

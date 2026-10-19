@@ -1,5 +1,5 @@
+using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Conversations;
-using Conversia.Application.DTOs.Products;
 
 namespace Conversia.Application.Interfaces;
 

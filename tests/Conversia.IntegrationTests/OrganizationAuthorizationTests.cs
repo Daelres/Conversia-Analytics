@@ -65,12 +65,12 @@ public class OrganizationAuthorizationTests
 
     [Theory]
     [MemberData(nameof(AllOps))]
-    public async Task MemberWithoutOrganizationPermissions_Is403_AndAUsersOrProductsPermissionDoesNotHelp(Op op)
+    public async Task MemberWithoutOrganizationPermissions_Is403_AndOtherPermissionsDoNotHelp(Op op)
     {
         using var tenant = await StartTenantAsync(_factory, _client, "auth");
         var targets = await SeedAsync(tenant.Owner.Client);
         using var none = await tenant.AddMemberAsync("none");
-        using var others = await tenant.AddMemberAsync("others", Permission.UsersView, Permission.UsersManage, Permission.ProductsView, Permission.ProductsManage);
+        using var others = await tenant.AddMemberAsync("others", Permission.UsersView, Permission.UsersManage, Permission.ConversationsView, Permission.ConversationsManage, Permission.MetricsView);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await RunAsync(none.Client, op, targets)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await RunAsync(others.Client, op, targets)).StatusCode);

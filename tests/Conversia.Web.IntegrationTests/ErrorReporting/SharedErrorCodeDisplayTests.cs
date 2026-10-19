@@ -63,7 +63,7 @@ public class SharedErrorCodeDisplayTests
         using var scenario = WebScenario.Create();
         var (first, second) = (NewCode(), NewCode());
 
-        var page = await UnhandledScenarios.TriggerAsync(scenario, "GET /products/{id}/edit", breakIt: s => s.BreakTheApi(request =>
+        var page = await UnhandledScenarios.TriggerAsync(scenario, "GET /conversaciones/{id}", breakIt: s => s.BreakTheApi(request =>
             Task.FromResult<HttpResponseMessage?>(FakeBackend.UnexpectedWithCode(request.Path == "/api/users/me" ? first : second))));
 
         Assert.Contains(ErrorCodeAssertions.Shown(page), new[] { first, second });
@@ -113,7 +113,7 @@ public class SharedErrorCodeDisplayTests
     [MemberData(nameof(FakeBackend.UpstreamFailures), MemberType = typeof(FakeBackend))]
     public async Task Every_way_the_api_can_fail_shows_a_code_that_was_reported(string failure)
     {
-        foreach (var pageName in new[] { "GET /products", "GET /", "POST /login" })
+        foreach (var pageName in new[] { "GET /conversaciones", "GET /", "POST /login" })
         {
             using var scenario = WebScenario.Create();
 
@@ -178,7 +178,7 @@ public class SharedErrorCodeDisplayTests
     [MemberData(nameof(KnownStatuses))]
     public async Task Known_outcomes_show_no_code_and_report_nothing(int status)
     {
-        foreach (var pageName in new[] { "GET /users", "GET /products", "GET /", "POST /login", "POST /users" })
+        foreach (var pageName in new[] { "GET /users", "GET /conversaciones", "GET /", "POST /login", "POST /users" })
         {
             using var scenario = WebScenario.Create();
 

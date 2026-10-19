@@ -2,9 +2,10 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Auth;
 using Conversia.Application.DTOs.Diagnostics;
-using Conversia.Application.DTOs.Products;
+using Conversia.Application.DTOs.Organization;
 using Conversia.Application.DTOs.Users;
 using Conversia.Domain.Common;
 
@@ -26,7 +27,7 @@ internal sealed record BackendRequest(HttpMethod Method, Uri Uri, IReadOnlyDicti
 }
 
 /// <summary>
-/// A stand-in for Conversia.API, as seen by the Web: a healthy API (login, profile, users, products) whose answers a test can
+/// A stand-in for Conversia.API, as seen by the Web: a healthy API (login, profile, users, conversations, organization) whose answers a test can
 /// override, plus the error report endpoint with a behaviour of its own. It keeps no database and no state besides the record of
 /// what it received, so tests that only need "an API that answers like this" start instantly and in parallel.
 /// Everything it receives is recorded, including the headers: a test can prove what the Web never sends (cookies, bearer tokens).
@@ -76,10 +77,13 @@ internal sealed class FakeBackend : HttpMessageHandler
         }
 
         var custom = Data is null ? null : await Data(recorded);
-        return custom ?? Healthy(recorded);
+        return custom ?? await HealthyConversations.Handle(recorded) ?? Healthy(recorded);
     }
 
     // ---- the healthy API ----
+
+    /// <summary>The conversations, branches and advisors a healthy API answers with (read only: the tests that change them use their own stub).</summary>
+    private static readonly ConversationsStub HealthyConversations = new(DateTime.UtcNow);
 
     private static HttpResponseMessage Healthy(BackendRequest request)
     {
@@ -91,9 +95,8 @@ internal sealed class FakeBackend : HttpMessageHandler
             ("GET", "/api/users/me") => Answer(HttpStatusCode.OK, Profile(request)),
             ("GET", "/api/users") => Answer(HttpStatusCode.OK, new[] { new UserSummaryResponse { UserId = UserId, Email = "owner@example.test", IsOwner = true } }),
             ("POST", "/api/users") => Answer(HttpStatusCode.Created, new UserSummaryResponse { UserId = Guid.NewGuid(), Email = "new@example.test" }),
-            ("GET", "/api/products") => Answer(HttpStatusCode.OK, new PagedResponse<ProductResponse> { Items = [], Page = 1, PageSize = 10, TotalCount = 0 }),
-            ("POST", "/api/products") => Answer(HttpStatusCode.Created, Product(Guid.NewGuid())),
-            ("GET", _) when path.StartsWith("/api/products/", StringComparison.Ordinal) => Answer(HttpStatusCode.OK, Product(Guid.Parse(path["/api/products/".Length..]))),
+            ("GET", "/api/channels") => Answer(HttpStatusCode.OK, Array.Empty<ChannelResponse>()),
+            ("POST", "/api/branches") => Answer(HttpStatusCode.Created, new BranchResponse { Id = Guid.NewGuid(), Name = "Centro", IsActive = true, CreatedAt = DateTime.UtcNow }),
             _ => Answer(HttpStatusCode.NoContent, null),
         };
     }
@@ -133,11 +136,6 @@ internal sealed class FakeBackend : HttpMessageHandler
         var (user, tenant) = FakeJwt.IdentityOf(request.Header("Authorization")?["Bearer ".Length..]);
         return new UserProfileResponse { UserId = user, TenantId = tenant, IsOwner = true };
     }
-
-    private static ProductResponse Product(Guid id) => new()
-    {
-        Id = id, Name = "Yunque", Sku = "YUN-1", Price = 10.5m, Stock = 3, RowVersion = "AAAAAAAAB9E=", CreatedAt = DateTime.UtcNow,
-    };
 
     private static Task<HttpResponseMessage> AcceptReport(BackendRequest request)
     {

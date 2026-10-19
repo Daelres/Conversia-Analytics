@@ -36,7 +36,7 @@ public class OrganizationService : IOrganizationService
     {
         var branch = Branch.Create(callerTenantId, request.Name);
 
-        // No existence pre-check: the unique (TenantId, Name) index decides, see ProductService.
+        // No existence pre-check: the unique (TenantId, Name) index decides, see BranchRepository.
         await _branches.AddAsync(branch, cancellationToken);
         return BranchResponse.From(branch);
     }

@@ -11,10 +11,9 @@ internal static class ApiMessages
 {
     public const string InvalidCredentials = "Correo o contraseña incorrectos.";
     public const string DuplicateEmail = "Ese correo ya está registrado.";
-    public const string ProductNotFound = "Producto no encontrado.";
+    public const string BranchNotFound = "Sucursal no encontrada.";
     public const string UserNotFound = "Usuario no encontrado.";
-    public const string DuplicateSku = "Ya existe un producto con ese SKU.";
-    public const string Concurrency = "El producto fue modificado por otra persona. Recarga e inténtalo de nuevo.";
+    public const string DuplicateBranchName = "Ya existe una sucursal con ese nombre.";
     public const string RateLimited = "Demasiados intentos de inicio de sesión. Inténtalo de nuevo más tarde.";
     public const string Unexpected = "Ocurrió un error inesperado. Inténtalo de nuevo más tarde.";
     public const string UnexpectedTitle = "Ocurrió un error inesperado";

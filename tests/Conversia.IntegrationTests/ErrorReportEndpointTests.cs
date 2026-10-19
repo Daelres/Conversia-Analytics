@@ -195,7 +195,7 @@ public class ErrorReportEndpointTests
         Assert.Equal("GET", row.HttpMethod);
         Assert.Equal($"/report/{marker}", row.Path);
         Assert.Equal("?page=2&search=tornillo", row.Query);
-        Assert.Equal("/products (GET)", row.Endpoint);
+        Assert.Equal("/conversaciones (GET)", row.Endpoint);
         Assert.Equal("{\"page\":\"2\"}", row.RouteValues);
         Assert.Equal(503, row.StatusCode);
         Assert.Equal("4bf92f3577b34da6a3ce929d0e0e4736", row.TraceId);
@@ -206,7 +206,7 @@ public class ErrorReportEndpointTests
         Assert.Equal("System.Net.Http.HttpRequestException", row.ExceptionType);
         Assert.Equal("No se pudo conectar con el API", row.ExceptionMessage);
         Assert.Equal(ReportApi.WebStack, row.ExceptionDetails);
-        Assert.Equal("{\"upstream\":\"GET /api/products\",\"elapsedMs\":3012}", row.Context);
+        Assert.Equal("{\"upstream\":\"GET /api/branches\",\"elapsedMs\":3012}", row.Context);
         Assert.Equal(ErrorContract.ExpectedFingerprint("System.Net.Http.HttpRequestException", ReportApi.WebTopFrame), row.Fingerprint);
         Assert.InRange(row.OccurredAt, before.AddMinutes(-5), DateTime.UtcNow.AddMinutes(5));
         Assert.Equal(row.OccurredAt.ToString("yyyyMMdd"), code.Substring(4, 8));
@@ -277,10 +277,10 @@ public class ErrorReportEndpointTests
         body["query"] = $"?page=2&token={secret}q&password={secret}w";
         body["exceptionMessage"] = $"Falló Server=db;User Id=svc_web;Password={secret}m; fin";
         body["exceptionDetails"] = $"System.Exception: Falló con Authorization: Bearer {secret}d\n   at Conversia.Web.A.B() in /src/A.cs:line 1\ntoken={secret}t";
-        body["context"] = $"{{\"authorization\":\"Bearer {secret}c\",\"upstream\":\"GET /api/products\"}}";
+        body["context"] = $"{{\"authorization\":\"Bearer {secret}c\",\"upstream\":\"GET /api/branches\"}}";
         body["userAgent"] = $"{marker} secret={secret}u";
         body["routeValues"] = $"{{\"id\":\"1\",\"apikey\":\"{secret}r\"}}";
-        body["endpoint"] = $"/products?client_secret={secret}e";
+        body["endpoint"] = $"/conversaciones?client_secret={secret}e";
         body["requestId"] = $"req {marker} \u0000\u0007 api-key={secret}i";
 
         var row = await AcceptAsync(body);
@@ -803,7 +803,7 @@ public class ErrorReportEndpointTests
         var host = ErrorTestHost.Create(
             _shared,
             ErrorTestHost.Settings(("ErrorLogging:ReportKey", ErrorTestHost.ReportKey), ("ErrorLogging:PersistTimeoutSeconds", "2")),
-            DemoHostSettings.UnreachableConnectionString);
+            TestDatabase.UnreachableConnectionString);
         try
         {
             var marker = ErrorTestHost.NewMarker();

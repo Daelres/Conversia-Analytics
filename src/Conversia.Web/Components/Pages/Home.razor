@@ -16,11 +16,10 @@
             <div class="hero__copy">
                 <span class="chip chip--brand"><Icon Name="sparkles" />Plantilla multiespacio para .NET 10</span>
                 <h1 class="hero__title">Tu espacio de trabajo, <span class="gradient-text">listo para crecer</span></h1>
-                <p class="hero__lead">Gestiona tu espacio de trabajo, sus usuarios y sus permisos. Una base sólida con API protegida, interfaz moderna y una funcionalidad de referencia para copiar.</p>
+                <p class="hero__lead">Gestiona tu espacio de trabajo, sus usuarios y sus permisos. Una base sólida con API protegida e interfaz moderna.</p>
                 <div class="cluster-md">
                     <a class="btn btn--primary" href="/register">Crear espacio de trabajo<Icon Name="arrow-right" /></a>
                     <a class="btn btn--secondary" href="/login">Iniciar sesión</a>
-                    <a class="btn btn--ghost" href="/demo">Ver recorrido<Icon Name="compass" /></a>
                 </div>
             </div>
             <div class="hero__art" aria-hidden="true">
@@ -42,14 +41,6 @@
                     </article>
                 }
             </div>
-        </section>
-
-        <section class="cta-band">
-            <div class="stack-sm">
-                <h2>¿Quieres verla en acción?</h2>
-                <p>El recorrido explica qué incluye la plantilla y qué puede hacer cada tipo de cuenta.</p>
-            </div>
-            <a class="btn btn--primary" href="/demo">Ver recorrido<Icon Name="arrow-right" /></a>
         </section>
     </div>
 }
@@ -112,23 +103,6 @@ else
             <section class="stack" aria-labelledby="home-actions">
                 <h2 id="home-actions">Por dónde seguir</h2>
                 <div class="grid-cards">
-                    @if (_profile.Can(Permission.ProductsView))
-                    {
-                        <a class="card card--link" href="/products">
-                            <span class="tile-icon"><Icon Name="box" /></span>
-                            <span class="card-link__title">Productos</span>
-                            <span class="card-link__text">Consulta y gestiona el catálogo de tu espacio de trabajo.</span>
-                            <span class="card-link__go">Abrir productos<Icon Name="arrow-right" Class="icon--sm" /></span>
-                        </a>
-                    }
-                    else
-                    {
-                        <div class="card card--locked">
-                            <span class="tile-icon tile-icon--muted"><Icon Name="lock" /></span>
-                            <span class="card-link__title">Productos</span>
-                            <span class="card-link__text">Necesitas el permiso «@PermissionLabels.For(Permission.ProductsView)». Pídeselo a la persona propietaria.</span>
-                        </div>
-                    }
                     @if (_profile.Can(Permission.UsersView))
                     {
                         <a class="card card--link" href="/users">
@@ -146,12 +120,6 @@ else
                             <span class="card-link__text">Necesitas el permiso «@PermissionLabels.For(Permission.UsersView)». Pídeselo a la persona propietaria.</span>
                         </div>
                     }
-                    <a class="card card--link" href="/demo">
-                        <span class="tile-icon"><Icon Name="compass" /></span>
-                        <span class="card-link__title">Recorrido</span>
-                        <span class="card-link__text">Descubre qué incluye la plantilla y qué ve cada tipo de cuenta.</span>
-                        <span class="card-link__go">Ver recorrido<Icon Name="arrow-right" Class="icon--sm" /></span>
-                    </a>
                 </div>
             </section>
         }
@@ -165,7 +133,7 @@ else
     [
         new("building", string.Empty, "Espacios aislados", "Cada equipo trabaja en su propio espacio: sus usuarios y sus datos nunca se mezclan con los de otro."),
         new("shield-check", "tile-icon--accent", "Permisos precisos", "Los propietarios lo tienen todo; el resto de personas solo hace lo que se les concede, comprobado en cada solicitud."),
-        new("zap", string.Empty, "Listo para ampliar", "Una funcionalidad de referencia, productos, con búsqueda, paginación y concurrencia optimista: cópiala para crear la tuya.")
+        new("zap", string.Empty, "Listo para ampliar", "Una base de arquitectura limpia con API protegida e interfaz Blazor, lista para añadir nuevas funcionalidades.")
     ];
 
     private bool _signedIn;

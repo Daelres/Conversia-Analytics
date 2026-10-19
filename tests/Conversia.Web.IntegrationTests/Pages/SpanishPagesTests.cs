@@ -12,8 +12,7 @@ namespace Conversia.Web.IntegrationTests.Pages;
 /// Requirement "all text shown to users is Spanish", checked over a matrix of real pages and states: each page is fetched once and
 /// scanned by <see cref="SpanishUiReport"/> (<c>&lt;html lang="es"&gt;</c>, non-empty <c>&lt;title&gt;</c>, a non-trivial amount of text that
 /// contains Spanish, and none of the English words of <c>EnglishLeaks</c> in the visible text or in the user-visible attributes).
-/// A failing test lists every leak of every page it visited. Test data is Spanish on purpose: product names are data
-/// and are not scanned in the table, but they do appear inside sentences (for example on the delete confirmation).
+/// A failing test lists every leak of every page it visited. Test data is Spanish on purpose.
 /// </summary>
 [Collection(nameof(WebIntegrationCollection))]
 public class SpanishPagesTests(TestApiFactory api)
@@ -23,23 +22,13 @@ public class SpanishPagesTests(TestApiFactory api)
     // ---- /login and /register ----
 
     [Fact]
-    public async Task Login_page_is_spanish_with_the_demo_accounts_hidden_and_shown()
+    public async Task Login_page_is_spanish()
     {
         var report = new SpanishUiReport();
-        using (var host = WebTestHost.Create(api))
-        {
-            using var session = host.NewSession();
-            report.Check("login (accounts hidden)", (await session.GetAsync("/login")).ShouldBe(HttpStatusCode.OK));
-            report.Check("login with returnUrl", (await session.GetAsync("/login?returnUrl=%2Fproducts")).ShouldBe(HttpStatusCode.OK));
-        }
-
-        using (var demo = WebTestHost.CreateDemo(api))
-        {
-            using var session = demo.NewSession();
-            var page = (await session.GetAsync("/login")).ShouldBe(HttpStatusCode.OK);
-            Assert.NotEmpty(DemoFlows.ShortcutForms(page)); // precondition: the panel is really on this page
-            report.Check("login (accounts shown)", page);
-        }
+        using var host = WebTestHost.Create(api);
+        using var session = host.NewSession();
+        report.Check("login", (await session.GetAsync("/login")).ShouldBe(HttpStatusCode.OK));
+        report.Check("login with returnUrl", (await session.GetAsync("/login?returnUrl=%2Fusers")).ShouldBe(HttpStatusCode.OK));
 
         report.AssertClean();
     }
@@ -106,14 +95,14 @@ public class SpanishPagesTests(TestApiFactory api)
     public async Task Home_is_spanish_for_an_anonymous_visitor_an_owner_and_members_with_and_without_permissions()
     {
         var owner = await ApiSeed.RegisterOwnerAsync(api);
-        var viewOnly = await ApiSeed.CreateMemberAsync(api, owner, "solo-lectura", Permission.ProductsView);
-        var everything = await ApiSeed.CreateMemberAsync(api, owner, "todo", Permission.UsersView, Permission.UsersManage, Permission.ProductsView, Permission.ProductsManage);
+        var viewOnly = await ApiSeed.CreateMemberAsync(api, owner, "solo-lectura", Permission.UsersView);
+        var everything = await ApiSeed.CreateMemberAsync(api, owner, "todo", Permission.UsersView, Permission.UsersManage, Permission.ConversationsView, Permission.MetricsView);
         var nothing = await ApiSeed.CreateMemberAsync(api, owner, "nada");
         var report = new SpanishUiReport();
         using var host = WebTestHost.Create(api);
 
         report.Check("home (anonymous)", (await host.NewSession().GetAsync("/")).ShouldBe(HttpStatusCode.OK));
-        foreach (var (label, email) in new[] { ("owner", owner.Email), ("view-only", viewOnly.Email), ("all four permissions", everything.Email), ("no permissions", nothing.Email) })
+        foreach (var (label, email) in new[] { ("owner", owner.Email), ("view-only", viewOnly.Email), ("several permissions", everything.Email), ("no permissions", nothing.Email) })
         {
             using var session = await WebFlows.SignedInAsync(host, email);
             var page = (await session.GetAsync("/")).ShouldBe(HttpStatusCode.OK);
@@ -172,13 +161,13 @@ public class SpanishPagesTests(TestApiFactory api)
             return await WebFlows.FollowRedirectsAsync(session, await session.SubmitAsync(form));
         }
 
-        report.Check("users grant (notice)", await PermissionAsync("grant", plain.UserId, "ProductsView"));
-        report.Check("users revoke (notice)", await PermissionAsync("revoke", plain.UserId, "ProductsView"));
-        report.Check("users grant invalid permission (notice)", await PermissionAsync("grant", plain.UserId, "ProductsManage", f => f.Set("Permission", "999")));
-        report.Check("users grant unknown user (notice)", await PermissionAsync("grant", plain.UserId, "ProductsManage", f => f.Set("UserId", Guid.NewGuid().ToString())));
+        report.Check("users grant (notice)", await PermissionAsync("grant", plain.UserId, "UsersView"));
+        report.Check("users revoke (notice)", await PermissionAsync("revoke", plain.UserId, "UsersView"));
+        report.Check("users grant invalid permission (notice)", await PermissionAsync("grant", plain.UserId, "MetricsView", f => f.Set("Permission", "999")));
+        report.Check("users grant unknown user (notice)", await PermissionAsync("grant", plain.UserId, "MetricsView", f => f.Set("UserId", Guid.NewGuid().ToString())));
 
         var pageBeforeOutage = await WebFlows.UsersAsync(session);
-        var actionForm = FormModel.From(pageBeforeOutage, pageBeforeOutage.FindPermissionForm("grant", plain.UserId, "ProductsManage"));
+        var actionForm = FormModel.From(pageBeforeOutage, pageBeforeOutage.FindPermissionForm("grant", plain.UserId, "MetricsView"));
         host.Api.Intercept = FakeApi.Failure("500 problem");
         report.Check("users unavailable", await session.GetAsync("/users"));
         report.Check("users action unavailable (notice)", await WebFlows.FollowRedirectsAsync(session, await session.SubmitAsync(actionForm)));
@@ -191,7 +180,7 @@ public class SpanishPagesTests(TestApiFactory api)
             report.Check("users list (view-only)", viewerPage);
 
             var ownerPage = await WebFlows.UsersAsync(session);
-            var forged = FormModel.From(ownerPage, ownerPage.FindPermissionForm("grant", plain.UserId, "ProductsManage"))
+            var forged = FormModel.From(ownerPage, ownerPage.FindPermissionForm("grant", plain.UserId, "MetricsView"))
                 .WithAntiforgeryToken(await WebFlows.AntiforgeryTokenAsync(viewerSession));
             var refused = await WebFlows.FollowRedirectsAsync(viewerSession, await viewerSession.SubmitAsync(forged));
             Assert.Equal(HttpStatusCode.Forbidden, host.Api.Calls.Last(c => c.Method == HttpMethod.Post).Status); // precondition: the API refused
@@ -203,238 +192,6 @@ public class SpanishPagesTests(TestApiFactory api)
             var forbidden = await noPermissions.GetAsync("/users");
             forbidden.ShouldBe(HttpStatusCode.Forbidden);
             report.Check("users 403", forbidden);
-        }
-
-        report.AssertClean();
-    }
-
-    // ---- /products and its edit and delete pages ----
-
-    private async Task<Shop> SpanishShopAsync(int products = 3)
-    {
-        var owner = await ApiSeed.RegisterOwnerAsync(api, "ferreteria");
-        var names = new[] { "Tornillo hexagonal", "Martillo de carpintero", "Llave inglesa", "Cinta métrica" };
-        var created = new List<Conversia.Application.DTOs.Products.ProductResponse>();
-        for (var i = 0; i < products; i++)
-        {
-            created.Add(await ApiProducts.CreateAsync(api, owner.Token, $"{names[i % names.Length]} {i}", ApiProducts.UniqueSku($"FER{i}"), 1234.5m + i, 12 + i));
-        }
-
-        return new Shop(owner, created);
-    }
-
-    [Fact]
-    public async Task Products_list_is_spanish_for_owners_view_only_members_empty_results_and_refusals()
-    {
-        var shop = await SpanishShopAsync();
-        var viewer = await ApiSeed.CreateMemberAsync(api, shop.Owner, "lector", Permission.ProductsView);
-        var noAccess = await ApiSeed.CreateMemberAsync(api, shop.Owner, "sin-acceso", Permission.UsersView);
-        var emptyShop = await SpanishShopAsync(products: 0);
-        var report = new SpanishUiReport();
-        using var host = WebTestHost.Create(api);
-        using var session = await WebFlows.SignedInAsync(host, shop.Owner.Email);
-
-        var list = await ProductFlows.ListAsync(session);
-        Assert.Equal(3, ProductFlows.Rows(list).Count); // precondition: the table really rendered
-        report.Check("products list (owner)", list);
-        var empty = await ProductFlows.SearchAsync(session, list, "no-existe-" + Guid.NewGuid().ToString("N"));
-        Assert.Empty(ProductFlows.Rows(empty));
-        report.Check("products empty search result", empty.ShouldBe(HttpStatusCode.OK));
-        report.Check("products page beyond the last", await ProductFlows.ListAsync(session, ProductFlows.ListUrl(page: 9)));
-
-        using (var emptySession = await WebFlows.SignedInAsync(host, emptyShop.Owner.Email))
-        {
-            var none = await ProductFlows.ListAsync(emptySession);
-            Assert.Empty(ProductFlows.Rows(none));
-            report.Check("products list (no products at all)", none);
-        }
-
-        using (var viewerSession = await WebFlows.SignedInAsync(host, viewer.Email))
-        {
-            var page = await ProductFlows.ListAsync(viewerSession);
-            Assert.Equal(3, ProductFlows.Rows(page).Count);
-            Assert.False(ProductFlows.OffersManagement(page)); // precondition: this is the view-only rendering
-            report.Check("products list (view-only)", page);
-        }
-
-        using (var noAccessSession = await WebFlows.SignedInAsync(host, noAccess.Email))
-        {
-            var forbidden = await noAccessSession.GetAsync("/products");
-            forbidden.ShouldBe(HttpStatusCode.Forbidden);
-            report.Check("products 403", forbidden);
-        }
-
-        host.Api.Intercept = FakeApi.Failure("500 problem");
-        report.Check("products unavailable", await session.GetAsync("/products"));
-
-        report.AssertClean();
-    }
-
-    [Fact]
-    public async Task Products_create_notices_and_errors_are_spanish_including_duplicate_sku_and_invalid_numbers()
-    {
-        var shop = await SpanishShopAsync(products: 1);
-        var report = new SpanishUiReport();
-        using var host = WebTestHost.Create(api);
-        using var session = await WebFlows.SignedInAsync(host, shop.Owner.Email);
-
-        async Task<PageResponse> CreateAsync(string sku, string name, string price, string stock)
-        {
-            var (_, form) = await ProductFlows.OpenCreateFormAsync(session);
-            return await ProductFlows.SubmitAsync(session, ProductFlows.FillCreate(form, sku, name, price, stock));
-        }
-
-        var created = await CreateAsync(ApiProducts.UniqueSku("NUE"), "Destornillador plano", "19.99", "4"); // a dot works before and after the Spanish price rules; the comma has its own tests
-        ProductFlows.AssertSuccessNotice(created);
-        report.Check("products created (notice)", created);
-
-        var duplicate = await CreateAsync(shop.Primary.Sku, "Impostor", "5", "5");
-        Assert.Equal(HttpStatusCode.Conflict, host.Api.Calls.Last(c => c.Method == HttpMethod.Post).Status); // precondition: the 409 state
-        report.Check("products create duplicate SKU", duplicate);
-
-        foreach (var (label, sku, name, price, stock) in new[]
-        {
-            ("blank name", "ERR-1", " ", "5", "5"),
-            ("long name", "ERR-2", new string('n', 201), "5", "5"),
-            ("blank sku", "", "Válido", "5", "5"),
-            ("invalid sku", "no vale/!", "Válido", "5", "5"),
-            ("price text", "ERR-3", "Válido", "abc", "5"),
-            ("price blank", "ERR-4", "Válido", "", "5"),
-            ("price negative", "ERR-5", "Válido", "-1", "5"),
-            ("price thousands", "ERR-6", "Válido", "1.234,50", "5"),
-            ("price three decimals", "ERR-7", "Válido", "1,999", "5"),
-            ("price overflow", "ERR-8", "Válido", "99999999999999999999999999999", "5"),
-            ("stock text", "ERR-9", "Válido", "5", "x"),
-            ("stock negative", "ERR-10", "Válido", "5", "-1"),
-            ("stock decimal", "ERR-11", "Válido", "5", "1,5"),
-            ("stock blank", "ERR-12", "Válido", "5", ""),
-        })
-        {
-            report.Check($"products create error ({label})", await CreateAsync(sku, name, price, stock));
-        }
-
-        // The form is opened first: opening it needs the list page, which is itself (correctly) unavailable during the outage.
-        var (_, offlineForm) = await ProductFlows.OpenCreateFormAsync(session);
-        host.Api.Intercept = FakeApi.Failure("connection refused");
-        report.Check("products create unavailable", await ProductFlows.SubmitAsync(session,
-            ProductFlows.FillCreate(offlineForm, ApiProducts.UniqueSku("OFF"), "Válido", "5", "5")));
-
-        report.AssertClean();
-    }
-
-    [Fact]
-    public async Task Product_edit_page_is_spanish_prefilled_stale_not_found_view_only_and_forbidden()
-    {
-        var shop = await SpanishShopAsync(products: 2);
-        var product = shop.Primary;
-        var viewer = await ApiSeed.CreateMemberAsync(api, shop.Owner, "lector", Permission.ProductsView);
-        var noView = await ApiSeed.CreateMemberAsync(api, shop.Owner, "sin-ver", Permission.ProductsManage);
-        var report = new SpanishUiReport();
-        using var host = WebTestHost.Create(api);
-        using var session = await WebFlows.SignedInAsync(host, shop.Owner.Email);
-
-        var (prefilled, staleForm) = await ProductFlows.OpenEditFormAsync(session, product.Id); // precondition: the form is there
-        report.Check("edit prefilled", prefilled);
-
-        await ApiProducts.UpdateAsync(api, shop.Owner.Token, product, "Cambiado por otra persona", 50m, 50);
-        var stale = await ProductFlows.SubmitAsync(session, ProductFlows.FillEdit(staleForm, "Mi nombre", "60", "60"));
-        Assert.Equal(HttpStatusCode.Conflict, host.Api.Calls.Last(c => c.Method == HttpMethod.Put).Status); // precondition: the stale-edit state
-        report.Check("edit stale conflict", stale);
-
-        var (_, form) = await ProductFlows.OpenEditFormAsync(session, product.Id);
-        report.Check("edit validation (blank name)", await ProductFlows.SubmitAsync(session, ProductFlows.FillEdit(form, " ", "5", "5")));
-        var (_, formPrice) = await ProductFlows.OpenEditFormAsync(session, product.Id);
-        report.Check("edit validation (price text)", await ProductFlows.SubmitAsync(session, ProductFlows.FillEdit(formPrice, "Válido", "abc", "5")));
-        var (_, formOk) = await ProductFlows.OpenEditFormAsync(session, product.Id);
-        report.Check("edit saved (notice on the list)", await ProductFlows.SubmitAsync(session, ProductFlows.FillEdit(formOk, "Guardado", "7,5", "7")));
-
-        var notFound = await session.GetAsync(ProductFlows.EditUrl(Guid.NewGuid()));
-        notFound.ShouldBe(HttpStatusCode.NotFound);
-        report.Check("edit product not found", notFound);
-
-        using (var viewerSession = await WebFlows.SignedInAsync(host, viewer.Email))
-        {
-            report.Check("edit (view-only)", await viewerSession.GetAsync(ProductFlows.EditUrl(product.Id)));
-        }
-
-        using (var noViewSession = await WebFlows.SignedInAsync(host, noView.Email))
-        {
-            var forbidden = await noViewSession.GetAsync(ProductFlows.EditUrl(product.Id));
-            forbidden.ShouldBe(HttpStatusCode.Forbidden);
-            report.Check("edit 403", forbidden);
-        }
-
-        host.Api.Intercept = FakeApi.Failure("500 problem");
-        report.Check("edit unavailable", await session.GetAsync(ProductFlows.EditUrl(product.Id)));
-
-        report.AssertClean();
-    }
-
-    [Fact]
-    public async Task Product_delete_page_is_spanish_confirm_not_found_deleted_and_forbidden()
-    {
-        var shop = await SpanishShopAsync(products: 2);
-        var viewer = await ApiSeed.CreateMemberAsync(api, shop.Owner, "lector", Permission.ProductsView);
-        var report = new SpanishUiReport();
-        using var host = WebTestHost.Create(api);
-        using var session = await WebFlows.SignedInAsync(host, shop.Owner.Email);
-
-        var (confirm, form) = await ProductFlows.OpenDeleteFormAsync(session, shop.Primary.Id); // precondition: the confirmation is there
-        report.Check("delete confirmation", confirm);
-
-        var notFound = await session.GetAsync(ProductFlows.DeleteUrl(Guid.NewGuid()));
-        notFound.ShouldBe(HttpStatusCode.NotFound);
-        report.Check("delete product not found", notFound);
-
-        using (var viewerSession = await WebFlows.SignedInAsync(host, viewer.Email))
-        {
-            report.Check("delete (view-only)", await viewerSession.GetAsync(ProductFlows.DeleteUrl(shop.Primary.Id)));
-        }
-
-        var deleted = await ProductFlows.SubmitAsync(session, form);
-        ProductFlows.AssertSuccessNotice(deleted);
-        report.Check("delete done (notice on the list)", deleted);
-
-        var gone = await ProductFlows.SubmitAsync(session, form);
-        report.Check("delete again after it vanished", gone);
-
-        host.Api.Intercept = FakeApi.Failure("500 problem");
-        report.Check("delete unavailable", await session.GetAsync(ProductFlows.DeleteUrl(shop.Products[1].Id)));
-
-        report.AssertClean();
-    }
-
-    // ---- /demo ----
-
-    [Fact]
-    public async Task Demo_tour_is_spanish_anonymous_signed_in_and_with_the_demo_accounts_shown()
-    {
-        var owner = await ApiSeed.RegisterOwnerAsync(api);
-        var report = new SpanishUiReport();
-
-        using (var host = WebTestHost.Create(api))
-        {
-            var anonymous = (await host.NewSession().GetAsync("/demo")).ShouldBe(HttpStatusCode.OK);
-            DemoFlows.AssertIsTheRealTour(anonymous);
-            report.Check("tour (anonymous)", anonymous);
-
-            using var session = await WebFlows.SignedInAsync(host, owner.Email);
-            var signedIn = (await session.GetAsync("/demo")).ShouldBe(HttpStatusCode.OK);
-            Assert.NotNull(signedIn.Document.QuerySelector(PageContract.YouNow));
-            report.Check("tour (signed in)", signedIn);
-
-            host.Api.Intercept = FakeApi.Failure("500 problem");
-            report.Check("tour (profile unavailable)", await session.GetAsync("/demo"));
-        }
-
-        using (var demo = WebTestHost.CreateDemo(api))
-        {
-            var anonymous = (await demo.NewSession().GetAsync("/demo")).ShouldBe(HttpStatusCode.OK);
-            Assert.NotEmpty(anonymous.Select(PageContract.DemoAccountRow));
-            report.Check("tour (accounts shown, anonymous)", anonymous);
-
-            using var session = await WebFlows.SignedInAsync(demo, owner.Email);
-            report.Check("tour (accounts shown, signed in)", (await session.GetAsync("/demo")).ShouldBe(HttpStatusCode.OK));
         }
 
         report.AssertClean();
@@ -458,7 +215,7 @@ public class SpanishPagesTests(TestApiFactory api)
         notFoundSignedIn.ShouldBe(HttpStatusCode.NotFound);
         report.Check("404 (signed in)", notFoundSignedIn);
         report.Check("404 (explicit /not-found)", await anonymous.GetAsync("/not-found"));
-        report.Check("404 (non-guid product id)", await session.GetAsync("/products/no-es-un-guid/edit"));
+        report.Check("404 (non-guid conversation id)", await session.GetAsync("/conversaciones/no-es-un-guid"));
 
         report.Check("error page", await anonymous.GetAsync("/Error"));
 

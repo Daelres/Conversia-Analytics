@@ -26,19 +26,10 @@ public class DomainExceptionMessagesTests
         { "permission: empty user id", () => UserPermission.Create(Guid.Empty, Permission.UsersView) },
         { "permission: undefined value", () => UserPermission.Create(SomeId, (Permission)999) },
         { "permission: zero", () => UserPermission.Create(SomeId, 0) },
-        { "product: empty tenant id", () => Product.Create(Guid.Empty, "Tornillo", "TOR-1", 1m, 1) },
-        { "product: blank name", () => Product.Create(SomeId, " ", "TOR-1", 1m, 1) },
-        { "product: name too long", () => Product.Create(SomeId, new string('n', 201), "TOR-1", 1m, 1) },
-        { "product: blank sku", () => Product.Create(SomeId, "Tornillo", " ", 1m, 1) },
-        { "product: sku with spaces", () => Product.Create(SomeId, "Tornillo", "has space", 1m, 1) },
-        { "product: sku too long", () => Product.Create(SomeId, "Tornillo", new string('s', 51), 1m, 1) },
-        { "product: negative price", () => Product.Create(SomeId, "Tornillo", "TOR-1", -1m, 1) },
-        { "product: price too large", () => Product.Create(SomeId, "Tornillo", "TOR-1", 1_000_000_000m, 1) },
-        { "product: three decimals", () => Product.Create(SomeId, "Tornillo", "TOR-1", 1.234m, 1) },
-        { "product: negative stock", () => Product.Create(SomeId, "Tornillo", "TOR-1", 1m, -1) },
-        { "product update: blank name", () => Product.Create(SomeId, "Tornillo", "TOR-1", 1m, 1).Update(" ", 1m, 1) },
-        { "product update: bad price", () => Product.Create(SomeId, "Tornillo", "TOR-1", 1m, 1).Update("Tornillo", -1m, 1) },
-        { "product update: negative stock", () => Product.Create(SomeId, "Tornillo", "TOR-1", 1m, 1).Update("Tornillo", 1m, -1) },
+        { "branch: empty tenant id", () => Branch.Create(Guid.Empty, "Centro") },
+        { "branch: blank name", () => Branch.Create(SomeId, " ") },
+        { "branch: name too long", () => Branch.Create(SomeId, new string('n', 101)) },
+        { "advisor: blank name", () => Advisor.Create(SomeId, SomeId, " ", null) },
     };
 
     [Theory]

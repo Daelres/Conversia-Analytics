@@ -14,12 +14,12 @@ public class EnglishLeakScannerTests
 {
     private const string SpanishLoginPage = """
         <!DOCTYPE html><html lang="es"><head><title>Iniciar sesión - Conversia</title></head>
-        <body><nav aria-label="Navegación principal"><a href="/">Inicio</a> <a href="/demo">Recorrido</a></nav>
+        <body><nav aria-label="Navegación principal"><a href="/">Inicio</a> <a href="/users">Usuarios</a></nav>
         <h1>Iniciar sesión</h1>
         <form method="post"><label for="e">Correo electrónico</label><input id="e" name="email" placeholder="tu@correo.com" title="Escribe tu correo">
         <label for="p">Contraseña</label><input id="p" type="password" name="password">
         <button type="submit">Entrar</button><input type="submit" value="Entrar como propietario"></form>
-        <p>Las cuentas de demostración usan el mismo token JWT contra la API; el stock y el SKU no cambian. Docker y Blazor se mencionan sin traducir.</p>
+        <p>Las cuentas usan el mismo token JWT contra la API; el stock y el SKU no cambian. Docker y Blazor se mencionan sin traducir.</p>
         </body></html>
         """;
 
@@ -29,7 +29,7 @@ public class EnglishLeakScannerTests
         return new PageResponse(new Uri("https://localhost/prueba"), response, html);
     }
 
-    private static string Wrap(string body, string lang = "es", string title = "Productos - Conversia")
+    private static string Wrap(string body, string lang = "es", string title = "Usuarios - Conversia")
         => $"<!DOCTYPE html><html lang=\"{lang}\"><head><title>{title}</title></head><body>{body}</body></html>";
 
     private const string SpanishFiller = "<p>Esta es una página de prueba con texto suficiente para el análisis de la interfaz.</p>";
@@ -123,23 +123,23 @@ public class EnglishLeakScannerTests
     [InlineData("Stock disponible")]
     [InlineData("Correo email del tenant")]
     [InlineData("SKU-001")]
-    [InlineData("Cuentas demo con login y logout")]
+    [InlineData("Cuentas con login y logout")]
     [InlineData("JWT, API, Docker, Blazor y token")]
-    [InlineData("Recorrido tour de la plantilla")]
+    [InlineData("Guía rápida tour de uso")]
     [InlineData("Ver usuarios")]
-    [InlineData("Gestionar productos")]
+    [InlineData("Gestionar usuarios")]
     [InlineData("Ocurrió un error inesperado. Inténtalo de nuevo más tarde.")]
     [InlineData("Correo o contraseña incorrectos.")]
     [InlineData("Demasiados intentos. Vuelve a intentarlo en 60 segundos.")]
-    [InlineData("Ya existe un producto con ese SKU.")]
-    [InlineData("Otra persona modificó este producto. Recarga la página.")]
+    [InlineData("Ya existe un usuario con ese correo.")]
+    [InlineData("Otra persona modificó este usuario. Recarga la página.")]
     public void Spanish_text_and_the_loanwords_of_the_allowlist_are_not_flagged(string text)
         => Assert.Empty(EnglishLeaks.Find(text));
 
     [Theory]
     [InlineData("UsersManage")]
     [InlineData("tenantName")]
-    [InlineData("ProductsView")]
+    [InlineData("UsersView")]
     [InlineData("Pages2")]
     [InlineData("userId")]
     [InlineData("backup")]
@@ -148,23 +148,20 @@ public class EnglishLeakScannerTests
         => Assert.Empty(EnglishLeaks.Find(text));
 
     [Theory]
-    [InlineData("owner@acme-demo.example")]
-    [InlineData("Escribe a viewer@acme-demo.example para ayuda")]
-    [InlineData("https://localhost/products?page=2")]
+    [InlineData("owner@example.test")]
+    [InlineData("Escribe a viewer@example.test para ayuda")]
+    [InlineData("https://localhost/users?page=2")]
     [InlineData("Conversia")]
     [InlineData("Conversia.Web")]
     [InlineData("Una API de ASP.NET Core sobre PostgreSQL")]
     [InlineData("Se levanta con Docker Compose")]
-    [InlineData("Contraseña de demostración Demo-Pass-2026!")]
     public void The_allowlist_removes_addresses_urls_and_names_before_matching(string text)
         => Assert.Empty(EnglishLeaks.Find(text));
 
     [Fact]
-    public void Data_cells_scripts_and_data_attributes_are_not_scanned()
+    public void Scripts_styles_and_data_attributes_are_not_scanned()
     {
         const string body = """
-            <table><tr data-testid="product-row"><td data-field="sku">SKU-1</td><td data-field="name">Widget Pro Edition</td>
-            <td data-field="price" data-price="5.00">5,00</td></tr></table>
             <div data-permission="UsersManage" data-user-id="x">Gestionar usuarios</div>
             <script>var message = "Sign in";</script><style>.password::after { content: "Delete"; }</style>
             """;
@@ -172,7 +169,6 @@ public class EnglishLeakScannerTests
         var scanned = SpanishUi.Extract(Page(Wrap(body + SpanishFiller)));
 
         Assert.Empty(SpanishUi.Leaks(scanned));
-        Assert.DoesNotContain(scanned, s => s.Text.Contains("Widget"));
     }
 
     // ---- code, pre, kbd and samp: routes, JSON and commands are exempt; English prose in them is not ----
@@ -199,22 +195,21 @@ public class EnglishLeakScannerTests
 
     [Theory]
     [InlineData("<code>GET /api/users</code>")]
-    [InlineData("<code>DELETE /api/products/{id}</code>")]
+    [InlineData("<code>DELETE /api/branches/{id}</code>")]
     [InlineData("<code>POST /api/auth/login</code>")]
     [InlineData("<samp>/login</samp>")]
     [InlineData("<code>/api/users?page=2&amp;pageSize=10</code>")]
     [InlineData("<pre>{ \"name\": \"Widget\", \"price\": 5 }</pre>")]
-    [InlineData("<pre>{\n  \"email\": \"owner@acme-demo.example\",\n  \"password\": \"Demo-Pass-2026!\"\n}</pre>")]
+    [InlineData("<pre>{\n  \"email\": \"owner@example.test\",\n  \"password\": \"Sup3r-Secret!\"\n}</pre>")]
     [InlineData("<pre>[\n  { \"id\": 1 }\n]</pre>")]
     [InlineData("<pre>$ dotnet ef migrations add Initial</pre>")]
     [InlineData("<code>docker compose up -d</code>")]
-    [InlineData("<pre>curl -X DELETE https://localhost:5001/api/products/1</pre>")]
+    [InlineData("<pre>curl -X DELETE https://localhost:5001/api/branches/1</pre>")]
     [InlineData("<pre>git add .\ngit commit -m 'x'</pre>")]
     [InlineData("<pre><span>GET</span> <span>/api/users</span></pre>")]
     [InlineData("<kbd>Enter</kbd>")]
     [InlineData("<kbd>Ctrl+S</kbd>")]
     [InlineData("<kbd>Ctrl</kbd> + <kbd>Delete</kbd>")]
-    [InlineData("<code>Demo-Pass-2026!</code>")]
     [InlineData("<code>0HNABC123XYZ:00000001</code>")]
     [InlineData("<code>UsersManage</code>")]
     public void Routes_json_commands_key_names_and_identifiers_inside_code_blocks_are_not_flagged(string html)

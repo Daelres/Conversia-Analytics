@@ -19,9 +19,9 @@ public class ErrorLogRetentionTests
 
     public ErrorLogRetentionTests(CustomWebApplicationFactory shared) => _shared = shared;
 
-    private async Task<DemoDatabase> MigratedDatabaseAsync()
+    private async Task<TestDatabase> MigratedDatabaseAsync()
     {
-        var database = DemoDatabase.Create(_shared);
+        var database = TestDatabase.Create(_shared);
         await database.MigrateAsync();
         return database;
     }
@@ -40,7 +40,7 @@ public class ErrorLogRetentionTests
     }
 
     /// <summary>A host on <paramref name="database"/> whose retention is long enough that its own startup purge has nothing to do.</summary>
-    private ErrorTestHost QuietHost(DemoDatabase database, params IInterceptor[] interceptors)
+    private ErrorTestHost QuietHost(TestDatabase database, params IInterceptor[] interceptors)
     {
         var host = ErrorTestHost.Create(
             _shared,
@@ -281,7 +281,7 @@ public class ErrorLogRetentionTests
                 ? throw new InvalidOperationException("the delete was refused by the test")
                 : Task.CompletedTask,
         };
-        var connectionString = failure == "database unreachable" ? DemoHostSettings.UnreachableConnectionString : database.ConnectionString;
+        var connectionString = failure == "database unreachable" ? TestDatabase.UnreachableConnectionString : database.ConnectionString;
         var host = ErrorTestHost.Create(
             _shared,
             ErrorTestHost.Settings(("ErrorLogging:RetentionDays", "30")),

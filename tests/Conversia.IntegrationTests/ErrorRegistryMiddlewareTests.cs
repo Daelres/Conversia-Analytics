@@ -74,11 +74,11 @@ public class ErrorRegistryMiddlewareTests
     {
         using var anonymous = _host.NewClient();
         var session = await RegisterTenantSessionAsync(anonymous);
-        var productId = Guid.NewGuid();
+        var conversationId = Guid.NewGuid();
         var marker = ErrorTestHost.NewMarker();
         var traceId = ActivityTraceId.CreateRandom().ToHexString();
-        var request = ErrorTestHost.FailingProductUpdate(
-            productId, marker, session.OwnerToken, message: "stored failure", query: "?search=tornillo&token=QUERY-SECRET-" + marker + "&page=2");
+        var request = ErrorTestHost.FailingAdvisorAssignment(
+            conversationId, marker, session.OwnerToken, message: "stored failure", query: "?search=tornillo&token=QUERY-SECRET-" + marker + "&page=2");
         request.Headers.TryAddWithoutValidation("traceparent", $"00-{traceId}-{ActivitySpanId.CreateRandom().ToHexString()}-01");
         using var client = _host.NewClient();
         var before = DateTime.UtcNow;
@@ -103,10 +103,10 @@ public class ErrorRegistryMiddlewareTests
         AssertServiceVersion(row.ServiceVersion);
 
         Assert.Equal("PUT", row.HttpMethod);
-        Assert.Equal($"/api/products/{productId}", row.Path);
-        Assert.Contains("Conversia.API.Controllers.ProductsController.UpdateProduct", row.Endpoint);
+        Assert.Equal($"/api/conversations/{conversationId}/advisor", row.Path);
+        Assert.Contains("Conversia.API.Controllers.ConversationsController.AssignAdvisor", row.Endpoint);
         var routeValues = ErrorContract.ParseRouteValues(row.RouteValues);
-        Assert.Equal(productId.ToString(), routeValues["id"], ignoreCase: true);
+        Assert.Equal(conversationId.ToString(), routeValues["id"], ignoreCase: true);
         Assert.Equal(500, row.StatusCode);
 
         Assert.Equal(traceId, row.TraceId, ignoreCase: true);
@@ -139,8 +139,8 @@ public class ErrorRegistryMiddlewareTests
         var marker = ErrorTestHost.NewMarker();
         using var client = _host.NewClient();
 
-        using var responseA = await client.SendAsync(ErrorTestHost.FailingProductUpdate(Guid.NewGuid(), marker, tenantA.OwnerToken, callId: marker + "-a"));
-        using var responseB = await client.SendAsync(ErrorTestHost.FailingProductUpdate(Guid.NewGuid(), marker, tenantB.OwnerToken, callId: marker + "-b"));
+        using var responseA = await client.SendAsync(ErrorTestHost.FailingAdvisorAssignment(Guid.NewGuid(), marker, tenantA.OwnerToken, callId: marker + "-a"));
+        using var responseB = await client.SendAsync(ErrorTestHost.FailingAdvisorAssignment(Guid.NewGuid(), marker, tenantB.OwnerToken, callId: marker + "-b"));
 
         var codeA = await ErrorContract.AssertUnexpectedAsync(responseA);
         var codeB = await ErrorContract.AssertUnexpectedAsync(responseB);
@@ -206,7 +206,7 @@ public class ErrorRegistryMiddlewareTests
         var bodyName = $"BODY-NAME-{marker}";
         var headerSecret = $"HEADER-SECRET-{marker}";
         var cookieSecret = $"COOKIE-SECRET-{marker}";
-        var request = ErrorTestHost.FailingProductUpdate(Guid.NewGuid(), marker, session.OwnerToken);
+        var request = ErrorTestHost.FailingAdvisorAssignment(Guid.NewGuid(), marker, session.OwnerToken);
         request.Headers.TryAddWithoutValidation("X-Api-Key", headerSecret);
         request.Headers.TryAddWithoutValidation("Cookie", $"session={cookieSecret}");
         request.Headers.TryAddWithoutValidation("X-Forwarded-For", "203.0.113.77");
@@ -239,7 +239,7 @@ public class ErrorRegistryMiddlewareTests
         foreach (var request in new[]
         {
             ErrorTestHost.FailingLogin(marker, FaultInjection.InvalidOperation, "first message 111", marker + "-1"),
-            ErrorTestHost.FailingProductUpdate(Guid.NewGuid(), marker, session.OwnerToken, FaultInjection.InvalidOperation, "second, different message 222", callId: marker + "-2"),
+            ErrorTestHost.FailingAdvisorAssignment(Guid.NewGuid(), marker, session.OwnerToken, FaultInjection.InvalidOperation, "second, different message 222", callId: marker + "-2"),
             ErrorTestHost.FailingLogin(marker, FaultInjection.OtherSite, "third", marker + "-3"),
             ErrorTestHost.FailingLogin(marker, FaultInjection.ThirdSite, "fourth", marker + "-4"),
         })
@@ -328,7 +328,7 @@ public class ErrorRegistryMiddlewareTests
 
     public static TheoryData<string> KnownOutcomes => new()
     {
-        "duplicate-email-409", "duplicate-sku-409", "stale-row-version-409", "product-not-found-404", "user-not-found-404", "unknown-route-404",
+        "duplicate-email-409", "duplicate-branch-409", "conversation-not-found-404", "user-not-found-404", "unknown-route-404",
         "validation-400", "malformed-json-400", "undefined-permission-400",
         "unauthenticated-401", "invalid-credentials-401", "forbidden-403", "login-rate-limited-429",
     };
@@ -380,28 +380,22 @@ public class ErrorRegistryMiddlewareTests
                 using var client = Client();
                 return await client.PostAsJsonAsync("/api/auth/register-tenant", new { tenantName = UniqueTenantName("dup"), email = session.OwnerEmail, password = StrongPassword });
             }, HttpStatusCode.Conflict),
-            "duplicate-sku-409" => (host, async () =>
+            "duplicate-branch-409" => (host, async () =>
             {
                 var (client, _) = await OwnerAsync();
-                var product = await CreateProductAsync(client);
-                return await PostProductAsync(client, "Otro nombre", product.Sku);
+                using var first = await client.PostAsJsonAsync("/api/branches", new { name = "Sede Centro" });
+                Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+                return await client.PostAsJsonAsync("/api/branches", new { name = "Sede Centro" }); // the same name in the tenant: DuplicateBranchNameException
             }, HttpStatusCode.Conflict),
-            "stale-row-version-409" => (host, async () =>
+            "conversation-not-found-404" => (host, async () =>
             {
                 var (client, _) = await OwnerAsync();
-                var product = await CreateProductAsync(client);
-                await UpdateProductOkAsync(client, product); // the first update wins and moves the row version
-                return await PutProductAsync(client, product.Id, "Segunda edición", 12m, 5, product.RowVersion); // the stale one: ProductConcurrencyException
-            }, HttpStatusCode.Conflict),
-            "product-not-found-404" => (host, async () =>
-            {
-                var (client, _) = await OwnerAsync();
-                return await GetProductAsync(client, Guid.NewGuid());
+                return await client.GetAsync($"/api/conversations/{Guid.NewGuid()}");
             }, HttpStatusCode.NotFound),
             "user-not-found-404" => (host, async () =>
             {
                 var (client, _) = await OwnerAsync();
-                return await client.PostAsJsonAsync($"/api/users/{Guid.NewGuid()}/permissions", new { permission = (int)Permission.ProductsView });
+                return await client.PostAsJsonAsync($"/api/users/{Guid.NewGuid()}/permissions", new { permission = (int)Permission.UsersView });
             }, HttpStatusCode.NotFound),
             "unknown-route-404" => (host, () => Client().GetAsync("/api/nothing-lives-here"), HttpStatusCode.NotFound),
             "validation-400" => (host, () => Client().PostAsJsonAsync("/api/auth/login", new { }), HttpStatusCode.BadRequest),

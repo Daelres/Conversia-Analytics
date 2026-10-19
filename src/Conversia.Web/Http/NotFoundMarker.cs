@@ -2,8 +2,7 @@ namespace Conversia.Web.Http;
 
 /// <summary>
 /// The status-code pages re-run every 404 into the generic "Not found" page. A page that answers 404 on purpose marks the request with
-/// what is missing, so that page can say it (same technique as <see cref="ProductNotFoundMarker"/>); the marker lives as long as the
-/// request, re-execution included.
+/// what is missing, so that page can say it; the marker lives as long as the request, re-execution included.
 /// </summary>
 public static class NotFoundMarker
 {

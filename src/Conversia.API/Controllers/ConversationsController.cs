@@ -1,6 +1,6 @@
 using Conversia.API.RateLimiting;
+using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Conversations;
-using Conversia.Application.DTOs.Products;
 using Conversia.Application.Interfaces;
 using Conversia.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;

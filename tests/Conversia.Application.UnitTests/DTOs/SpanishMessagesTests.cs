@@ -1,7 +1,8 @@
 using System.ComponentModel.DataAnnotations;
-using Conversia.Application.Demo;
+using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Auth;
-using Conversia.Application.DTOs.Products;
+using Conversia.Application.DTOs.Conversations;
+using Conversia.Application.DTOs.Organization;
 using Conversia.Application.DTOs.Users;
 using Conversia.Application.Exceptions;
 using Conversia.Domain.Enums;
@@ -12,7 +13,7 @@ namespace Conversia.Application.UnitTests.DTOs;
 /// <summary>
 /// Requirement "all text shown to users is Spanish", Application layer: the exception messages (they become the <c>detail</c> of
 /// the API's handled errors), every DataAnnotations message of every request DTO (they become the validation messages of a
-/// 400) and the demo account texts the Web displays. The fixed wording is pinned exactly; the rest only has to be Spanish.
+/// 400). The fixed wording is pinned exactly; the rest only has to be Spanish.
 /// </summary>
 public class SpanishMessagesTests
 {
@@ -23,10 +24,9 @@ public class SpanishMessagesTests
     {
         Assert.Equal("Correo o contraseña incorrectos.", new InvalidCredentialsException().Message);
         Assert.Equal("Ese correo ya está registrado.", new DuplicateEmailException().Message);
-        Assert.Equal("Producto no encontrado.", new ProductNotFoundException().Message);
         Assert.Equal("Usuario no encontrado.", new UserNotFoundException().Message);
-        Assert.Equal("Ya existe un producto con ese SKU.", new DuplicateSkuException().Message);
-        Assert.Equal("El producto fue modificado por otra persona. Recarga e inténtalo de nuevo.", new ProductConcurrencyException().Message);
+        Assert.Equal("Sucursal no encontrada.", new BranchNotFoundException().Message);
+        Assert.Equal("Ya existe una sucursal con ese nombre.", new DuplicateBranchNameException().Message);
     }
 
     [Fact]
@@ -34,8 +34,8 @@ public class SpanishMessagesTests
     {
         foreach (var exception in new Exception[]
         {
-            new InvalidCredentialsException(), new DuplicateEmailException(), new ProductNotFoundException(),
-            new UserNotFoundException(), new DuplicateSkuException(), new ProductConcurrencyException(),
+            new InvalidCredentialsException(), new DuplicateEmailException(), new UserNotFoundException(),
+            new BranchNotFoundException(), new DuplicateBranchNameException(),
         })
         {
             Assert.Empty(EnglishLeaks.Find(exception.Message));
@@ -79,26 +79,13 @@ public class SpanishMessagesTests
         { "create user: email too long", () => new CreateUserRequest { Email = Long(244) + "@example.test", Password = "Sup3r-Secret!" } },
         { "create user: blank password", () => new CreateUserRequest { Email = "a@b.test", Password = "" } },
         { "create user: weak password", () => new CreateUserRequest { Email = "a@b.test", Password = "abcdefghijk1" } },
-        // products
-        { "create product: blank name", () => new CreateProductRequest { Name = " ", Sku = "S-1", Price = 1m, Stock = 1 } },
-        { "create product: name too long", () => new CreateProductRequest { Name = Long(201), Sku = "S-1", Price = 1m, Stock = 1 } },
-        { "create product: blank sku", () => new CreateProductRequest { Name = "n", Sku = "", Price = 1m, Stock = 1 } },
-        { "create product: invalid sku", () => new CreateProductRequest { Name = "n", Sku = "has space", Price = 1m, Stock = 1 } },
-        { "create product: sku too long", () => new CreateProductRequest { Name = "n", Sku = Long(51), Price = 1m, Stock = 1 } },
-        { "create product: negative price", () => new CreateProductRequest { Name = "n", Sku = "S-1", Price = -1m, Stock = 1 } },
-        { "create product: price too large", () => new CreateProductRequest { Name = "n", Sku = "S-1", Price = 1_000_000_000m, Stock = 1 } },
-        { "create product: three decimals", () => new CreateProductRequest { Name = "n", Sku = "S-1", Price = 1.234m, Stock = 1 } },
-        { "create product: negative stock", () => new CreateProductRequest { Name = "n", Sku = "S-1", Price = 1m, Stock = -1 } },
-        { "update product: blank name", () => new UpdateProductRequest { Name = "", Price = 1m, Stock = 1, RowVersion = "AAAAAAAAB9E=" } },
-        { "update product: negative price", () => new UpdateProductRequest { Name = "n", Price = -1m, Stock = 1, RowVersion = "AAAAAAAAB9E=" } },
-        { "update product: negative stock", () => new UpdateProductRequest { Name = "n", Price = 1m, Stock = -1, RowVersion = "AAAAAAAAB9E=" } },
-        { "update product: blank row version", () => new UpdateProductRequest { Name = "n", Price = 1m, Stock = 1, RowVersion = "" } },
-        { "update product: row version not base64", () => new UpdateProductRequest { Name = "n", Price = 1m, Stock = 1, RowVersion = "not base64!" } },
-        // query
-        { "query: page 0", () => new ProductQuery { Page = 0 } },
-        { "query: page size 0", () => new ProductQuery { PageSize = 0 } },
-        { "query: page size too large", () => new ProductQuery { PageSize = ProductQuery.MaxPageSize + 1 } },
-        { "query: search too long", () => new ProductQuery { Search = Long(ProductQuery.MaxSearchLength + 1) } },
+        // branches
+        { "create branch: blank name", () => new CreateBranchRequest { Name = " " } },
+        { "create branch: name too long", () => new CreateBranchRequest { Name = Long(101) } },
+        // conversation query
+        { "query: page 0", () => new ConversationQuery { Page = 0 } },
+        { "query: page size 0", () => new ConversationQuery { PageSize = 0 } },
+        { "query: page size too large", () => new ConversationQuery { PageSize = ConversationQuery.MaxPageSize + 1 } },
         // permissions
         { "permission: undefined value", () => new AssignPermissionRequest { Permission = (Permission)999 } },
         { "permission: zero", () => new AssignPermissionRequest { Permission = 0 } },
@@ -130,23 +117,5 @@ public class SpanishMessagesTests
         Assert.NotEmpty(errors);
         Assert.All(errors, e => Assert.DoesNotContain(weak, e.ErrorMessage));
         Assert.All(errors, e => Assert.Empty(EnglishLeaks.Find(e.ErrorMessage)));
-    }
-
-    // ---- demo accounts ----
-
-    [Fact]
-    public void The_demo_account_labels_and_descriptions_the_web_shows_are_spanish()
-    {
-        Assert.Equal(5, DemoAccounts.All.Count);
-        foreach (var account in DemoAccounts.All)
-        {
-            Assert.False(string.IsNullOrWhiteSpace(account.SignInLabel), account.Email);
-            Assert.False(string.IsNullOrWhiteSpace(account.Description), account.Email);
-            Assert.True(EnglishLeaks.Find(account.SignInLabel).Count == 0, $"{account.Email}: label '{account.SignInLabel}' is English.");
-            Assert.True(EnglishLeaks.Find(account.Description).Count == 0, $"{account.Email}: description '{account.Description}' is English: {string.Join(", ", EnglishLeaks.Find(account.Description))}.");
-            Assert.True(EnglishLeaks.LooksSpanish(account.Description), $"{account.Email}: description '{account.Description}' does not look like Spanish.");
-        }
-
-        Assert.Equal(5, DemoAccounts.All.Select(a => a.SignInLabel).Distinct().Count()); // each shortcut button names a different account
     }
 }

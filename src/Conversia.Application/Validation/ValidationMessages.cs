@@ -13,13 +13,6 @@ public static class ValidationMessages
     public const string Range = "El campo {0} debe estar entre {1} y {2}.";
     public const string EnumValue = "El campo {0} no es un valor reconocido.";
     public const string NullCharacter = "El campo {0} no puede contener caracteres nulos.";
-    public const string Base64 = "El campo {0} debe ser texto en base64.";
-
-    public static readonly string ProductName = $"El campo {{0}} {Domain.Entities.Product.NameRuleText}.";
-
-    public static readonly string ProductSku = $"El campo {{0}} {Domain.Entities.Product.SkuRuleText}.";
-
-    public static readonly string ProductPrice = $"El campo {{0}} {Domain.Entities.Product.PriceRuleText}.";
 
     public static readonly string DisplayPhoneNumber = $"El campo {{0}} {Domain.Entities.WhatsAppChannel.DisplayPhoneNumberRuleText}.";
 

@@ -36,7 +36,7 @@ public class ErrorRegistryPersistenceTests
             UserAgent = marker,
             ExceptionType = "Contoso.Registry.BoomException",
             ExceptionMessage = $"registry message {marker}",
-            ExceptionDetails = $"Contoso.Registry.BoomException: registry message {marker}\n   at Conversia.Application.Services.ProductService.UpdateAsync(Guid id) in /src/ProductService.cs:line 42",
+            ExceptionDetails = $"Contoso.Registry.BoomException: registry message {marker}\n   at Conversia.Application.Services.OrganizationService.UpdateAsync(Guid id) in /src/OrganizationService.cs:line 42",
         };
         adjust?.Invoke(builder);
         return builder.Build();
@@ -61,14 +61,14 @@ public class ErrorRegistryPersistenceTests
             b.Instance = "api-pod-7";
             b.HttpMethod = "PATCH";
             b.Query = "?page=2";
-            b.Endpoint = "Conversia.API.Controllers.ProductsController.UpdateProduct (PUT)";
+            b.Endpoint = "Conversia.API.Controllers.BranchesController.UpdateBranch (PUT)";
             b.RouteValues = "{\"id\":\"3f2a\"}";
             b.StatusCode = 502;
             b.TraceId = "4bf92f3577b34da6a3ce929d0e0e4736";
             b.RequestId = "0HN123:00000001";
             b.UserId = userId;
             b.TenantId = tenantId;
-            b.Context = "{\"upstream\":\"GET /api/products\"}";
+            b.Context = "{\"upstream\":\"GET /api/branches\"}";
         });
 
         var registration = await _host.WithRegistryAsync(r => r.RegisterAsync(report));
@@ -109,10 +109,10 @@ public class ErrorRegistryPersistenceTests
             b.Query = $"?page=2&token={Secret}q&api_key={Secret}k";
             b.ExceptionMessage = $"Falló Server=db;User Id=svc_registry;Password={Secret}m; fin";
             b.ExceptionDetails = $"System.Exception: Falló con Authorization: Bearer {Secret}d y password={Secret}p\n   at Conversia.A.B()";
-            b.Context = $"{{\"authorization\":\"Bearer {Secret}c\",\"upstream\":\"GET /api/products\"}}";
+            b.Context = $"{{\"authorization\":\"Bearer {Secret}c\",\"upstream\":\"GET /api/branches\"}}";
             b.UserAgent = $"{marker} token={Secret}u";
             b.RouteValues = $"{{\"id\":\"1\",\"token\":\"{Secret}r\"}}";
-            b.Endpoint = $"/products?secret={Secret}e";
+            b.Endpoint = $"/conversaciones?secret={Secret}e";
         });
 
         var registration = await _host.WithRegistryAsync(r => r.RegisterAsync(report));
@@ -384,7 +384,7 @@ public class ErrorRegistryPersistenceTests
     public static TheoryData<string> UnavailableDatabases => new() { "unreachable-server", "database-that-does-not-exist" };
 
     private string UnavailableConnectionString(string kind) => kind == "unreachable-server"
-        ? DemoHostSettings.UnreachableConnectionString
+        ? TestDatabase.UnreachableConnectionString
         : new NpgsqlConnectionStringBuilder(_shared.ServerConnectionString) { Database = $"dropped_{Guid.NewGuid():N}", Timeout = 5, Pooling = false }.ConnectionString;
 
     [Theory]

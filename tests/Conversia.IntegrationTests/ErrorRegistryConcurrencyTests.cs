@@ -54,13 +54,13 @@ public class ErrorRegistryConcurrencyTests
 
         var marker = ErrorTestHost.NewMarker();
         var calls = tenants
-            .SelectMany(tenant => Enumerable.Range(0, 6).Select(n => (Tenant: tenant, ProductId: Guid.NewGuid(), Call: $"{marker}-{tenant.TenantId:N}-{n}")))
+            .SelectMany(tenant => Enumerable.Range(0, 6).Select(n => (Tenant: tenant, ConversationId: Guid.NewGuid(), Call: $"{marker}-{tenant.TenantId:N}-{n}")))
             .ToList();
 
         var results = await Task.WhenAll(calls.Select(async call =>
         {
             using var client = _main.NewClient();
-            using var response = await client.SendAsync(ErrorTestHost.FailingProductUpdate(call.ProductId, marker, call.Tenant.OwnerToken, callId: call.Call));
+            using var response = await client.SendAsync(ErrorTestHost.FailingAdvisorAssignment(call.ConversationId, marker, call.Tenant.OwnerToken, callId: call.Call));
             return (call, Code: await ErrorContract.AssertUnexpectedAsync(response));
         }));
 
@@ -72,7 +72,7 @@ public class ErrorRegistryConcurrencyTests
             var row = rows[code];
             Assert.Equal(call.Tenant.TenantId, row.TenantId);
             Assert.Equal(call.Tenant.OwnerId, row.UserId);
-            Assert.Equal($"/api/products/{call.ProductId}", row.Path);
+            Assert.Equal($"/api/conversations/{call.ConversationId}/advisor", row.Path);
         }
     }
 

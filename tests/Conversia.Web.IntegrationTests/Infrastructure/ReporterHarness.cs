@@ -130,7 +130,7 @@ internal sealed class ReporterHarness : IDisposable
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void ThrowInvalidOperationElsewhere(string message) => throw new InvalidOperationException(message);
 
-    public static DefaultHttpContext Request(string method = "GET", string path = "/products", string query = "", string? userAgent = "tests/1.0", string? traceIdentifier = null)
+    public static DefaultHttpContext Request(string method = "GET", string path = "/conversaciones", string query = "", string? userAgent = "tests/1.0", string? traceIdentifier = null)
     {
         var context = new DefaultHttpContext();
         context.Request.Method = method;

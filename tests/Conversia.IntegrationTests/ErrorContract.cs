@@ -118,7 +118,7 @@ internal static class ReportApi
         "System.Net.Http.HttpRequestException: Connection refused (localhost:5000)\n"
         + "   at System.Net.Http.HttpConnectionPool.ConnectAsync(HttpRequestMessage request)\n"
         + "   at Conversia.Web.Services.ApiClient.SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) in /src/Services/ApiClient.cs:line 88\n"
-        + "   at Conversia.Web.Components.Pages.Products.OnInitializedAsync() in /src/Products.razor:line 30";
+        + "   at Conversia.Web.Components.Pages.Conversations.OnInitializedAsync() in /src/Conversations.razor:line 30";
 
     public const string WebTopFrame = "Conversia.Web.Services.ApiClient.SendAsync";
 
@@ -129,7 +129,7 @@ internal static class ReportApi
         ["httpMethod"] = "GET",
         ["path"] = $"/report/{marker}",
         ["query"] = "?page=2&search=tornillo",
-        ["endpoint"] = "/products (GET)",
+        ["endpoint"] = "/conversaciones (GET)",
         ["routeValues"] = "{\"page\":\"2\"}",
         ["statusCode"] = 503,
         ["traceId"] = "4bf92f3577b34da6a3ce929d0e0e4736",
@@ -140,7 +140,7 @@ internal static class ReportApi
         ["exceptionType"] = "System.Net.Http.HttpRequestException",
         ["exceptionMessage"] = "No se pudo conectar con el API",
         ["exceptionDetails"] = WebStack,
-        ["context"] = "{\"upstream\":\"GET /api/products\",\"elapsedMs\":3012}",
+        ["context"] = "{\"upstream\":\"GET /api/branches\",\"elapsedMs\":3012}",
         ["environment"] = "Production",
         ["serviceVersion"] = "1.2.3",
         ["instance"] = "web-pod-1",

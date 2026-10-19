@@ -14,11 +14,7 @@ internal enum UiPageType
     Login,
     Register,
     Home,
-    Demo,
     Users,
-    Products,
-    ProductEdit,
-    ProductDelete,
     NotFound,
     Error,
     Forbidden,
@@ -31,14 +27,9 @@ internal enum UiPageType
 /// Login          login           /login                           no            optional      -                    yes (anonymous)
 /// Register       register        /register                        no            optional      -                    yes (anonymous)
 /// Home           home            /                                yes           required      "/"                  yes (anonymous)
-/// Demo           demo            /demo                            yes           required      "/demo"              yes (anonymous)
 /// Users          users           /users                           yes           required      "/users"             -
-/// Products       products        /products                        yes           required      "/products"          -
-/// ProductEdit    product-edit    /products/{id}/edit              yes           required      "/products"          -
-/// ProductDelete  product-delete  /products/{id}/delete            yes           required      "/products"          -
-/// Forbidden      forbidden       any page answering 403 (/users,  yes           required      route of the request -
-///                                /products, edit and delete pages)
-/// NotFound       not-found       any 404 (also unknown product)   yes           required      not constrained      -
+/// Forbidden      forbidden       any page answering 403 (/users)  yes           required      route of the request -
+/// NotFound       not-found       any 404                          yes           required      not constrained      -
 /// Error          error           /Error (unhandled exception) and yes           required      not constrained      -
 ///                                any HTML 400 (antiforgery failure)
 /// </code>
@@ -59,11 +50,7 @@ internal static class UiPageTypes
         UiPageType.Login => "login",
         UiPageType.Register => "register",
         UiPageType.Home => "home",
-        UiPageType.Demo => "demo",
         UiPageType.Users => "users",
-        UiPageType.Products => "products",
-        UiPageType.ProductEdit => "product-edit",
-        UiPageType.ProductDelete => "product-delete",
         UiPageType.NotFound => "not-found",
         UiPageType.Error => "error",
         UiPageType.Forbidden => "forbidden",
@@ -74,7 +61,7 @@ internal static class UiPageTypes
 
     public static bool HasShell(UiPageType type) => type is not (UiPageType.Login or UiPageType.Register);
 
-    public static bool NeedsDescription(UiPageType type) => type is UiPageType.Login or UiPageType.Register or UiPageType.Home or UiPageType.Demo;
+    public static bool NeedsDescription(UiPageType type) => type is UiPageType.Login or UiPageType.Register or UiPageType.Home;
 }
 
 /// <summary>One fetched page of the matrix, plus what a person (or the requirement) expects of that state.</summary>
@@ -108,11 +95,8 @@ internal sealed class UiPageCase
     public string? ExpectedActiveNavPath => Type switch
     {
         UiPageType.Home => "/",
-        UiPageType.Demo => "/demo",
         UiPageType.Users => "/users",
-        UiPageType.Products or UiPageType.ProductEdit or UiPageType.ProductDelete => "/products",
         UiPageType.Forbidden when Page.RequestUri.AbsolutePath.StartsWith("/users", StringComparison.OrdinalIgnoreCase) => "/users",
-        UiPageType.Forbidden when Page.RequestUri.AbsolutePath.StartsWith("/products", StringComparison.OrdinalIgnoreCase) => "/products",
         _ => null,
     };
 }
@@ -427,9 +411,9 @@ internal static class UiStructureAssertions
         return Normalize(svg.QuerySelector("title")?.TextContent);
     }
 
-    /// <summary>The primary navigation: the one <c>nav</c> that links to <c>/demo</c> (the tour is linked from the navigation of every page that has one).</summary>
+    /// <summary>The primary navigation: the one <c>nav</c> that links to the home page <c>/</c> (the home entry is in the navigation of every page that has one).</summary>
     public static IElement? PrimaryNav(PageResponse page)
-        => page.Select("nav").FirstOrDefault(n => n.QuerySelectorAll("a[href]").Any(a => Resolve(page, a.GetAttribute("href"))?.AbsolutePath == "/demo"));
+        => page.Select("nav").FirstOrDefault(n => n.QuerySelectorAll("a[href]").Any(a => Resolve(page, a.GetAttribute("href"))?.AbsolutePath == "/"));
 
     private static IEnumerable<IElement> Focusable(PageResponse page)
         => page.Document.Body!.QuerySelectorAll(FocusableSelector)
@@ -613,7 +597,7 @@ internal static class UiStructureAssertions
 
             if (PrimaryNav(page.Page) is null)
             {
-                problems.Add("The app shell has no primary <nav> (the navigation that links to /demo).");
+                problems.Add("The app shell has no primary <nav> (the navigation that links to the home page).");
             }
         }
 
@@ -946,7 +930,7 @@ internal static class UiStructureAssertions
         return Prefixed(page, problems);
     }
 
-    // The product pages confirm with "Producto creado.", "Producto guardado.", "Producto eliminado.", "Usuario creado.", "Permiso concedido." and "Permiso revocado.".
+    // The pages confirm with "Usuario creado.", "Permiso concedido." and "Permiso revocado.".
     private static readonly Regex SuccessWording = new(@"\b(?:cread|guardad|eliminad|actualizad|concedid|revocad)[oa]s?\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static bool IsConfirmation(IElement status)
@@ -980,7 +964,7 @@ internal static class UiStructureAssertions
             }
             else if (!statuses.Any(IsConfirmation))
             {
-                problems.Add($"No status element carries the confirmation message (data-testid=\"notice-success\" or the Spanish success wording such as \"Producto creado.\"): {Snippet(statuses[0])}");
+                problems.Add($"No status element carries the confirmation message (data-testid=\"notice-success\" or the Spanish success wording such as \"Usuario creado.\"): {Snippet(statuses[0])}");
             }
 
             if (alerts.Count > 0)
@@ -1100,25 +1084,21 @@ internal static class UiStructureAssertions
 
     /// <summary>
     /// The fields a page of this kind must offer, so that finding no input is a defect and not a pass. A field is demanded only when the page offers a visible,
-    /// usable form for it: nothing on a page whose form is hidden or has no submit control (a view-only member, the "someone else changed this product" state).
+    /// usable form for it: nothing on a page whose form is hidden or has no submit control (a view-only member).
     /// </summary>
-    private static (bool Password, bool Email, bool Price, bool Stock) ExpectedInputs(UiPageCase page)
+    private static (bool Password, bool Email) ExpectedInputs(UiPageCase page)
     {
-        var offersProductCreation = ProductFlows.CreateForms(page.Page).Any();
-        var offersProductEdition = ProductFlows.EditForms(page.Page).Any();
         var offersUserCreation = page.Document.Forms.Any(f => IsPost(f) && !PageContract.IsLogoutForm(f) && !f.HasAttribute("data-action")
                                                              && PageContract.IsVisibleAndUsable(f) && HasVisibleTypedField(f));
         return page.Type switch
         {
-            UiPageType.Login or UiPageType.Register => (true, true, false, false),
-            UiPageType.Users => (offersUserCreation, offersUserCreation, false, false),
-            UiPageType.Products => (false, false, offersProductCreation, offersProductCreation),
-            UiPageType.ProductEdit => (false, false, offersProductEdition, offersProductEdition),
-            _ => (false, false, false, false),
+            UiPageType.Login or UiPageType.Register => (true, true),
+            UiPageType.Users => (offersUserCreation, offersUserCreation),
+            _ => (false, false),
         };
     }
 
-    /// <summary>Password, email and numeric inputs carry the right type, autocomplete and inputmode; every page that offers such a form has at least one of each.</summary>
+    /// <summary>Password and email inputs carry the right type and autocomplete; every page that offers such a form has at least one of each.</summary>
     public static IEnumerable<string> InputHints(UiPageCase page)
     {
         var problems = new List<string>();
@@ -1168,24 +1148,6 @@ internal static class UiStructureAssertions
             }
         }
 
-        foreach (var (field, mode, mustExist) in new[] { ("price", "decimal", expected.Price), ("stock", "numeric", expected.Stock) })
-        {
-            var numerics = inputs.Where(i => LastSegment(i.GetAttribute("name") ?? string.Empty).Equals(field, StringComparison.OrdinalIgnoreCase)
-                                             && i.Closest("form") is { } form && IsPost(form)).ToList();
-            if (mustExist && numerics.Count == 0)
-            {
-                problems.Add($"InputHints found no '{field}' field in a POST form on this {page.Type} page, which must offer one.");
-            }
-
-            foreach (var numeric in numerics)
-            {
-                if (numeric.GetAttribute("inputmode") != mode)
-                {
-                    problems.Add($"The product field '{field}' must have inputmode=\"{mode}\" (has \"{numeric.GetAttribute("inputmode")}\").");
-                }
-            }
-        }
-
         return Prefixed(page, problems);
     }
 
@@ -1193,7 +1155,7 @@ internal static class UiStructureAssertions
 
     /// <summary>
     /// Caption or label, scoped headers (column headers wherever the table has column semantics; a key/value table with <c>th scope="row"</c> needs none),
-    /// right-aligned numeric columns (<c>data-align="end"</c>) and a narrow-screen strategy for the products list (a table in a scroll region, or one card per product).
+    /// and a labelled scroll region where the table is wider than the screen.
     /// </summary>
     public static IEnumerable<string> Tables(UiPageCase page)
     {
@@ -1224,11 +1186,6 @@ internal static class UiStructureAssertions
             }
         }
 
-        if (page.Type == UiPageType.Products && page.Page.Select(PageContract.ProductRow).FirstOrDefault() is { } firstRow)
-        {
-            problems.AddRange(ProductsList(page, firstRow));
-        }
-
         return Prefixed(page, problems);
     }
 
@@ -1250,52 +1207,6 @@ internal static class UiStructureAssertions
         var headedColumns = rows.SelectMany(r => r.Children.Select((cell, index) => (cell, index))).Where(c => c.cell.LocalName == "th").Select(c => c.index).ToHashSet();
         var cellInHeadedColumn = rows.SelectMany(r => r.Children.Select((cell, index) => (cell, index))).Any(c => c.cell.LocalName == "td" && headedColumns.Contains(c.index));
         return dataRows.Count >= 2 || cellInHeadedColumn;
-    }
-
-    private static IEnumerable<string> ProductsList(UiPageCase page, IElement firstRow)
-    {
-        var table = firstRow.Closest("table");
-        var rows = page.Page.Select(PageContract.ProductRow).ToList();
-
-        foreach (var field in new[] { "price", "stock" })
-        {
-            foreach (var cell in rows.Select(r => r.QuerySelector(PageContract.Field(field))).OfType<IElement>().Where(c => c.GetAttribute("data-align") != "end"))
-            {
-                yield return $"The {field} cell must carry data-align=\"end\": {Snippet(cell)}";
-            }
-
-            if (table is null)
-            {
-                continue;
-            }
-
-            var cellInRow = firstRow.QuerySelector(PageContract.Field(field));
-            var index = cellInRow is null ? -1 : cellInRow.ParentElement!.Children.ToList().IndexOf(cellInRow);
-            var header = index < 0 ? null : table.QuerySelectorAll("thead tr").LastOrDefault()?.Children.ElementAtOrDefault(index);
-            if (header is null || header.GetAttribute("data-align") != "end")
-            {
-                yield return $"The header of the {field} column must carry data-align=\"end\": {(header is null ? "no header cell found" : Snippet(header))}";
-            }
-        }
-
-        var cards = page.Page.Select("[data-testid='product-card']").Count();
-        if (table is null)
-        {
-            if (cards != rows.Count)
-            {
-                yield return $"The product rows are not in a <table>, so each needs one data-testid=\"product-card\" (found {cards} cards for {rows.Count} rows).";
-            }
-
-            yield break;
-        }
-
-        var region = table.Closest("[role=region]");
-        var scrollRegion = region is not null && (!string.IsNullOrWhiteSpace(region.GetAttribute("aria-label")) || !string.IsNullOrWhiteSpace(region.GetAttribute("aria-labelledby")))
-                           && region.GetAttribute("tabindex") == "0";
-        if (!scrollRegion && cards != rows.Count)
-        {
-            yield return $"The products table needs a scroll region wrapper (role=\"region\" + aria-label + tabindex=\"0\") or one data-testid=\"product-card\" per row (found {cards} cards for {rows.Count} rows).";
-        }
     }
 
     // ---------------------------------------------------------------- 6. app-shell integrity and 7. theme toggle
@@ -1500,12 +1411,6 @@ internal static class UiStructureAssertions
     /// <summary>Exactly one data-page region, named after the page type, inside main and holding the h1.</summary>
     public static IEnumerable<string> PageRegion(UiPageCase page) => Prefixed(page, DataPage(page));
 
-    /// <summary>Empty product lists/searches show data-testid="empty-state" (with a call to action for people who can act); lists with products do not.</summary>
-    public static IEnumerable<string> EmptyStates(UiPageCase page) => Prefixed(page, EmptyState(page));
-
-    /// <summary>data-stock-status out/low/ok on the stock cell (or a badge in it) of every product row.</summary>
-    public static IEnumerable<string> StockStatuses(UiPageCase page) => Prefixed(page, StockStatus(page));
-
     /// <summary>data-chip="owner" / "permission" on the profile card.</summary>
     public static IEnumerable<string> ProfileChipHooks(UiPageCase page) => Prefixed(page, ProfileChips(page));
 
@@ -1537,82 +1442,6 @@ internal static class UiStructureAssertions
         if (h1 is not null && region != h1 && !region.Contains(h1))
         {
             yield return "The data-page region must contain the page's <h1>.";
-        }
-    }
-
-    private static IEnumerable<string> EmptyState(UiPageCase page)
-    {
-        var states = Visible(page.Document.QuerySelectorAll("[data-testid='empty-state']")).ToList();
-        if (page.Type != UiPageType.Products || page.Page.Status != 200)
-        {
-            yield break;
-        }
-
-        var rows = page.Page.Select(PageContract.ProductRow).Count();
-        if (rows > 0)
-        {
-            if (states.Count > 0)
-            {
-                yield return "A list with products must not show data-testid=\"empty-state\".";
-            }
-
-            yield break;
-        }
-
-        if (states.Count != 1)
-        {
-            yield return $"An empty product list/search needs exactly one data-testid=\"empty-state\", found {states.Count}.";
-            yield break;
-        }
-
-        var text = Normalize(string.Concat(states[0].Descendants<IText>().Where(t => t.ParentElement?.Closest("a, button") is null).Select(t => t.Data + " ")));
-        if (text.Length == 0)
-        {
-            yield return "The empty state has no message (text outside its links and buttons).";
-        }
-        else if (EnglishLeaks.Find(text).Count > 0)
-        {
-            yield return $"The empty state message is not Spanish: {text}";
-        }
-
-        var canAct = ProductFlows.CreateForms(page.Page).Any();
-        if (canAct && !states[0].QuerySelectorAll("a[href], button").Any(a => AccessibleName(a).Length > 0))
-        {
-            yield return "A person who can create products needs a call to action (link or button) inside the empty state.";
-        }
-    }
-
-    private static IEnumerable<string> StockStatus(UiPageCase page)
-    {
-        if (page.Type != UiPageType.Products)
-        {
-            yield break;
-        }
-
-        foreach (var row in page.Page.Select(PageContract.ProductRow))
-        {
-            var cell = row.QuerySelector(PageContract.Field("stock"));
-            if (cell is null || !int.TryParse(cell.GetAttribute("data-stock"), out var stock))
-            {
-                yield return $"A product row has no stock cell with data-stock: {Snippet(row)}";
-                continue;
-            }
-
-            var chips = cell.QuerySelectorAll("[data-stock-status]").ToList();
-            if (cell.HasAttribute("data-stock-status"))
-            {
-                chips.Add(cell);
-            }
-
-            var expected = stock == 0 ? "out" : stock <= 5 ? "low" : "ok";
-            if (chips.Count != 1 || chips[0].GetAttribute("data-stock-status") != expected)
-            {
-                yield return $"The stock {stock} must carry exactly one data-stock-status=\"{expected}\" on the stock cell or a badge inside it (found {string.Join(",", chips.Select(c => c.GetAttribute("data-stock-status")))}).";
-            }
-            else if (chips[0] != cell && Normalize(chips[0].TextContent).Length == 0 || Normalize(cell.TextContent).Length == 0)
-            {
-                yield return $"The stock status of {stock} has no visible text.";
-            }
         }
     }
 

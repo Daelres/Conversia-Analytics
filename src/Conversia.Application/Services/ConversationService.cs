@@ -1,5 +1,5 @@
+using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Conversations;
-using Conversia.Application.DTOs.Products;
 using Conversia.Application.Exceptions;
 using Conversia.Application.Interfaces;
 using Conversia.Application.Time;

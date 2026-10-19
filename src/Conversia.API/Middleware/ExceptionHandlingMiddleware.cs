@@ -52,18 +52,6 @@ public class ExceptionHandlingMiddleware
         {
             await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.UserNotFoundTitle, ex.Message);
         }
-        catch (ProductNotFoundException ex)
-        {
-            await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.ProductNotFoundTitle, ex.Message);
-        }
-        catch (DuplicateSkuException ex)
-        {
-            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.DuplicateSkuTitle, ex.Message);
-        }
-        catch (ProductConcurrencyException ex)
-        {
-            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.ProductModifiedTitle, ex.Message);
-        }
         catch (BranchNotFoundException ex)
         {
             await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.BranchNotFoundTitle, ex.Message);

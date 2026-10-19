@@ -193,13 +193,12 @@ public class WebErrorReportingEndToEndTests(TestApiFactory api)
     [Fact]
     public async Task A_real_api_failure_is_shown_with_the_code_the_api_stored_and_the_web_registers_nothing_more()
     {
-        const string markerPrefix = "api-fault-";
-        var marker = markerPrefix + Guid.NewGuid().ToString("N");
+        var marker = Guid.NewGuid().ToString(); // a branch id: the API's conversation list fails for any request that filters by one
         var owner = await ApiSeed.RegisterOwnerAsync(api);
-        using var host = Web(Working(), apiHost: api.WithFailingProductSearch(ReportKey, markerPrefix));
+        using var host = Web(Working(), apiHost: api.WithFailingConversationList(ReportKey));
         using var session = await WebFlows.SignedInAsync(host, owner.Email);
 
-        var page = await session.GetAsync($"/products?search={marker}");
+        var page = await session.GetAsync($"/conversaciones?branch={marker}");
 
         var code = ErrorCodeAssertions.Shown(page);
         var row = await RowAsync(code);
@@ -290,12 +289,13 @@ public class WebErrorReportingEndToEndTests(TestApiFactory api)
             sessions.Add(await WebFlows.SignedInAsync(host, owner.Email));
         }
 
-        healthy.Fault = (method, args) => method == nameof(IApiClient.GetProductsAsync) ? new InvalidOperationException($"boom {args[3]}") : null;
+        var branches = Enumerable.Range(0, people).Select(_ => Guid.NewGuid()).ToArray();
+        healthy.Fault = (method, args) => method == nameof(IApiClient.GetConversationsAsync) ? new InvalidOperationException($"boom {((Conversia.Application.DTOs.Conversations.ConversationQuery)args[1]!).BranchId}") : null;
         var start = new TaskCompletionSource();
         var pending = sessions.Select((session, i) => Task.Run(async () =>
         {
             await start.Task.WaitAsync(TestTimeouts.Signal);
-            return await session.GetAsync($"/products?search=marker-{i}");
+            return await session.GetAsync($"/conversaciones?branch={branches[i]}");
         })).ToArray();
         start.SetResult();
         var pages = await Task.WhenAll(pending).WaitAsync(TestTimeouts.Operation);
@@ -306,7 +306,7 @@ public class WebErrorReportingEndToEndTests(TestApiFactory api)
         {
             var row = await RowAsync(codes[i]);
             Assert.NotNull(row);
-            Assert.Equal($"boom marker-{i}", row!.ExceptionMessage);
+            Assert.Equal($"boom {branches[i]}", row!.ExceptionMessage);
             Assert.Equal(owners[i].UserId, row.UserId);
             Assert.Equal(owners[i].TenantId, row.TenantId);
         }

@@ -246,8 +246,9 @@ public class WebExceptionHandlerTests
     {
         const int people = 30;
         using var scenario = WebScenario.Create(("ErrorReporting:MaxPerFingerprintPerMinute", "1000"));
-        scenario.Faults.Fault = (method, args) => method == nameof(IApiClient.GetProductsAsync)
-            ? new InvalidOperationException($"boom {args[3]}")
+        var branches = Enumerable.Range(0, people).Select(_ => Guid.NewGuid()).ToArray();
+        scenario.Faults.Fault = (method, args) => method == nameof(IApiClient.GetConversationsAsync)
+            ? new InvalidOperationException($"boom {((Conversia.Application.DTOs.Conversations.ConversationQuery)args[1]!).BranchId}")
             : null;
         var emails = Enumerable.Range(0, people).Select(i => $"person-{i}@example.test").ToArray();
         var sessions = new List<WebSession>();
@@ -260,7 +261,7 @@ public class WebExceptionHandlerTests
         var pending = sessions.Select((session, i) => Task.Run(async () =>
         {
             await start.Task.WaitAsync(TestTimeouts.Signal);
-            return await session.GetAsync($"/products?search=marker-{i}");
+            return await session.GetAsync($"/conversaciones?branch={branches[i]}");
         })).ToArray();
         start.SetResult();
         var pages = await Task.WhenAll(pending).WaitAsync(TestTimeouts.Operation);
@@ -273,8 +274,8 @@ public class WebExceptionHandlerTests
         {
             var report = Assert.Single(reports, r => r.Code == codes[i]);
             var (user, tenant) = FakeBackend.IdentityOf(emails[i]);
-            Assert.Equal($"boom marker-{i}", report.ExceptionMessage);
-            Assert.Contains($"marker-{i}", report.Query);
+            Assert.Equal($"boom {branches[i]}", report.ExceptionMessage);
+            Assert.Contains(branches[i].ToString(), report.Query);
             Assert.Equal(user, report.UserId);
             Assert.Equal(tenant, report.TenantId);
         }

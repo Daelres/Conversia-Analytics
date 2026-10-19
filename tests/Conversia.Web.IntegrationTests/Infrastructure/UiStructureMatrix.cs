@@ -1,6 +1,5 @@
 using System.Net;
 using System.Reflection;
-using Conversia.Application.DTOs.Products;
 using Conversia.Domain.Enums;
 using Conversia.TestSupport;
 using Conversia.Web.Services;
@@ -12,9 +11,9 @@ namespace Conversia.Web.IntegrationTests.Infrastructure;
 /// Every page and state the structure rules run over, fetched ONCE (the first test that asks builds it; the others reuse it) and
 /// buffered, so the hosts can be disposed and no rule re-fetches anything. The matrix is the one of the "all text is Spanish" suite
 /// (<c>SpanishPagesTests</c>) plus the states of the error answers: anonymous and signed-in visitors, an owner, a view-only member,
-/// members without permissions, the empty and the filled product list, the create/edit/delete pages and their rejections, the login
-/// throttled by the API (429), the 403/404/error pages, the HTML-labelled 400 answer of a rejected antiforgery token (an empty body today, see below), and a host with
-/// <c>Demo:ShowAccounts</c> on. The assets the pages link (and the sheets those import) are fetched once through the same hosts.
+/// members without permissions, the users page and its rejections, the login throttled by the API (429), the 403/404/error pages and the
+/// HTML-labelled 400 answer of a rejected antiforgery token (an empty body today, see below). The assets the pages link (and the sheets
+/// those import) are fetched once through the same host.
 /// </summary>
 internal sealed class UiStructureMatrix
 {
@@ -77,37 +76,22 @@ internal sealed class UiStructureMatrix
                 cases.Add(Case("unhandled exception (error page)", failed, UiPageType.Error, authenticated: false, submitted: true));
             }
 
-            // The demo accounts are shown: a second host, the only difference being the Demo:ShowAccounts setting.
-            using (var demo = WebTestHost.CreateDemo(api))
+            // Each file once; a sheet may import others, which are pages' CSS too.
+            var pending = new Queue<Uri>(cases.SelectMany(c => UiStructureAssertions.LinkedFiles(c.Page)).Distinct());
+            while (pending.TryDequeue(out var url))
             {
-                using var demoAnonymous = demo.NewSession();
-                cases.Add(Case("demo host: login with the demo accounts", await Get(demoAnonymous, "/login"), UiPageType.Login, authenticated: false));
-                var demoTour = await Get(demoAnonymous, "/demo");
-                Assert.NotEmpty(demoTour.Select(PageContract.DemoAccountRow)); // precondition: the accounts really are shown
-                cases.Add(Case("demo host: tour with the demo accounts", demoTour, UiPageType.Demo, authenticated: false));
-
-                using var demoOwner = await WebFlows.SignedInAsync(demo, DemoAccounts.AcmeOwnerEmail, DemoAccounts.Password);
-                cases.Add(Case("demo host: owner home", await Get(demoOwner, "/"), UiPageType.Home, authenticated: true));
-                cases.Add(Case("demo host: owner tour", await Get(demoOwner, "/demo"), UiPageType.Demo, authenticated: true));
-                cases.Add(Case("demo host: owner products", await Get(demoOwner, "/products"), UiPageType.Products, authenticated: true));
-
-                // Each file once; a sheet may import others, which are pages' CSS too.
-                var pending = new Queue<Uri>(cases.SelectMany(c => UiStructureAssertions.LinkedFiles(c.Page)).Distinct());
-                while (pending.TryDequeue(out var url))
+                if (files.ContainsKey(url))
                 {
-                    if (files.ContainsKey(url))
-                    {
-                        continue;
-                    }
+                    continue;
+                }
 
-                    var (response, bytes) = await demoAnonymous.GetFileAsync(url.PathAndQuery);
-                    files[url] = new UiAsset(response, bytes);
-                    if (response.Status == 200 && response.Header("Content-Type")?.StartsWith("text/css", StringComparison.OrdinalIgnoreCase) == true)
+                var (response, bytes) = await anonymous.GetFileAsync(url.PathAndQuery);
+                files[url] = new UiAsset(response, bytes);
+                if (response.Status == 200 && response.Header("Content-Type")?.StartsWith("text/css", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    foreach (var import in UiStructureAssertions.CssImports(response.Body, url))
                     {
-                        foreach (var import in UiStructureAssertions.CssImports(response.Body, url))
-                        {
-                            pending.Enqueue(import);
-                        }
+                        pending.Enqueue(import);
                     }
                 }
             }
@@ -129,7 +113,7 @@ internal sealed class UiStructureMatrix
         using var anonymous = host.NewSession();
 
         cases.Add(Case("anonymous /login", await Get(anonymous, "/login"), UiPageType.Login, false));
-        cases.Add(Case("anonymous /login?returnUrl", await Get(anonymous, "/login?returnUrl=%2Fproducts"), UiPageType.Login, false));
+        cases.Add(Case("anonymous /login?returnUrl", await Get(anonymous, "/login?returnUrl=%2Fusers"), UiPageType.Login, false));
 
         var malformed = await LoginAsync(host, "not-an-email", WrongPassword);
         cases.Add(Case("login rejected locally (malformed email)", malformed, UiPageType.Login, false, submitted: true, invalidFields: ["email"]));
@@ -162,9 +146,6 @@ internal sealed class UiStructureMatrix
         cases.Add(Case("register 409 (email taken)", taken, UiPageType.Register, false, submitted: true, alert: true));
 
         cases.Add(Case("anonymous /", await Get(anonymous, "/"), UiPageType.Home, false));
-        var tour = await Get(anonymous, "/demo");
-        DemoFlows.AssertIsTheRealTour(tour); // precondition: this really is the tour
-        cases.Add(Case("anonymous /demo", tour, UiPageType.Demo, false));
         cases.Add(Case("anonymous 404", await Get(anonymous, "/esta-pagina-no-existe", HttpStatusCode.NotFound), UiPageType.NotFound, false));
         cases.Add(Case("anonymous /not-found", await Get(anonymous, "/not-found"), UiPageType.NotFound, false));
         cases.Add(Case("anonymous /Error", await Get(anonymous, "/Error"), UiPageType.Error, false));
@@ -181,22 +162,11 @@ internal sealed class UiStructureMatrix
         cases.Add(Case("anonymous login post without antiforgery token (400)", antiforgery, UiPageType.Error, false, submitted: true));
     }
 
-    // ---- an owner with products, through every page and rejection ----
+    // ---- an owner, through every page and rejection ----
 
     private static async Task AddSignedInPagesAsync(TestApiFactory api, WebTestHost host, List<UiPageCase> cases)
     {
         var owner = await ApiSeed.RegisterOwnerAsync(api, "ferreteria");
-        var names = new[] { "Tornillo hexagonal", "Martillo de carpintero", "Llave inglesa", "Cinta métrica" };
-        // Stocks around the thresholds (0 out, 1-5 low, 6 and more ok); twelve products so that the pager has two pages.
-        var stocks = new[] { 0, 1, 2, 5, 6, 7, 12, 100, 1200, 3, 4, 8 };
-        var products = new List<ProductResponse>();
-        for (var i = 0; i < stocks.Length; i++)
-        {
-            products.Add(await ApiProducts.CreateAsync(api, owner.Token, $"{names[i % names.Length]} {i}", ApiProducts.UniqueSku($"FER{i}"), 1234.5m + i, stocks[i]));
-        }
-
-        var editTarget = await ApiProducts.CreateAsync(api, owner.Token, "Producto para editar", ApiProducts.UniqueSku("EDT"), 15m, 9);
-        var deleteTarget = await ApiProducts.CreateAsync(api, owner.Token, "Producto para eliminar", ApiProducts.UniqueSku("DEL"), 15m, 9);
         var plainMember = await ApiSeed.CreateMemberAsync(api, owner, "sin-permisos");
         var existingMember = await ApiSeed.CreateMemberAsync(api, owner, "existente", Permission.UsersView);
 
@@ -205,72 +175,13 @@ internal sealed class UiStructureMatrix
         var home = await Get(session, "/");
         Assert.NotNull(home.Document.QuerySelector(PageContract.ProfileTenantId)); // precondition: the profile rendered
         cases.Add(Case("owner /", home, UiPageType.Home, true));
-        var tour = await Get(session, "/demo");
-        Assert.NotNull(tour.Document.QuerySelector(PageContract.YouNow));
-        cases.Add(Case("owner /demo", tour, UiPageType.Demo, true));
 
         var users = await Get(session, "/users");
         Assert.NotEmpty(users.Select(PageContract.UserRow));
         cases.Add(Case("owner /users", users, UiPageType.Users, true));
 
-        var list = await Get(session, "/products");
-        Assert.True(ProductFlows.Rows(list).Count == ProductFlows.PageSize, "precondition: the product table rendered a full page");
-        cases.Add(Case("owner /products page 1", list, UiPageType.Products, true));
-        var second = await Get(session, "/products?page=2");
-        Assert.NotEmpty(ProductFlows.Rows(second));
-        cases.Add(Case("owner /products page 2", second, UiPageType.Products, true));
-        var emptySearch = await ProductFlows.SearchAsync(session, list, "no-existe-" + Guid.NewGuid().ToString("N"));
-        Assert.Empty(ProductFlows.Rows(emptySearch.ShouldBe(HttpStatusCode.OK)));
-        cases.Add(Case("owner /products empty search", emptySearch, UiPageType.Products, true));
-
-        var edit = await Get(session, ProductFlows.EditUrl(editTarget.Id));
-        Assert.NotNull(edit.Document.QuerySelector("input[type=hidden][name$=RowVersion]"));
-        cases.Add(Case("owner edit page", edit, UiPageType.ProductEdit, true));
-        var delete = await Get(session, ProductFlows.DeleteUrl(deleteTarget.Id));
-        ProductFlows.FindDeleteForm(delete);
-        cases.Add(Case("owner delete page", delete, UiPageType.ProductDelete, true));
-
-        cases.Add(Case("owner edit page of a missing product", await Get(session, ProductFlows.EditUrl(Guid.NewGuid()), HttpStatusCode.NotFound), UiPageType.NotFound, true));
-        cases.Add(Case("owner delete page of a missing product", await Get(session, ProductFlows.DeleteUrl(Guid.NewGuid()), HttpStatusCode.NotFound), UiPageType.NotFound, true));
         cases.Add(Case("owner 404", await Get(session, "/esta-pagina-no-existe", HttpStatusCode.NotFound), UiPageType.NotFound, true));
         cases.Add(Case("owner /Error", await Get(session, "/Error"), UiPageType.Error, true));
-
-        // ---- product forms rejected and confirmed ----
-
-        async Task<PageResponse> CreateAsync(string sku, string name, string price, string stock)
-        {
-            var (_, form) = await ProductFlows.OpenCreateFormAsync(session);
-            return await ProductFlows.SubmitAsync(session, ProductFlows.FillCreate(form, sku, name, price, stock));
-        }
-
-        cases.Add(Case("create rejected (blank name)", await CreateAsync("ERR-1", " ", "5", "5"), UiPageType.Products, true, submitted: true, invalidFields: ["name"]));
-        cases.Add(Case("create rejected (price text)", await CreateAsync("ERR-2", "Válido", "abc", "5"), UiPageType.Products, true, submitted: true, invalidFields: ["price"]));
-        cases.Add(Case("create rejected (stock text)", await CreateAsync("ERR-3", "Válido", "5", "x"), UiPageType.Products, true, submitted: true, invalidFields: ["stock"]));
-        var duplicate = await CreateAsync(products[0].Sku, "Impostor", "5", "5");
-        Assert.Equal(HttpStatusCode.Conflict, host.Api.Calls.Last(c => c.Method == HttpMethod.Post).Status); // precondition: the 409 state
-        cases.Add(Case("create rejected (duplicate SKU)", duplicate, UiPageType.Products, true, submitted: true, invalidFields: ["sku"]));
-        var created = await CreateAsync(ApiProducts.UniqueSku("NUE"), "Destornillador plano", "19.99", "4");
-        ProductFlows.AssertSuccessNotice(created);
-        cases.Add(Case("create confirmed", created, UiPageType.Products, true, submitted: true, status: true));
-
-        var (_, staleForm) = await ProductFlows.OpenEditFormAsync(session, editTarget.Id);
-        await ApiProducts.UpdateAsync(api, owner.Token, editTarget, "Cambiado por otra persona", 50m, 50);
-        var stale = await ProductFlows.SubmitAsync(session, ProductFlows.FillEdit(staleForm, "Mi nombre", "60", "60"));
-        Assert.Equal(HttpStatusCode.Conflict, host.Api.Calls.Last(c => c.Method == HttpMethod.Put).Status); // precondition: the stale-edit state
-        cases.Add(Case("edit stale conflict", stale, UiPageType.ProductEdit, true, submitted: true, alert: true));
-        var (_, blankForm) = await ProductFlows.OpenEditFormAsync(session, editTarget.Id);
-        cases.Add(Case("edit rejected (blank name)", await ProductFlows.SubmitAsync(session, ProductFlows.FillEdit(blankForm, " ", "5", "5")), UiPageType.ProductEdit, true, submitted: true, invalidFields: ["name"]));
-        var (_, priceForm) = await ProductFlows.OpenEditFormAsync(session, editTarget.Id);
-        cases.Add(Case("edit rejected (price text)", await ProductFlows.SubmitAsync(session, ProductFlows.FillEdit(priceForm, "Válido", "abc", "5")), UiPageType.ProductEdit, true, submitted: true, invalidFields: ["price"]));
-        var (_, okForm) = await ProductFlows.OpenEditFormAsync(session, editTarget.Id);
-        var saved = await ProductFlows.SubmitAsync(session, ProductFlows.FillEdit(okForm, "Guardado", "7,5", "7"));
-        ProductFlows.AssertSuccessNotice(saved);
-        cases.Add(Case("edit confirmed", saved, UiPageType.Products, true, submitted: true, status: true));
-
-        var (_, deleteForm) = await ProductFlows.OpenDeleteFormAsync(session, deleteTarget.Id);
-        var deleted = await ProductFlows.SubmitAsync(session, deleteForm);
-        ProductFlows.AssertSuccessNotice(deleted);
-        cases.Add(Case("delete confirmed", deleted, UiPageType.Products, true, submitted: true, status: true));
 
         // ---- user forms rejected and confirmed ----
 
@@ -291,7 +202,7 @@ internal sealed class UiStructureMatrix
         cases.Add(Case("users create confirmed", createdUser, UiPageType.Users, true, submitted: true, status: true));
 
         var usersPage = await WebFlows.UsersAsync(session);
-        var grant = FormModel.From(usersPage, usersPage.FindPermissionForm("grant", plainMember.UserId, "ProductsView"));
+        var grant = FormModel.From(usersPage, usersPage.FindPermissionForm("grant", plainMember.UserId, "UsersView"));
         var granted = await WebFlows.FollowRedirectsAsync(session, await session.SubmitAsync(grant));
         Assert.Contains("notice=granted", granted.RequestUri.Query);
         cases.Add(Case("users grant confirmed", granted, UiPageType.Users, true, submitted: true, status: true));
@@ -306,51 +217,32 @@ internal sealed class UiStructureMatrix
         // ---- the backend is down ----
 
         host.Api.Intercept = FakeApi.Failure("500 problem");
-        cases.Add(Case("owner /products backend unavailable", await Get(session, "/products", HttpStatusCode.ServiceUnavailable), UiPageType.Products, true, alert: true));
+        cases.Add(Case("owner /users backend unavailable", await Get(session, "/users", HttpStatusCode.ServiceUnavailable), UiPageType.Users, true, alert: true));
         cases.Add(Case("owner / backend unavailable", await Get(session, "/", HttpStatusCode.ServiceUnavailable), UiPageType.Home, true, alert: true));
-        cases.Add(Case("owner /demo backend unavailable", await Get(session, "/demo", HttpStatusCode.ServiceUnavailable), UiPageType.Demo, true, alert: true));
         host.Api.Intercept = null;
     }
 
-    // ---- members with fewer rights, and tenants with no products ----
+    // ---- members with fewer rights ----
 
     private static async Task AddMembersAsync(TestApiFactory api, WebTestHost host, List<UiPageCase> cases)
     {
         var owner = await ApiSeed.RegisterOwnerAsync(api, "miembros");
-        var product = await ApiProducts.CreateAsync(api, owner.Token, "Llave inglesa", ApiProducts.UniqueSku("MIE"), 20m, 3);
-        var viewer = await ApiSeed.CreateMemberAsync(api, owner, "lector", Permission.ProductsView);
         var usersViewer = await ApiSeed.CreateMemberAsync(api, owner, "usuarios", Permission.UsersView);
         var nothing = await ApiSeed.CreateMemberAsync(api, owner, "nada");
-        var everything = await ApiSeed.CreateMemberAsync(api, owner, "todo", Permission.UsersView, Permission.UsersManage, Permission.ProductsView, Permission.ProductsManage);
-
-        using (var session = await WebFlows.SignedInAsync(host, viewer.Email))
-        {
-            cases.Add(Case("view-only /", await Get(session, "/"), UiPageType.Home, true));
-            cases.Add(Case("view-only /demo", await Get(session, "/demo"), UiPageType.Demo, true));
-            var list = await Get(session, "/products");
-            Assert.NotEmpty(ProductFlows.Rows(list));
-            Assert.False(ProductFlows.OffersManagement(list)); // precondition: the view-only rendering
-            cases.Add(Case("view-only /products", list, UiPageType.Products, true));
-            cases.Add(Case("view-only edit page", await Get(session, ProductFlows.EditUrl(product.Id), HttpStatusCode.Forbidden), UiPageType.Forbidden, true));
-            cases.Add(Case("view-only delete page", await Get(session, ProductFlows.DeleteUrl(product.Id), HttpStatusCode.Forbidden), UiPageType.Forbidden, true));
-            cases.Add(Case("view-only /users", await Get(session, "/users", HttpStatusCode.Forbidden), UiPageType.Forbidden, true));
-        }
+        var everything = await ApiSeed.CreateMemberAsync(api, owner, "todo", Permission.UsersView, Permission.UsersManage, Permission.OrganizationView, Permission.OrganizationManage);
 
         using (var session = await WebFlows.SignedInAsync(host, usersViewer.Email))
         {
+            cases.Add(Case("view-only /", await Get(session, "/"), UiPageType.Home, true));
             var users = await Get(session, "/users");
             Assert.NotEmpty(users.Select(PageContract.UserRow));
             cases.Add(Case("users-view-only /users", users, UiPageType.Users, true));
-            cases.Add(Case("users-view-only /products", await Get(session, "/products", HttpStatusCode.Forbidden), UiPageType.Forbidden, true));
         }
 
         using (var session = await WebFlows.SignedInAsync(host, nothing.Email))
         {
             cases.Add(Case("no-permission /", await Get(session, "/"), UiPageType.Home, true));
-            cases.Add(Case("no-permission /demo", await Get(session, "/demo"), UiPageType.Demo, true));
             cases.Add(Case("no-permission /users", await Get(session, "/users", HttpStatusCode.Forbidden), UiPageType.Forbidden, true));
-            cases.Add(Case("no-permission /products", await Get(session, "/products", HttpStatusCode.Forbidden), UiPageType.Forbidden, true));
-            cases.Add(Case("no-permission edit page", await Get(session, ProductFlows.EditUrl(product.Id), HttpStatusCode.Forbidden), UiPageType.Forbidden, true));
             cases.Add(Case("no-permission /Error", await Get(session, "/Error"), UiPageType.Error, true));
         }
 
@@ -359,25 +251,6 @@ internal sealed class UiStructureMatrix
             var home = await Get(session, "/");
             Assert.Equal(4, home.Select(PageContract.ProfilePermission).Count()); // precondition: all four permissions are listed
             cases.Add(Case("all-permissions member /", home, UiPageType.Home, true));
-        }
-
-        // A tenant with no products: the empty list for someone who can create, and for someone who can only look.
-        var emptyOwner = await ApiSeed.RegisterOwnerAsync(api, "vacio");
-        var emptyViewer = await ApiSeed.CreateMemberAsync(api, emptyOwner, "lector-vacio", Permission.ProductsView);
-        using (var session = await WebFlows.SignedInAsync(host, emptyOwner.Email))
-        {
-            var empty = await Get(session, "/products");
-            Assert.Empty(ProductFlows.Rows(empty));
-            Assert.True(ProductFlows.CreateForms(empty).Any()); // precondition: this owner can create
-            cases.Add(Case("owner /products with no products", empty, UiPageType.Products, true));
-        }
-
-        using (var session = await WebFlows.SignedInAsync(host, emptyViewer.Email))
-        {
-            var empty = await Get(session, "/products");
-            Assert.Empty(ProductFlows.Rows(empty));
-            Assert.False(ProductFlows.OffersManagement(empty)); // precondition: this member cannot create
-            cases.Add(Case("view-only /products with no products", empty, UiPageType.Products, true));
         }
     }
 

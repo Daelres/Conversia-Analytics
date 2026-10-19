@@ -101,18 +101,6 @@ public class ErrorReportingDeploymentFilesTests
     }
 
     [Fact]
-    public void The_demo_overlay_never_puts_a_literal_key_in_either_service()
-    {
-        var overlay = Read("docker-compose.demo.yml");
-
-        foreach (var (service, setting) in new[] { ("api", "ErrorLogging__ReportKey"), ("web", "ErrorReporting__ApiKey") })
-        {
-            var value = EnvironmentValue(ServiceLines(overlay, service), setting);
-            Assert.True(value is null || KeyReference.IsMatch(value), $"The demo overlay sets {setting} to something other than a reference to {Variable}.");
-        }
-    }
-
-    [Fact]
     public void The_example_environment_file_documents_the_key_and_its_minimum_length()
     {
         var example = Read(".env.example");

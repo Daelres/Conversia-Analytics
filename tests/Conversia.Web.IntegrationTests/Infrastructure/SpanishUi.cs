@@ -16,7 +16,7 @@ internal sealed record ScannedText(string Where, string Text);
 /// submit/reset/button inputs, the meta description).
 ///
 /// <para>Excluded as data or developer-facing, never as wording: <c>script</c>/<c>style</c>/<c>template</c>/<c>noscript</c>/<c>svg</c>,
-/// the SKU and name cells of the product table (<c>data-field="sku|name"</c>, user-entered data), and every <c>data-*</c>
+/// and every <c>data-*</c>
 /// attribute (enum names such as <c>UsersManage</c> are identifiers, not text). E-mail addresses, URLs and technology names are
 /// removed by <see cref="EnglishLeaks"/>' allowlist. Everything else is scanned, including text inside <c>hidden</c> elements,
 /// which costs nothing to translate and may become visible.</para>
@@ -70,7 +70,7 @@ internal static class SpanishUi
     {
         if (node is IElement element)
         {
-            if (SkippedElements.Contains(element.LocalName) || IsUserData(element))
+            if (SkippedElements.Contains(element.LocalName))
             {
                 return;
             }
@@ -121,9 +121,6 @@ internal static class SpanishUi
 
         return null;
     }
-
-    private static bool IsUserData(IElement element)
-        => element.GetAttribute("data-field") is "sku" or "name";
 
     private static bool IsButtonLike(IElement element)
         => element is IHtmlInputElement { Type: "submit" or "reset" or "button" } || element is IHtmlButtonElement;
@@ -238,7 +235,7 @@ internal sealed class SpanishUiReport
 /// <item>a command line: optional <c>$</c> prompt, then a known tool (<c>dotnet</c>, <c>docker</c>, <c>git</c>, <c>curl</c>, ...) or <c>./script</c>; a trailing <c># comment</c> is scanned;</item>
 /// <item>for <c>kbd</c>: only when every <c>+</c>/space separated token is a key name (<c>Ctrl+S</c>, <c>Enter</c>).</item>
 /// </list>
-/// A single identifier, a request id or the demo password need no rule: they match nothing on the denylist (whole-word matching).
+/// A single identifier or a request id needs no rule: they match nothing on the denylist (whole-word matching).
 /// Everything not recognised, including <c>&lt;code&gt;Sign in&lt;/code&gt;</c> and <c>&lt;pre&gt;Something went wrong&lt;/pre&gt;</c>, is returned to be scanned.
 /// </summary>
 internal static class CodeText

@@ -23,28 +23,14 @@ internal static class SpanishText
     /// <summary>Not authorized (Web, HTTP 403 pages and inline).</summary>
     public const string NotAuthorized = "No tienes permiso";
 
-    /// <summary>Product not found (Web 404 page and API ProblemDetails).</summary>
-    public const string ProductNotFound = "Producto no encontrado.";
-
-    /// <summary>Stale edit (Web).</summary>
-    public const string ProductModified = "Otra persona modificó este producto";
-
-    /// <summary>Duplicate SKU (Web inline and API).</summary>
-    public const string ProductSkuTaken = "Ya existe un producto con ese SKU.";
-
-    /// <summary>The demo login shortcut button text starts with this.</summary>
-    public const string SignInAs = "Entrar como";
-
-    /// <summary>The demo accounts panel heading contains this.</summary>
-    public const string DemoAccountsHeading = "Cuentas de demostración";
+    /// <summary>Conversation not found (the Web 404 page of an unknown conversation).</summary>
+    public const string ConversationNotFound = "Conversación no encontrada";
 
     /// <summary>The visible label of each permission; the enum names stay in routes, JSON and <c>data-*</c> hooks.</summary>
     public static readonly IReadOnlyDictionary<Permission, string> PermissionLabels = new Dictionary<Permission, string>
     {
         [Permission.UsersView] = "Ver usuarios",
         [Permission.UsersManage] = "Gestionar usuarios",
-        [Permission.ProductsView] = "Ver productos",
-        [Permission.ProductsManage] = "Gestionar productos",
         [Permission.OrganizationView] = "Ver organización",
         [Permission.OrganizationManage] = "Gestionar organización",
         [Permission.ConversationsView] = "Ver conversaciones",

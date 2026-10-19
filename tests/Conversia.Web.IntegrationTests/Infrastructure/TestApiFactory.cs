@@ -13,8 +13,7 @@ namespace Conversia.Web.IntegrationTests.Infrastructure;
 /// <summary>
 /// The real API, in-process, on a real PostgreSQL (Testcontainers) — the backend every
 /// Web host in these tests talks to. One container per test run (shared fixture).
-/// The opt-in demo data is enabled and seeded once (<see cref="DemoAccounts"/>): the demo tenants are fixed, well-known
-/// rows that tests only ever read, while every mutating test registers a tenant of its own.
+/// Every test registers the tenant it needs, so tests never depend on each other's rows.
 /// </summary>
 public sealed class TestApiFactory : WebApplicationFactory<ApiHost::Program>, IAsyncLifetime
 {
@@ -52,34 +51,30 @@ public sealed class TestApiFactory : WebApplicationFactory<ApiHost::Program>, IA
             builder.UseSetting("ErrorLogging:MaxPerFingerprintPerMinute", "1000000");
         }));
 
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Key, string Marker), WebApplicationFactory<ApiHost::Program>> _failingSearch = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, WebApplicationFactory<ApiHost::Program>> _failingList = new();
 
     /// <summary>
-    /// Like <see cref="WithErrorReportKey"/>, and the listing of products fails with an unexpected exception (a real API 500, registered
-    /// by the API itself) whenever the search text contains <paramref name="marker"/>; every other request is untouched.
+    /// Like <see cref="WithErrorReportKey"/>, and the conversation list fails with an unexpected exception (a real API 500, registered
+    /// by the API itself) whenever the request filters by a branch; every other request is untouched.
     /// </summary>
-    internal WebApplicationFactory<ApiHost::Program> WithFailingProductSearch(string key, string marker)
-        => _failingSearch.GetOrAdd((key, marker), k => WithErrorReportKey(k.Key).WithWebHostBuilder(builder =>
-            builder.ConfigureServices(services => ServiceFaults.Decorate<IProductService>(services, (method, args) =>
-                method == nameof(IProductService.ListAsync) && args[0] is Conversia.Application.DTOs.Products.ProductQuery { Search: { } search } && search.Contains(k.Marker, StringComparison.Ordinal)
-                    ? new InvalidOperationException($"the product search broke ({search})")
+    internal WebApplicationFactory<ApiHost::Program> WithFailingConversationList(string key)
+        => _failingList.GetOrAdd(key, k => WithErrorReportKey(k).WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services => ServiceFaults.Decorate<IConversationService>(services, (method, args) =>
+                method == nameof(IConversationService.ListAsync) && args[0] is Conversia.Application.DTOs.Conversations.ConversationQuery { BranchId: { } branch }
+                    ? new InvalidOperationException($"the conversation list broke ({branch})")
                     : null))));
 
     public async Task InitializeAsync()
     {
         await _postgres.StartAsync();
 
-        // Migrated before the host exists, so the API's startup seeding finds its schema; the explicit call below is
-        // idempotent and only makes the test fixture independent of that startup behaviour.
+        // Migrated before the host exists, so the API's startup finds its schema.
         await using (var migrator = new ApplicationDbContext(
             new DbContextOptionsBuilder<ApplicationDbContext>().UseNpgsql(_postgres.GetConnectionString()).Options,
             new NoTenant()))
         {
             await migrator.Database.MigrateAsync();
         }
-
-        using var scope = Services.CreateScope();
-        await scope.ServiceProvider.GetRequiredService<IDemoDataSeeder>().SeedAsync();
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -87,7 +82,6 @@ public sealed class TestApiFactory : WebApplicationFactory<ApiHost::Program>, IA
         builder.UseSetting("Jwt:SigningKey", SigningKey);
         builder.UseSetting("RateLimiting:Login:PermitLimit", UnthrottledPermitLimit);
         builder.UseSetting("RateLimiting:Login:WindowSeconds", "60");
-        builder.UseSetting("Demo:Enabled", "true");
         builder.UseSetting("Webhooks:Processing:Enabled", "false"); // the Web tests never send a webhook
         builder.UseSetting("Webhooks:Retention:Enabled", "false");
         // Background jobs of the conversations are driven by hand in the tests that need them (their runners are called directly).

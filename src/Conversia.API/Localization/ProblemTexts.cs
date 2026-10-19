@@ -8,9 +8,6 @@ public static class ProblemTexts
     public const string DuplicateEmailTitle = "Correo duplicado";
     public const string InvalidCredentialsTitle = "Credenciales no válidas";
     public const string UserNotFoundTitle = "Usuario no encontrado";
-    public const string ProductNotFoundTitle = "Producto no encontrado";
-    public const string DuplicateSkuTitle = "SKU duplicado";
-    public const string ProductModifiedTitle = "Producto modificado";
     public const string BranchNotFoundTitle = "Sucursal no encontrada";
     public const string AdvisorNotFoundTitle = "Asesor no encontrado";
     public const string ChannelNotFoundTitle = "Canal no encontrado";

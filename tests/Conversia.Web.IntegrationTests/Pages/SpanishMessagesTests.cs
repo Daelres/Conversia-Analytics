@@ -73,20 +73,21 @@ public class SpanishMessagesTests(TestApiFactory api)
         => Assert.Equal(expected, SpanishText.RetrySeconds(seconds).IsMatch(text));
 
     [Fact]
-    public async Task The_page_of_an_unknown_route_does_not_claim_a_product_was_not_found_and_the_product_page_does()
+    public async Task The_page_of_an_unknown_route_does_not_claim_a_conversation_was_not_found_and_the_conversation_page_does()
     {
-        var shop = await Shop.CreateAsync(api, products: 1);
+        var owner = await ApiSeed.RegisterOwnerAsync(api);
         using var host = WebTestHost.Create(api);
-        using var session = await WebFlows.SignedInAsync(host, shop.Owner.Email);
+        using var session = await WebFlows.SignedInAsync(host, owner.Email);
 
         var unknownRoute = await session.GetAsync("/esta-pagina-no-existe");
-        var unknownProduct = await session.GetAsync(ProductFlows.EditUrl(Guid.NewGuid()));
+        var unknownConversation = await session.GetAsync($"/conversaciones/{Guid.NewGuid()}");
 
         unknownRoute.ShouldBe(HttpStatusCode.NotFound);
-        Assert.DoesNotContain(SpanishText.ProductNotFound, unknownRoute.Text, StringComparison.OrdinalIgnoreCase);
-        ProductFlows.AssertProductNotFound(unknownProduct);
+        unknownConversation.ShouldBe(HttpStatusCode.NotFound);
+        Assert.DoesNotContain(SpanishText.ConversationNotFound, unknownRoute.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(SpanishText.ConversationNotFound, unknownConversation.Text, StringComparison.OrdinalIgnoreCase);
         Assert.False(string.IsNullOrWhiteSpace(unknownRoute.Document.Title));
-        Assert.False(string.IsNullOrWhiteSpace(unknownProduct.Document.Title));
+        Assert.False(string.IsNullOrWhiteSpace(unknownConversation.Document.Title));
     }
 
     [Fact]

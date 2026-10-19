@@ -419,7 +419,7 @@ public class PanelPageTests
     [Fact]
     public async Task A_member_without_the_metrics_permission_gets_a_friendly_403_and_no_metrics_call()
     {
-        using var harness = PanelHarness.Create(MetricsStub.Populated, [Permission.ProductsView]);
+        using var harness = PanelHarness.Create(MetricsStub.Populated, [Permission.UsersView]);
 
         var page = (await harness.OpenAsync()).ShouldBe(HttpStatusCode.Forbidden);
 

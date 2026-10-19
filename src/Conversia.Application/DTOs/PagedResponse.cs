@@ -1,4 +1,4 @@
-namespace Conversia.Application.DTOs.Products;
+namespace Conversia.Application.DTOs;
 
 public class PagedResponse<T>
 {

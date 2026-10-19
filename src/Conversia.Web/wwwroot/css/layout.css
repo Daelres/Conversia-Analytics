@@ -557,18 +557,3 @@
 .cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .cluster-md { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .grid-cards { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
-
-/* A fixed number of columns where the last card takes what the row leaves, so the grid never ends with a hole. */
-.grid-balanced { display: grid; gap: var(--space-4); grid-template-columns: 1fr; }
-
-@media (min-width: 640px) {
-  .grid-balanced { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .grid-balanced > :last-child:nth-child(2n + 1) { grid-column: 1 / -1; }
-}
-
-@media (min-width: 1200px) {
-  .grid-balanced { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .grid-balanced > :last-child:nth-child(2n + 1) { grid-column: auto; }
-  .grid-balanced > :last-child:nth-child(3n + 1) { grid-column: 1 / -1; }
-  .grid-balanced > :last-child:nth-child(3n + 2) { grid-column: span 2; }
-}

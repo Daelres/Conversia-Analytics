@@ -14,7 +14,7 @@ public class ErrorFingerprintTests
 {
     private const string InvalidOperation = "System.InvalidOperationException";
 
-    private const string UpdateFrame = "Conversia.Application.Services.ProductService.UpdateAsync";
+    private const string UpdateFrame = "Conversia.Application.Services.OrganizationService.UpdateAsync";
 
     private static string Expected(string type, string frame)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(type + "|" + frame))).ToLowerInvariant()[..16];
@@ -23,8 +23,8 @@ public class ErrorFingerprintTests
         => $"{type}: {message}\n{frames}";
 
     private const string UpdateStack =
-        "   at Conversia.Application.Services.ProductService.UpdateAsync(Guid id, UpdateProductRequest request) in /src/Services/ProductService.cs:line 42\n"
-        + "   at Conversia.API.Controllers.ProductsController.UpdateProduct(Guid id, UpdateProductRequest request, CancellationToken cancellationToken) in /src/Controllers/ProductsController.cs:line 55";
+        "   at Conversia.Application.Services.OrganizationService.UpdateAsync(Guid id, UpdateBranchRequest request) in /src/Services/OrganizationService.cs:line 42\n"
+        + "   at Conversia.API.Controllers.BranchesController.UpdateBranch(Guid id, UpdateBranchRequest request, CancellationToken cancellationToken) in /src/Controllers/BranchesController.cs:line 55";
 
     [Fact]
     public void The_fingerprint_is_sixteen_lowercase_hex_characters()
@@ -51,16 +51,16 @@ public class ErrorFingerprintTests
             InvalidOperation,
             Details(
                 "a completely different message, with Password=x and 12345",
-                "   at Conversia.Application.Services.ProductService.UpdateAsync(Guid id) in /other/checkout/deep/ProductService.cs:line 999\n"
-                + "   at Conversia.API.Controllers.ProductsController.Elsewhere() in C:\\build\\ProductsController.cs:line 1"));
+                "   at Conversia.Application.Services.OrganizationService.UpdateAsync(Guid id) in /other/checkout/deep/OrganizationService.cs:line 999\n"
+                + "   at Conversia.API.Controllers.BranchesController.Elsewhere() in C:\\build\\BranchesController.cs:line 1"));
 
         var noFileInformation = ErrorFingerprint.Compute(
             InvalidOperation,
-            Details("x", "   at Conversia.Application.Services.ProductService.UpdateAsync(Guid id, UpdateProductRequest request)"));
+            Details("x", "   at Conversia.Application.Services.OrganizationService.UpdateAsync(Guid id, UpdateBranchRequest request)"));
 
         var withStackOffset = ErrorFingerprint.Compute(
             InvalidOperation,
-            Details("x", "   at Conversia.Application.Services.ProductService.UpdateAsync(Guid id, UpdateProductRequest request) + 0x2a"));
+            Details("x", "   at Conversia.Application.Services.OrganizationService.UpdateAsync(Guid id, UpdateBranchRequest request) + 0x2a"));
 
         Assert.Equal(baseline, otherEverything);
         Assert.Equal(baseline, noFileInformation);
@@ -89,10 +89,10 @@ public class ErrorFingerprintTests
         var update = ErrorFingerprint.Compute(InvalidOperation, Details("boom", UpdateStack));
         var delete = ErrorFingerprint.Compute(
             InvalidOperation,
-            Details("boom", "   at Conversia.Application.Services.ProductService.DeleteAsync(Guid id) in /src/ProductService.cs:line 42"));
+            Details("boom", "   at Conversia.Application.Services.OrganizationService.DeleteAsync(Guid id) in /src/OrganizationService.cs:line 42"));
         var otherType = ErrorFingerprint.Compute(
             InvalidOperation,
-            Details("boom", "   at Conversia.Application.Services.OtherService.UpdateAsync(Guid id) in /src/ProductService.cs:line 42"));
+            Details("boom", "   at Conversia.Application.Services.OtherService.UpdateAsync(Guid id) in /src/OrganizationService.cs:line 42"));
 
         Assert.NotEqual(update, delete);
         Assert.NotEqual(update, otherType);

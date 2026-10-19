@@ -28,8 +28,6 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<UserPermission> UserPermissions => Set<UserPermission>();
 
-    public DbSet<Product> Products => Set<Product>();
-
     public DbSet<Branch> Branches => Set<Branch>();
 
     public DbSet<Advisor> Advisors => Set<Advisor>();
@@ -53,10 +51,10 @@ public class ApplicationDbContext : DbContext
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
 
-        // Case-insensitive text for the emails and SKUs (see UserConfiguration / ProductConfiguration); the first migration creates it.
+        // Case-insensitive text for the emails (see UserConfiguration); the first migration creates it.
         modelBuilder.HasPostgresExtension("citext");
 
-        // Tenant isolation: every query against Users/UserPermissions/Products is
+        // Tenant isolation: every query against Users/UserPermissions is
         // scoped to the caller's own tenant, resolved from the tenant_id JWT
         // claim via ICurrentTenantService. Tenants itself is never filtered
         // — docs/USERS_TENANTS_PERMISSIONS.md, "Multi-tenancy enforcement".
@@ -67,9 +65,6 @@ public class ApplicationDbContext : DbContext
 
         modelBuilder.Entity<UserPermission>()
             .HasQueryFilter(up => Users.Any(u => u.Id == up.UserId && u.TenantId == _currentTenantService.TenantId));
-
-        modelBuilder.Entity<Product>()
-            .HasQueryFilter(p => p.TenantId == _currentTenantService.TenantId);
 
         // The Conversia entities carry their own TenantId and the same filter.
         modelBuilder.Entity<Branch>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);

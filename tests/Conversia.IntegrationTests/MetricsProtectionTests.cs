@@ -96,7 +96,7 @@ public class MetricsProtectionTests
         }
 
         Assert.Equal(HttpStatusCode.TooManyRequests, (await client.GetAsync("/api/metrics/summary")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/products")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/users")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/branches")).StatusCode);
     }
 

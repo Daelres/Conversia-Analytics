@@ -12,8 +12,6 @@ public static class PermissionLabels
     {
         [Permission.UsersView] = "Ver usuarios",
         [Permission.UsersManage] = "Gestionar usuarios",
-        [Permission.ProductsView] = "Ver productos",
-        [Permission.ProductsManage] = "Gestionar productos",
         [Permission.OrganizationView] = "Ver organización",
         [Permission.OrganizationManage] = "Gestionar organización",
         [Permission.ConversationsView] = "Ver conversaciones",

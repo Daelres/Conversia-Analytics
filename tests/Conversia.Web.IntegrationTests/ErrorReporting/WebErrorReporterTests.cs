@@ -126,15 +126,15 @@ public class WebErrorReporterTests
     public async Task The_kind_is_reported_by_name_and_the_upstream_call_travels_in_the_context(ErrorKind kind, string expected)
     {
         using var harness = Harness();
-        var report = new WebErrorReport(kind, new HttpRequestException("connection refused"), ReporterHarness.Request("GET", "/products"), 503, "GET", "api/products");
+        var report = new WebErrorReport(kind, new HttpRequestException("connection refused"), ReporterHarness.Request("GET", "/conversaciones"), 503, "GET", "api/conversations");
 
         await harness.Reporter.ReportAsync(report);
 
         var body = Assert.Single(harness.Backend.ReportRequests).ReportBody;
         Assert.Equal(expected, body.Kind);
         Assert.Equal(503, body.StatusCode);
-        Assert.Equal("/products", body.Path);
-        Assert.Contains("api/products", body.Context);
+        Assert.Equal("/conversaciones", body.Path);
+        Assert.Contains("api/conversations", body.Context);
         Assert.Contains("GET", body.Context);
         using var context = JsonDocument.Parse(body.Context!);
         Assert.Equal(JsonValueKind.Object, context.RootElement.ValueKind);
@@ -178,7 +178,7 @@ public class WebErrorReporterTests
     public async Task Secrets_in_the_query_string_are_redacted_and_the_rest_is_kept()
     {
         using var harness = Harness();
-        var context = ReporterHarness.Request("GET", "/products", "?page=2&token=SECRET-TOKEN-VALUE&search=ana&password=HUNTER2&apiKey=KEY-VALUE-123");
+        var context = ReporterHarness.Request("GET", "/conversaciones", "?page=2&token=SECRET-TOKEN-VALUE&search=ana&password=HUNTER2&apiKey=KEY-VALUE-123");
 
         await ReportAsync(harness, context: context);
 

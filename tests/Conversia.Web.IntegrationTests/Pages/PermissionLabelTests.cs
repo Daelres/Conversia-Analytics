@@ -8,15 +8,12 @@ namespace Conversia.Web.IntegrationTests.Pages;
 
 /// <summary>
 /// Permission names are identifiers (routes, JSON, form values, <c>data-*</c> hooks) and stay <c>UsersView</c>, <c>UsersManage</c>,
-/// <c>ProductsView</c> and <c>ProductsManage</c>; what a person reads is the Spanish label.
+/// <c>OrganizationView</c>...; what a person reads is the Spanish label.
 /// </summary>
 [Collection(nameof(WebIntegrationCollection))]
 public class PermissionLabelTests(TestApiFactory api)
 {
     private static readonly string[] EnumNames = Enum.GetNames<Permission>();
-
-    // The tour's access matrix only covers the template's demo features (users and products).
-    private static readonly string[] MatrixPermissions = ["UsersView", "UsersManage", "ProductsView", "ProductsManage"];
 
     public static TheoryData<Permission> AllPermissions
     {
@@ -50,7 +47,7 @@ public class PermissionLabelTests(TestApiFactory api)
     }
 
     [Fact]
-    public async Task A_member_with_every_permission_sees_every_spanish_label_on_the_profile_and_on_the_tour()
+    public async Task A_member_with_every_permission_sees_every_spanish_label_on_the_profile()
     {
         var owner = await ApiSeed.RegisterOwnerAsync(api);
         var member = await ApiSeed.CreateMemberAsync(api, owner, "todo", Enum.GetValues<Permission>());
@@ -58,35 +55,15 @@ public class PermissionLabelTests(TestApiFactory api)
         using var session = await WebFlows.SignedInAsync(host, member.Email);
 
         var home = (await session.GetAsync("/")).ShouldBe(HttpStatusCode.OK);
-        var tour = (await session.GetAsync("/demo")).ShouldBe(HttpStatusCode.OK);
 
-        foreach (var (page, selector) in new[] { (home, PageContract.ProfilePermission), (tour, PageContract.YouPermission) })
+        var shown = home.Select(PageContract.ProfilePermission).ToDictionary(e => e.GetAttribute("data-permission")!, e => e.TextContent.Trim());
+        Assert.Equal(EnumNames.Order(), shown.Keys.Order());
+        foreach (var (enumValue, label) in SpanishText.PermissionLabels)
         {
-            var shown = page.Select(selector).ToDictionary(e => e.GetAttribute("data-permission")!, e => e.TextContent.Trim());
-            Assert.Equal(EnumNames.Order(), shown.Keys.Order());
-            foreach (var (enumValue, label) in SpanishText.PermissionLabels)
-            {
-                Assert.Equal(label, shown[enumValue.ToString()]);
-            }
-
-            AssertNoEnumNameVisible(page);
+            Assert.Equal(label, shown[enumValue.ToString()]);
         }
-    }
 
-    [Fact]
-    public async Task The_access_matrix_cells_keep_the_enum_names_and_show_no_english_permission_name()
-    {
-        var owner = await ApiSeed.RegisterOwnerAsync(api);
-        var member = await ApiSeed.CreateMemberAsync(api, owner, "matriz", Permission.ProductsView, Permission.UsersManage);
-        using var host = WebTestHost.Create(api);
-        using var session = await WebFlows.SignedInAsync(host, member.Email);
-
-        var tour = (await session.GetAsync("/demo")).ShouldBe(HttpStatusCode.OK);
-
-        var held = tour.Select(PageContract.AccessCell).Where(c => c.GetAttribute("data-held") == "true").Select(c => c.GetAttribute("data-permission")!).Order();
-        Assert.Equal(new[] { "ProductsView", "UsersManage" }.Order(), held);
-        Assert.Equal(MatrixPermissions.Order(), tour.Select(PageContract.AccessCell).Select(c => c.GetAttribute("data-permission")!).Order());
-        AssertNoEnumNameVisible(tour);
+        AssertNoEnumNameVisible(home);
     }
 
     [Fact]
@@ -124,12 +101,12 @@ public class PermissionLabelTests(TestApiFactory api)
         using var host = WebTestHost.Create(api);
         using var session = await WebFlows.SignedInAsync(host, owner.Email);
         var page = await WebFlows.UsersAsync(session);
-        var form = FormModel.From(page, page.FindPermissionForm("grant", member.UserId, "ProductsManage"));
+        var form = FormModel.From(page, page.FindPermissionForm("grant", member.UserId, "MetricsView"));
 
         var landed = await WebFlows.FollowRedirectsAsync(session, await session.SubmitAsync(form));
 
         landed.ShouldBe(HttpStatusCode.OK);
-        Assert.Equal(new[] { Permission.ProductsManage }, await ApiSeed.PersistedPermissionsAsync(api, member.UserId));
+        Assert.Equal(new[] { Permission.MetricsView }, await ApiSeed.PersistedPermissionsAsync(api, member.UserId));
         var call = Assert.Single(host.Api.Calls, c => c.Method == HttpMethod.Post && c.PathAndQuery == $"/api/users/{member.UserId}/permissions");
         Assert.Equal(HttpStatusCode.NoContent, call.Status);
     }

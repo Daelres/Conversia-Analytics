@@ -5,13 +5,7 @@
 @attribute [Microsoft.AspNetCore.Mvc.IgnoreAntiforgeryToken]
 @using Conversia.Web.Http
 
-@if (ProductNotFoundMarker.IsMarked(HttpContext))
-{
-    <PageTitle>Producto no encontrado - Conversia</PageTitle>
-
-    <ProductNotFoundView />
-}
-else if (NotFoundMarker.IsMarked(HttpContext, NotFoundMarker.Conversation))
+@if (NotFoundMarker.IsMarked(HttpContext, NotFoundMarker.Conversation))
 {
     <PageTitle>Conversación no encontrada - Conversia</PageTitle>
 

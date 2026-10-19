@@ -6,7 +6,7 @@ namespace Conversia.Web.IntegrationTests.Infrastructure;
 
 /// <summary>
 /// Makes a service of a host fail on purpose, the way a bug in it would: every call goes through to the real service unless the
-/// fault returns an exception for it, which is then thrown from the call. Used on the real API (say, its product service) so that an
+/// fault returns an exception for it, which is then thrown from the call. Used on the real API (say, its conversation service) so that an
 /// unexpected failure happens where it really happens, without the Web's help. A minimal, generic counterpart of the fault
 /// injection of the API's own test project (<c>ErrorTestHost</c>), which is internal to that project.
 /// </summary>

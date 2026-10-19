@@ -1,11 +1,8 @@
 @page "/login"
-@using Conversia.Application.Demo
 @using Conversia.Application.DTOs.Auth
-@using Conversia.Web.Demo
 @using Conversia.Web.Authentication
 @layout AuthLayout
 @inherits ApiPageBase
-@inject DemoOptions DemoSettings
 
 <PageTitle>Iniciar sesión - Conversia</PageTitle>
 <HeadContent>
@@ -44,22 +41,6 @@
     </Card>
 
     <p class="auth-switch">¿No tienes cuenta? <a href="/register">Crear una cuenta</a></p>
-
-    @if (DemoSettings.ShowAccounts)
-    {
-        <section class="demo-panel" data-testid="demo-login-panel">
-            <div class="demo-panel__head">
-                <h2 class="section-title"><Icon Name="users" />Cuentas de demostración</h2>
-                <p class="muted">Entra con un clic como cada persona de la demostración y compara lo que puede hacer.</p>
-            </div>
-            <div class="stack-sm">
-                @foreach (var account in DemoAccounts.All)
-                {
-                    <DemoLoginForm Account="account" Password="@DemoSettings.Password" OnSignIn="SignInAsync" />
-                }
-            </div>
-        </section>
-    }
 </div>
 
 @code {

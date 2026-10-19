@@ -40,11 +40,11 @@ public class ErrorSanitizerTests
         "Host: localhost:5000",
         "Operation took 12:30:45 to finish",
         "2026-10-18T13:45:12.0000000Z",
-        "GET /api/products/3f2a9c1e-6b1d-4c1a-9a43-7b0f6b9a1d11 returned 500",
+        "GET /api/branches/3f2a9c1e-6b1d-4c1a-9a43-7b0f6b9a1d11 returned 500",
         "status: failed; retry later",
-        "   at Conversia.Application.Services.ProductService.UpdateAsync(Guid id, UpdateProductRequest request) in /src/Services/ProductService.cs:line 42",
+        "   at Conversia.Application.Services.OrganizationService.UpdateAsync(Guid id, UpdateBranchRequest request) in /src/Services/OrganizationService.cs:line 42",
         "   at System.Threading.Tasks.Task.ThrowIfExceptional(Boolean includeTaskCanceledExceptions)",
-        "System.InvalidOperationException: Sequence contains no elements\n   at System.Linq.ThrowHelper.ThrowNoElementsException()\n   at Conversia.Application.Services.ProductService.GetAsync(Guid id)",
+        "System.InvalidOperationException: Sequence contains no elements\n   at System.Linq.ThrowHelper.ThrowNoElementsException()\n   at Conversia.Application.Services.OrganizationService.GetAsync(Guid id)",
         "https://example.test/path?page=2&search=tornillo",
         "user@example.test could not be found",
         "",
@@ -385,7 +385,7 @@ public class ErrorSanitizerTests
     [InlineData("?search=tornillo%20grande&page=2&pageSize=10")]
     [InlineData("?flag&other=1")]
     [InlineData("?keyword=abc&codec=h264&monkey=1&sigma=2&tokenizer=x&passwordless=true&secretary=ana")]
-    [InlineData("?sku=ABC-1&name=Yunque+de+50+kg")]
+    [InlineData("?code=ABC-1&name=Yunque+de+50+kg")]
     public void A_query_with_benign_keys_and_values_is_unchanged(string query)
         => Assert.Equal(query, Query(query));
 

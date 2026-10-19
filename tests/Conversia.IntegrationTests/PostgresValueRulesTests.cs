@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Conversia.Application.DTOs.Organization;
 using static Conversia.IntegrationTests.TestHelpers;
 
 namespace Conversia.IntegrationTests;
@@ -51,31 +52,26 @@ public class PostgresValueRulesTests
     }
 
     [Fact]
-    public async Task ANulCharacterInTheProductName_IsAValidationError_OnCreateAndUpdate()
+    public async Task ANulCharacterInABranchName_IsAValidationError_AndNothingIsWritten()
     {
-        using var tenant = await StartTenantAsync(_factory, _client, "nul-product");
+        using var tenant = await StartTenantAsync(_factory, _client, "nul-branch");
         var client = tenant.Owner.Client;
 
-        await AssertValidationErrorUnderAsync(await PostProductAsync(client, $"Wid{Nul}get", UniqueSku()), "name");
+        await AssertValidationErrorUnderAsync(await PostBranchAsync(client, $"Sede{Nul}Centro"), "name");
 
-        var created = await CreateProductAsync(client);
-        await AssertValidationErrorUnderAsync(await PutProductAsync(client, created.Id, $"Wid{Nul}get", 1m, 1, created.RowVersion), "name");
-        await AssertProductUnchangedAsync(client, created);
+        Assert.Empty(await ReadBodyAsync<List<BranchResponse>>(await client.GetAsync(BranchesUrl)));
     }
 
     [Fact]
-    public async Task StampedTimestamps_AreWholeMicroseconds_AndEveryWriteResponseEqualsTheLaterRead()
+    public async Task StampedTimestamps_AreWholeMicroseconds_AndTheWriteResponseEqualsTheLaterRead()
     {
         using var tenant = await StartTenantAsync(_factory, _client, "stamps");
         var client = tenant.Owner.Client;
 
-        var created = await CreateProductAsync(client);
-        AssertSameProduct(created, await GetProductOkAsync(client, created.Id));
-        Assert.Equal(0, created.CreatedAt.Ticks % 10);
+        var created = await CreateBranchAsync(client);
+        var read = await ReadBodyAsync<BranchResponse>(await client.GetAsync($"{BranchesUrl}/{created.Id}"));
 
-        var updated = await UpdateProductOkAsync(client, created);
-        AssertSameProduct(updated, await GetProductOkAsync(client, created.Id));
-        Assert.Equal(created.CreatedAt, updated.CreatedAt);
-        Assert.Equal(0, updated.UpdatedAt!.Value.Ticks % 10);
+        Assert.Equal(created.CreatedAt, read.CreatedAt);
+        Assert.Equal(0, created.CreatedAt.Ticks % 10);
     }
 }

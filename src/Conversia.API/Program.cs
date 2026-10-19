@@ -35,7 +35,6 @@ builder.Services.AddConversations(builder.Configuration);
 builder.Services.AddClassification(builder.Configuration);
 builder.Services.AddMetrics(builder.Configuration);
 builder.Services.AddOptionalForwardedHeaders(builder.Configuration);
-builder.Services.AddDemoData(builder.Configuration, builder.Environment);
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -43,7 +42,6 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<ITenantRepository, TenantRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IUserPermissionRepository, UserPermissionRepository>();
-builder.Services.AddScoped<IProductRepository, ProductRepository>();
 builder.Services.AddScoped<IBranchRepository, BranchRepository>();
 builder.Services.AddScoped<IAdvisorRepository, AdvisorRepository>();
 builder.Services.AddScoped<IWhatsAppChannelRepository, WhatsAppChannelRepository>();
@@ -52,7 +50,6 @@ builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
-builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IOrganizationService, OrganizationService>();
 // One instance per scope under both interfaces: the tenant a webhook request or the worker sets is the one the DbContext filters by.
 builder.Services.AddScoped<CurrentTenantService>();

@@ -214,11 +214,12 @@ public class RevokePermissionEndpointTests
     [InlineData("99")]                      // one past the catalog
     [InlineData("NotAPermission")]
     // Enum parsing accepts comma lists and ORs their members, so a lazy "result is undefined" check misses the ones that collapse to a defined value.
-    [InlineData("UsersView,UsersManage")]   // 1|2 = 3 = ProductsView: collapses to a defined value
+    [InlineData("UsersView,UsersManage")]   // 1|2 = 3: a retired number, not a defined permission
     [InlineData("UsersView,UsersView")]     // 1|1 = 1 = UsersView: collapses to the very permission the caller holds
     [InlineData("UsersManage,UsersManage")] // 2|2 = 2 = UsersManage
     [InlineData("1,2")]                     // regression guard: Enum.TryParse already rejects a numeric comma list today
-    [InlineData("ProductsView,ProductsManage")] // 3|4 = 7, outside the catalog
+    [InlineData("UsersView,OrganizationManage")] // 1|6 = 7 = ConversationsView: collapses to a defined value
+    [InlineData("UsersManage,OrganizationView")] // 2|5 = 7 = ConversationsView: collapses to a defined value
     [InlineData("99999999999")]             // overflows Int32
     [InlineData("1.5")]
     public async Task Revoke_WithUndefinedPermission_Returns400AndChangesNothing(string permission)

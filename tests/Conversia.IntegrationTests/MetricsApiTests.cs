@@ -47,7 +47,7 @@ public class MetricsApiTests
         using var tenant = await StartTenantAsync(_factory, _client, "metrics");
         using var none = await tenant.AddMemberAsync("none");
         using var others = await tenant.AddMemberAsync(
-            "others", Permission.ConversationsView, Permission.ConversationsManage, Permission.OrganizationView, Permission.OrganizationManage, Permission.UsersView, Permission.ProductsView);
+            "others", Permission.ConversationsView, Permission.ConversationsManage, Permission.OrganizationView, Permission.OrganizationManage, Permission.UsersView, Permission.UsersManage);
         using var viewer = await tenant.AddMemberAsync("viewer", Permission.MetricsView);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await none.Client.GetAsync(Url(endpoint))).StatusCode);

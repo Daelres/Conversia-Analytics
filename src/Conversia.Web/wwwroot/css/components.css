@@ -630,10 +630,6 @@ a.card--link:hover {
   min-width: 0;
 }
 
-@media (min-width: 640px) {
-  .kv--cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
 .mono {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -713,52 +709,6 @@ a.card--link:hover {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-1);
-}
-
-/* On narrow screens each product row becomes a card */
-@media (max-width: 719px) {
-  .table--stack thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-  }
-
-  .table--stack,
-  .table--stack tbody {
-    display: block;
-  }
-
-  .table--stack tbody tr {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "name price" "sku stock" "actions actions";
-    align-items: center;
-    gap: var(--space-2) var(--space-4);
-    padding: var(--space-4);
-  }
-
-  .table--stack tbody tr + tr {
-    border-top: 1px solid var(--border);
-  }
-
-  .table--stack tbody tr + tr > * {
-    border-top: 0;
-  }
-
-  .table--stack td {
-    display: block;
-    padding: 0;
-    border: 0;
-  }
-
-  .table--stack td[data-field="name"] { grid-area: name; font-size: 1.02rem; }
-  .table--stack td[data-field="price"] { grid-area: price; font-weight: 700; }
-  .table--stack td[data-field="sku"] { grid-area: sku; }
-  .table--stack td[data-field="stock"] { grid-area: stock; }
-  .table--stack td.table__cell-actions { grid-area: actions; margin-top: var(--space-1); }
-  .table--stack .table__actions { justify-content: flex-start; flex-wrap: wrap; }
 }
 
 /* ---- Pager ---- */

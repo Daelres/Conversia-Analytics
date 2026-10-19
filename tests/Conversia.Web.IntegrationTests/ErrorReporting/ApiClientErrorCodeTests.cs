@@ -1,6 +1,7 @@
 using System.Net;
 using Conversia.Application.DTOs.Auth;
-using Conversia.Application.DTOs.Products;
+using Conversia.Application.DTOs.Conversations;
+using Conversia.Application.DTOs.Organization;
 using Conversia.Application.DTOs.Users;
 using Conversia.Domain.Common;
 using Conversia.Domain.Enums;
@@ -42,7 +43,7 @@ public class ApiClientErrorCodeTests
         => _ => Task.FromResult<HttpResponseMessage?>(FakeBackend.Raw(status, body, contentType, errorIdHeader: errorIdHeader));
 
     /// <summary>One representative call per kind of request: reads, writes, the unauthenticated ones and the ones with a body or a query.</summary>
-    public static TheoryData<string> Calls => new() { "login", "register", "profile", "users", "createUser", "grant", "revoke", "products", "product", "createProduct", "updateProduct", "deleteProduct" };
+    public static TheoryData<string> Calls => new() { "login", "register", "profile", "users", "createUser", "grant", "revoke", "conversations", "conversation", "assignAdvisor", "createBranch" };
 
     private static async Task<IApiOutcome> CallAsync(IApiClient client, string call) => call switch
     {
@@ -53,11 +54,10 @@ public class ApiClientErrorCodeTests
         "createUser" => await client.CreateUserAsync(Token, new CreateUserRequest { Email = "n@example.test", Password = "Sup3r-Secret!" }),
         "grant" => await client.AssignPermissionAsync(Token, Guid.NewGuid(), Permission.UsersView),
         "revoke" => await client.RevokePermissionAsync(Token, Guid.NewGuid(), Permission.UsersView),
-        "products" => await client.GetProductsAsync(Token, 1, 10, "tornillo"),
-        "product" => await client.GetProductAsync(Token, Guid.NewGuid()),
-        "createProduct" => await client.CreateProductAsync(Token, new CreateProductRequest { Sku = "A-1", Name = "Yunque", Price = 1, Stock = 1 }),
-        "updateProduct" => await client.UpdateProductAsync(Token, Guid.NewGuid(), new UpdateProductRequest { Name = "Yunque", Price = 1, Stock = 1, RowVersion = "AAAAAAAAB9E=" }),
-        "deleteProduct" => await client.DeleteProductAsync(Token, Guid.NewGuid()),
+        "conversations" => await client.GetConversationsAsync(Token, new ConversationQuery { Page = 1, PageSize = 10 }),
+        "conversation" => await client.GetConversationAsync(Token, Guid.NewGuid()),
+        "assignAdvisor" => await client.AssignAdvisorAsync(Token, Guid.NewGuid(), new AssignAdvisorRequest { AdvisorId = Guid.NewGuid() }),
+        "createBranch" => await client.CreateBranchAsync(Token, new CreateBranchRequest { Name = "Centro" }),
         _ => throw new ArgumentOutOfRangeException(nameof(call), call, null),
     };
 
@@ -234,7 +234,7 @@ public class ApiClientErrorCodeTests
     {
         var setup = Failing(failure);
 
-        var result = await setup.Client.GetProductsAsync(Token, 1, 10, null);
+        var result = await setup.Client.GetConversationsAsync(Token, new ConversationQuery { Page = 1, PageSize = 10 });
 
         Assert.Equal(ApiResultStatus.Unavailable, result.Status);
         var report = Assert.Single(setup.Reporter.Reports);
@@ -247,7 +247,7 @@ public class ApiClientErrorCodeTests
     {
         var setup = Create(Answer(HttpStatusCode.OK, """{"items":null,"page":1}""", "application/json"));
 
-        var result = await setup.Client.GetProductsAsync(Token, 1, 10, null);
+        var result = await setup.Client.GetConversationsAsync(Token, new ConversationQuery { Page = 1, PageSize = 10 });
 
         Assert.Equal(ApiResultStatus.Unavailable, result.Status);
         Assert.Equal(ErrorKind.UpstreamBadResponse, Assert.Single(setup.Reporter.Reports).Kind);
@@ -299,13 +299,14 @@ public class ApiClientErrorCodeTests
     {
         var setup = Failing("503 empty");
 
-        await setup.Client.GetProductsAsync("secret-bearer-token-of-ana", 2, 10, "tornillo-privado");
+        var privateBranch = Guid.NewGuid();
+        await setup.Client.GetConversationsAsync("secret-bearer-token-of-ana", new ConversationQuery { Page = 2, PageSize = 10, BranchId = privateBranch });
 
         var report = Assert.Single(setup.Reporter.Reports);
         Assert.Equal("GET", report.UpstreamMethod);
-        Assert.Contains("api/products", report.UpstreamPath);
+        Assert.Contains("api/conversations", report.UpstreamPath);
         Assert.DoesNotContain("?", report.UpstreamPath);
-        Assert.DoesNotContain("tornillo-privado", report.UpstreamPath);
+        Assert.DoesNotContain(privateBranch.ToString(), report.UpstreamPath);
         Assert.DoesNotContain("secret-bearer-token-of-ana", report.UpstreamPath);
         Assert.DoesNotContain("secret-bearer-token-of-ana", report.Exception?.ToString() ?? string.Empty);
     }
@@ -339,7 +340,7 @@ public class ApiClientErrorCodeTests
     {
         var setup = Create(Answer(HttpStatusCode.NotFound, $$"""{"title":"x","status":404,"errorId":"{{NewCode()}}"}"""));
 
-        var result = await setup.Client.GetProductAsync(Token, Guid.NewGuid());
+        var result = await setup.Client.GetConversationAsync(Token, Guid.NewGuid());
 
         Assert.Equal(ApiResultStatus.NotFound, result.Status);
         Assert.Null(result.ErrorCode);
@@ -414,7 +415,7 @@ public class ApiClientErrorCodeTests
     {
         var setup = Create(FakeBackend.UpstreamFailure(failure), withReporter: false);
 
-        var result = await setup.Client.GetProductsAsync(Token, 1, 10, null);
+        var result = await setup.Client.GetConversationsAsync(Token, new ConversationQuery { Page = 1, PageSize = 10 });
 
         Assert.Equal(ApiResultStatus.Unavailable, result.Status);
         ErrorCodeAssertions.AssertWellFormed(result.ErrorCode);
@@ -429,7 +430,7 @@ public class ApiClientErrorCodeTests
         var setup = Failing("503 empty");
         var ids = Enumerable.Range(0, calls).Select(_ => Guid.NewGuid()).ToArray();
 
-        var results = await Task.WhenAll(ids.Select(id => Task.Run(() => setup.Client.GetProductAsync(Token, id)))).WaitAsync(TestTimeouts.Operation);
+        var results = await Task.WhenAll(ids.Select(id => Task.Run(() => setup.Client.GetConversationAsync(Token, id)))).WaitAsync(TestTimeouts.Operation);
 
         Assert.Equal(calls, results.Select(r => r.ErrorCode).Distinct().Count());
         Assert.Equal(calls, setup.Reporter.Reports.Count);
@@ -452,7 +453,7 @@ public class ApiClientErrorCodeTests
         });
         var ids = Enumerable.Range(0, calls).Select(_ => Guid.NewGuid()).ToArray();
 
-        var results = await Task.WhenAll(ids.Select(id => Task.Run(() => setup.Client.GetProductAsync(Token, id)))).WaitAsync(TestTimeouts.Operation);
+        var results = await Task.WhenAll(ids.Select(id => Task.Run(() => setup.Client.GetConversationAsync(Token, id)))).WaitAsync(TestTimeouts.Operation);
 
         for (var i = 0; i < calls; i++)
         {

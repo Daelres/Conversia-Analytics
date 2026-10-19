@@ -172,7 +172,7 @@ public class ErrorLoggingConfigurationTests
             builder.UseSetting("Conversations:AutoCloseEnabled", "false");
             builder.UseSetting("Classification:Enabled", "false");
             builder.UseSetting("RateLimiting:Login:PermitLimit", CustomWebApplicationFactory.UnthrottledPermitLimit);
-            builder.UseSetting("ConnectionStrings:DefaultConnection", DemoHostSettings.UnreachableConnectionString);
+            builder.UseSetting("ConnectionStrings:DefaultConnection", TestDatabase.UnreachableConnectionString);
             builder.UseSetting("hostBuilder:reloadConfigOnChange", "false");
             foreach (var (key, value) in settings)
             {

@@ -16,8 +16,8 @@ public class ErrorReportPayloadTests
     private const string Email = "ana@example.test";
     private const string UserAgent = "Mozilla/5.0 (error-report-tests)";
 
-    private static void FailOnProduct(WebScenario scenario, string message)
-        => scenario.Faults.Fault = (method, _) => method == nameof(IApiClient.GetProductAsync) ? new InvalidOperationException(message) : null;
+    private static void FailOnConversation(WebScenario scenario, string message)
+        => scenario.Faults.Fault = (method, _) => method == nameof(IApiClient.GetConversationAsync) ? new InvalidOperationException(message) : null;
 
     private static Dictionary<string, string> RouteValues(string? json)
     {
@@ -35,12 +35,12 @@ public class ErrorReportPayloadTests
         using var activities = new RequestActivities();
         using var scenario = WebScenario.Create();
         using var session = await scenario.SignInAsync(Email);
-        var productId = Guid.NewGuid();
+        var conversationId = Guid.NewGuid();
         var traceId = ActivityTraceId.CreateRandom().ToHexString();
-        FailOnProduct(scenario, "the product could not be shown");
+        FailOnConversation(scenario, "the conversation could not be shown");
 
         var page = await session.GetAsync(
-            $"/products/{productId}/edit?page=2&token=SECRET-QUERY-TOKEN",
+            $"/conversaciones/{conversationId}?page=2&token=SECRET-QUERY-TOKEN",
             ("traceparent", $"00-{traceId}-{ActivitySpanId.CreateRandom().ToHexString()}-01"),
             ("User-Agent", UserAgent));
 
@@ -50,7 +50,7 @@ public class ErrorReportPayloadTests
         Assert.Equal(code, body.Code);
         Assert.Equal("Unhandled", body.Kind);
         Assert.Equal("GET", body.HttpMethod);
-        Assert.Equal($"/products/{productId}/edit", body.Path);
+        Assert.Equal($"/conversaciones/{conversationId}", body.Path);
         Assert.Contains("page=2", body.Query);
         Assert.DoesNotContain("SECRET-QUERY-TOKEN", body.Query);
         Assert.Equal(500, body.StatusCode);
@@ -60,8 +60,8 @@ public class ErrorReportPayloadTests
         Assert.False(string.IsNullOrWhiteSpace(body.RequestId));
         Assert.Equal(UserAgent, body.UserAgent);
         Assert.Equal("System.InvalidOperationException", body.ExceptionType);
-        Assert.Equal("the product could not be shown", body.ExceptionMessage);
-        Assert.Contains("InvalidOperationException: the product could not be shown", body.ExceptionDetails);
+        Assert.Equal("the conversation could not be shown", body.ExceptionMessage);
+        Assert.Contains("InvalidOperationException: the conversation could not be shown", body.ExceptionDetails);
         Assert.Contains("   at ", body.ExceptionDetails);
         Assert.Equal("Production", body.Environment);
         Assert.False(string.IsNullOrWhiteSpace(body.ServiceVersion));
@@ -74,17 +74,17 @@ public class ErrorReportPayloadTests
     {
         using var scenario = WebScenario.Create();
         using var session = await scenario.SignInAsync(Email);
-        var productId = Guid.NewGuid();
-        FailOnProduct(scenario, "boom");
+        var conversationId = Guid.NewGuid();
+        FailOnConversation(scenario, "boom");
 
-        await session.GetAsync($"/products/{productId}/edit");
+        await session.GetAsync($"/conversaciones/{conversationId}");
 
         var body = Assert.Single(scenario.Backend.ReportRequests).ReportBody;
         Assert.False(string.IsNullOrWhiteSpace(body.Endpoint), "No endpoint was reported.");
-        Assert.Contains("edit", body.Endpoint, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("conversa", body.Endpoint, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Error", body.Endpoint);
-        Assert.Equal(productId.ToString(), RouteValues(body.RouteValues)["id"], ignoreCase: true);
-        Assert.Equal($"/products/{productId}/edit", body.Path);
+        Assert.Equal(conversationId.ToString(), RouteValues(body.RouteValues)["id"], ignoreCase: true);
+        Assert.Equal($"/conversaciones/{conversationId}", body.Path);
     }
 
     [Fact]
@@ -160,9 +160,9 @@ public class ErrorReportPayloadTests
     {
         using var scenario = WebScenario.Create();
         using var session = await scenario.SignInAsync(Email);
-        FailOnProduct(scenario, message);
+        FailOnConversation(scenario, message);
 
-        var page = await session.GetAsync($"/products/{Guid.NewGuid()}/edit");
+        var page = await session.GetAsync($"/conversaciones/{Guid.NewGuid()}");
 
         ErrorCodeAssertions.AssertUnhandledPage(page);
         var request = Assert.Single(scenario.Backend.ReportRequests);
@@ -178,7 +178,7 @@ public class ErrorReportPayloadTests
         using var session = await scenario.SignInAsync(Email);
         scenario.BreakTheWeb();
 
-        await session.GetAsync("/products?search=tornillo&page=3&access_token=ACCESS-VALUE-1&password=HUNTER-2&sig=SIG-VALUE-3");
+        await session.GetAsync("/conversaciones?search=tornillo&page=3&access_token=ACCESS-VALUE-1&password=HUNTER-2&sig=SIG-VALUE-3");
 
         var request = Assert.Single(scenario.Backend.ReportRequests);
         foreach (var secret in new[] { "ACCESS-VALUE-1", "HUNTER-2", "SIG-VALUE-3" })
@@ -197,10 +197,10 @@ public class ErrorReportPayloadTests
     {
         using var scenario = WebScenario.Create();
         using var session = await scenario.SignInAsync(Email);
-        FailOnProduct(scenario, new string('m', 60_000));
+        FailOnConversation(scenario, new string('m', 60_000));
         var query = string.Join("&", Enumerable.Range(0, 600).Select(i => $"key{i}=value{i}"));
 
-        var page = await session.GetAsync($"/products/{Guid.NewGuid()}/edit?{query}", ("User-Agent", new string('u', 3_000)));
+        var page = await session.GetAsync($"/conversaciones/{Guid.NewGuid()}?{query}", ("User-Agent", new string('u', 3_000)));
 
         ErrorCodeAssertions.AssertUnhandledPage(page);
         var request = Assert.Single(scenario.Backend.ReportRequests);
@@ -245,13 +245,14 @@ public class ErrorReportPayloadTests
     }
 
     [Fact]
-    public async Task The_upstream_report_never_carries_the_bearer_token_or_the_search_text()
+    public async Task The_upstream_report_never_carries_the_bearer_token_or_the_filter_values()
     {
         using var scenario = WebScenario.Create();
         using var session = await scenario.SignInAsync(Email);
         scenario.BreakTheApi("503 empty");
 
-        var page = await session.GetAsync("/products?search=tornillo-privado");
+        var privateBranch = Guid.NewGuid().ToString();
+        var page = await session.GetAsync($"/conversaciones?branch={privateBranch}");
 
         ErrorCodeAssertions.Shown(page);
         Assert.NotEmpty(scenario.Backend.ReportRequests);
@@ -260,7 +261,7 @@ public class ErrorReportPayloadTests
             Assert.DoesNotContain(scenario.Host.Api.IssuedTokens.First(), request.Body);
             Assert.False(PageResponse.ContainsJwt(request.Body!));
             Assert.Null(request.Header("Authorization"));
-            Assert.DoesNotContain("tornillo-privado", request.ReportBody.Context ?? string.Empty);
+            Assert.DoesNotContain(privateBranch, request.ReportBody.Context ?? string.Empty);
             ReportContract.AssertValidForTheApi(request.ReportBody);
         }
     }

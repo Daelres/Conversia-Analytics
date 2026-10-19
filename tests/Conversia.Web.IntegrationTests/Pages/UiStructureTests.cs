@@ -10,9 +10,8 @@ namespace Conversia.Web.IntegrationTests.Pages;
 /// table says which rule applies to which kind of page); the helper itself is exercised in <see cref="UiStructureAssertionsTests"/>.
 ///
 /// <para>Markup hooks these tests pin (everything else — class names, layout, colours, wording — is free):
-/// <c>data-page</c> (login, register, home, demo, users, products, product-edit, product-delete, not-found, error, forbidden; an HTML 400 is an "error" page),
-/// <c>data-align="end"</c> (numeric columns), <c>data-testid="empty-state"</c>, <c>data-stock-status</c> (out/low/ok),
-/// <c>data-chip</c> (owner/permission), <c>data-theme-toggle</c>, and <c>data-testid="product-card"</c> (only for the card-list alternative).</para>
+/// <c>data-page</c> (login, register, home, users, not-found, error, forbidden; an HTML 400 is an "error" page),
+/// <c>data-chip</c> (owner/permission) and <c>data-theme-toggle</c>.</para>
 /// </summary>
 [Collection(nameof(WebIntegrationCollection))]
 public class UiStructureTests(TestApiFactory api)
@@ -53,7 +52,7 @@ public class UiStructureTests(TestApiFactory api)
     // ---- the matrix itself ----
 
     [Fact]
-    public async Task The_matrix_covers_every_page_type_anonymous_and_signed_in_with_the_demo_accounts_hidden_and_shown()
+    public async Task The_matrix_covers_every_page_type_anonymous_and_signed_in()
     {
         var matrix = await MatrixAsync();
 
@@ -64,16 +63,13 @@ public class UiStructureTests(TestApiFactory api)
 
         Assert.Contains(matrix.Cases, c => c.Authenticated);
         Assert.Contains(matrix.Cases, c => !c.Authenticated);
-        Assert.Contains(matrix.Cases, c => c.Label.StartsWith("demo host", StringComparison.Ordinal));
-        Assert.Contains(matrix.Cases, c => c.Page.Select(PageContract.DemoLoginPanel).Any());
-        Assert.Contains(matrix.Cases, c => c.Type == UiPageType.Login && !c.Page.Select(PageContract.DemoLoginPanel).Any());
         Assert.Contains(matrix.Cases, c => c.ExpectAlert);
         Assert.Contains(matrix.Cases, c => c.ExpectStatus);
         Assert.Contains(matrix.Cases, c => c.InvalidFields.Length > 0);
         Assert.Equal(matrix.Cases.Count, matrix.Cases.Select(c => c.Label).Distinct().Count());
 
-        // The status codes the error pages are pinned to: the 403 pages of /users and /products, the throttled sign-in (re-rendered with 200) and the antiforgery 400.
-        foreach (var route in new[] { "/users", "/products" })
+        // The status codes the error pages are pinned to: the 403 page of /users, the throttled sign-in (re-rendered with 200) and the antiforgery 400.
+        foreach (var route in new[] { "/users" })
         {
             Assert.Contains(matrix.Cases, c => c.Type == UiPageType.Forbidden && c.Page.RequestUri.AbsolutePath == route && c.Page.Status == 403);
         }
@@ -206,14 +202,6 @@ public class UiStructureTests(TestApiFactory api)
     [Fact]
     public Task Every_page_wraps_its_main_content_in_the_data_page_region_of_its_own_type()
         => AssertRuleAsync(UiStructureAssertions.PageRegion);
-
-    [Fact]
-    public Task Empty_product_lists_show_an_empty_state_with_a_call_to_action_for_people_who_can_act()
-        => AssertRuleAsync(UiStructureAssertions.EmptyStates);
-
-    [Fact]
-    public Task Product_stock_cells_carry_the_out_low_ok_status_hook()
-        => AssertRuleAsync(UiStructureAssertions.StockStatuses);
 
     [Fact]
     public Task The_profile_card_marks_the_owner_and_permission_chips()

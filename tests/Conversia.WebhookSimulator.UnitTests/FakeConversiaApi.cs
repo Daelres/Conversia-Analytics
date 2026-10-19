@@ -2,10 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Auth;
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Organization;
-using Conversia.Application.DTOs.Products;
 using Conversia.Application.Ingestion;
 using Conversia.WebhookSimulator.Api;
 

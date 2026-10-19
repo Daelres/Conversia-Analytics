@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
-using Conversia.Application.DTOs.Products;
+using Conversia.Application.DTOs;
 using Conversia.Application.Exceptions;
 using Conversia.Application.Interfaces;
 using Conversia.Domain.Enums;
@@ -73,23 +73,16 @@ public class SpanishApiMessagesTests
     }
 
     [Fact]
-    public async Task An_unknown_product_answers_404_with_the_spanish_detail_on_get_put_and_delete()
+    public async Task An_unknown_branch_answers_404_with_the_spanish_detail()
     {
         var owner = await RegisterTenantSessionAsync(_client);
         using var ownerClient = AuthorizedClient(_factory, owner.OwnerToken);
-        var unknown = Guid.NewGuid();
 
-        using var get = await ownerClient.GetAsync($"/api/products/{unknown}");
-        using var put = await PutProductAsync(ownerClient, unknown, "Tornillo", 1m, 1, "AAAAAAAAB9E=");
-        using var delete = await ownerClient.DeleteAsync($"/api/products/{unknown}");
+        using var get = await ownerClient.GetAsync($"{BranchesUrl}/{Guid.NewGuid()}");
 
-        foreach (var response in new[] { get, put, delete })
-        {
-            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-            Assert.Equal(ApiMessages.ProductNotFound, (await ReadProblemJsonAsync(response)).Detail);
-        }
-
-        Assert.Equal(ApiMessages.ProductNotFound, new ProductNotFoundException().Message);
+        Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
+        Assert.Equal(ApiMessages.BranchNotFound, (await ReadProblemJsonAsync(get)).Detail);
+        Assert.Equal(ApiMessages.BranchNotFound, new BranchNotFoundException().Message);
     }
 
     [Fact]
@@ -112,35 +105,17 @@ public class SpanishApiMessagesTests
     }
 
     [Fact]
-    public async Task A_duplicate_sku_answers_409_with_the_spanish_detail()
+    public async Task A_duplicate_branch_name_answers_409_with_the_spanish_detail()
     {
         var owner = await RegisterTenantSessionAsync(_client);
         using var ownerClient = AuthorizedClient(_factory, owner.OwnerToken);
-        var first = await CreateProductAsync(ownerClient, "Tornillo", UniqueSku());
+        var first = await CreateBranchAsync(ownerClient, "Sede Centro");
 
-        using var second = await PostProductAsync(ownerClient, "Otro tornillo", first.Sku);
+        using var second = await PostBranchAsync(ownerClient, first.Name.ToUpperInvariant());
 
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
-        Assert.Equal(ApiMessages.DuplicateSku, (await ReadProblemJsonAsync(second)).Detail);
-        Assert.Equal(ApiMessages.DuplicateSku, new DuplicateSkuException().Message);
-    }
-
-    [Fact]
-    public async Task A_stale_row_version_answers_409_with_the_spanish_detail()
-    {
-        var owner = await RegisterTenantSessionAsync(_client);
-        using var ownerClient = AuthorizedClient(_factory, owner.OwnerToken);
-        var product = await CreateProductAsync(ownerClient, "Tornillo", UniqueSku());
-        using (var first = await PutProductAsync(ownerClient, product.Id, "Tornillo v2", 2m, 2, product.RowVersion))
-        {
-            Assert.Equal(HttpStatusCode.OK, first.StatusCode);
-        }
-
-        using var stale = await PutProductAsync(ownerClient, product.Id, "Tornillo v3", 3m, 3, product.RowVersion);
-
-        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
-        Assert.Equal(ApiMessages.Concurrency, (await ReadProblemJsonAsync(stale)).Detail);
-        Assert.Equal(ApiMessages.Concurrency, new ProductConcurrencyException().Message);
+        Assert.Equal(ApiMessages.DuplicateBranchName, (await ReadProblemJsonAsync(second)).Detail);
+        Assert.Equal(ApiMessages.DuplicateBranchName, new DuplicateBranchNameException().Message);
     }
 
     [Fact]
@@ -208,19 +183,17 @@ public class SpanishApiMessagesTests
         var owner = await RegisterTenantSessionAsync(_client);
         var other = await RegisterTenantSessionAsync(_client, "otro");
         using var ownerClient = AuthorizedClient(_factory, owner.OwnerToken);
-        var product = await CreateProductAsync(ownerClient, "Tornillo", UniqueSku());
+        var branch = await CreateBranchAsync(ownerClient, "Sede Centro");
         var report = new ApiMessageReport();
 
         await report.CheckAsync("login wrong password", await _client.PostAsJsonAsync(LoginUrl, new { email = owner.OwnerEmail, password = "Wr0ng-Pass-Value-123" }), HttpStatusCode.Unauthorized);
         await report.CheckAsync("login unknown email", await _client.PostAsJsonAsync(LoginUrl, new { email = UniqueEmail("nadie"), password = StrongPassword }), HttpStatusCode.Unauthorized);
         await report.CheckAsync("register duplicate email", await _client.PostAsJsonAsync(RegisterUrl, new { tenantName = UniqueTenantName("Duplicada"), email = owner.OwnerEmail, password = StrongPassword }), HttpStatusCode.Conflict);
         await report.CheckAsync("create user duplicate email (other tenant)", await CreateUserAsync(ownerClient, other.OwnerEmail), HttpStatusCode.Conflict);
-        await report.CheckAsync("product get unknown", await ownerClient.GetAsync($"/api/products/{Guid.NewGuid()}"), HttpStatusCode.NotFound);
-        await report.CheckAsync("product put unknown", await PutProductAsync(ownerClient, Guid.NewGuid(), "Tornillo", 1m, 1, product.RowVersion), HttpStatusCode.NotFound);
-        await report.CheckAsync("product delete unknown", await ownerClient.DeleteAsync($"/api/products/{Guid.NewGuid()}"), HttpStatusCode.NotFound);
-        await report.CheckAsync("product of another tenant", await AuthorizedClient(_factory, other.OwnerToken).GetAsync($"/api/products/{product.Id}"), HttpStatusCode.NotFound);
-        await report.CheckAsync("product duplicate sku", await PostProductAsync(ownerClient, "Otro", product.Sku), HttpStatusCode.Conflict);
-        await report.CheckAsync("product stale row version", await PutProductAsync(ownerClient, product.Id, "Tornillo", 1m, 1, Convert.ToBase64String(new byte[8])), HttpStatusCode.Conflict);
+        await report.CheckAsync("branch get unknown", await ownerClient.GetAsync($"{BranchesUrl}/{Guid.NewGuid()}"), HttpStatusCode.NotFound);
+        await report.CheckAsync("branch of another tenant", await AuthorizedClient(_factory, other.OwnerToken).GetAsync($"{BranchesUrl}/{branch.Id}"), HttpStatusCode.NotFound);
+        await report.CheckAsync("branch duplicate name", await PostBranchAsync(ownerClient, branch.Name), HttpStatusCode.Conflict);
+        await report.CheckAsync("conversation get unknown", await ownerClient.GetAsync($"/api/conversations/{Guid.NewGuid()}"), HttpStatusCode.NotFound);
         await report.CheckAsync("grant unknown user", await ownerClient.PostAsJsonAsync($"/api/users/{Guid.NewGuid()}/permissions", new { permission = (int)Permission.UsersView }), HttpStatusCode.NotFound);
         await report.CheckAsync("grant user of another tenant", await ownerClient.PostAsJsonAsync($"/api/users/{other.OwnerId}/permissions", new { permission = (int)Permission.UsersView }), HttpStatusCode.NotFound);
         await report.CheckAsync("revoke unknown user", await RevokeAsync(ownerClient, Guid.NewGuid(), Permission.UsersManage), HttpStatusCode.NotFound);
@@ -240,19 +213,17 @@ public class SpanishApiMessagesTests
 
     private static string Long(int length) => new('x', length);
 
-    private async Task<(string OwnerToken, Guid ProductId, string RowVersion, Guid MemberId)> ArrangeAsync()
+    private async Task<(string OwnerToken, Guid ConversationId, Guid MemberId)> ArrangeAsync()
     {
         var owner = await RegisterTenantSessionAsync(_client);
-        using var ownerClient = AuthorizedClient(_factory, owner.OwnerToken);
-        var product = await CreateProductAsync(ownerClient, "Tornillo", UniqueSku());
         var member = await SeedMemberAsync(_factory, _client, owner.TenantId);
-        return (owner.OwnerToken, product.Id, product.RowVersion, member.UserId);
+        return (owner.OwnerToken, Guid.NewGuid(), member.UserId);
     }
 
     [Fact]
     public async Task Every_validation_rule_of_register_login_and_create_user_answers_in_spanish()
     {
-        var (token, _, _, _) = await ArrangeAsync();
+        var (token, _, _) = await ArrangeAsync();
         using var ownerClient = AuthorizedClient(_factory, token);
         var report = new ApiMessageReport();
 
@@ -299,66 +270,27 @@ public class SpanishApiMessagesTests
     }
 
     [Fact]
-    public async Task Every_validation_rule_of_create_and_update_product_answers_in_spanish()
+    public async Task Every_validation_rule_of_create_branch_and_the_conversation_list_answers_in_spanish()
     {
-        var (token, productId, rowVersion, _) = await ArrangeAsync();
+        var (token, _, _) = await ArrangeAsync();
         using var ownerClient = AuthorizedClient(_factory, token);
         var report = new ApiMessageReport();
-        var update = $"/api/products/{productId}";
 
-        async Task Post(string label, object body)
-            => await report.CheckAsync($"create: {label}", await ownerClient.PostAsJsonAsync("/api/products", body), HttpStatusCode.BadRequest, validationProblem: true);
-
-        async Task Put(string label, object body)
-            => await report.CheckAsync($"update: {label}", await ownerClient.PutAsJsonAsync(update, body), HttpStatusCode.BadRequest, validationProblem: true);
-
-        string Sku() => UniqueSku();
-
-        foreach (var (reason, name) in new (string, string?)[] { ("empty", ""), ("whitespace", "   "), ("null", null), ("201 characters", Long(201)) })
+        foreach (var (reason, name) in new (string, string?)[] { ("empty", ""), ("whitespace", "   "), ("null", null), ("101 characters", Long(101)), ("NUL character", "Sede\0Centro") })
         {
-            await Post($"name {reason}", new { name, sku = Sku(), price = 1m, stock = 1 });
-            await Put($"name {reason}", new { name, price = 1m, stock = 1, rowVersion });
+            await report.CheckAsync($"create branch: name {reason}", await ownerClient.PostAsJsonAsync(BranchesUrl, new { name }), HttpStatusCode.BadRequest, validationProblem: true);
         }
 
-        foreach (var (reason, sku) in new (string, string?)[] { ("empty", ""), ("null", null), ("space inside", "has space"), ("symbols", "bad/sku!"), ("51 characters", Long(51)) })
-        {
-            await Post($"sku {reason}", new { name = "Tornillo", sku, price = 1m, stock = 1 });
-        }
-
-        foreach (var (reason, price) in new (string, decimal)[] { ("negative", -1m), ("too large", 1_000_000_000m), ("three decimals", 1.234m) })
-        {
-            await Post($"price {reason}", new { name = "Tornillo", sku = Sku(), price, stock = 1 });
-            await Put($"price {reason}", new { name = "Tornillo", price, stock = 1, rowVersion });
-        }
-
-        await Post("stock negative", new { name = "Tornillo", sku = Sku(), price = 1m, stock = -1 });
-        await Put("stock negative", new { name = "Tornillo", price = 1m, stock = -1, rowVersion });
-        await Post("empty object", new { });
-        await Put("empty object", new { });
-
-        foreach (var (reason, version) in new (string, string?)[] { ("empty", ""), ("null", null), ("not base64", "not base64!"), ("whitespace inside", "AAAA AAAA") })
-        {
-            await Put($"rowVersion {reason}", new { name = "Tornillo", price = 1m, stock = 1, rowVersion = version });
-        }
-
-        report.AssertClean();
-    }
-
-    [Fact]
-    public async Task Every_paging_and_search_rule_of_the_product_list_answers_in_spanish()
-    {
-        var (token, _, _, _) = await ArrangeAsync();
-        using var ownerClient = AuthorizedClient(_factory, token);
-        var report = new ApiMessageReport();
+        await report.CheckAsync("create branch: empty object", await ownerClient.PostAsJsonAsync(BranchesUrl, new { }), HttpStatusCode.BadRequest, validationProblem: true);
 
         foreach (var query in new[]
         {
             "page=0", "page=-1", "page=abc", "page=", "page=99999999999", "page=1.5",
             "pageSize=0", "pageSize=101", "pageSize=-5", "pageSize=abc", "pageSize=", "pageSize=99999999999",
-            "page=0&pageSize=0&search=" + new string('x', 101), "search=" + new string('x', 101),
+            "stage=Nope", "source=Nope", "status=Nope", "from=not-a-date", "branchId=not-a-guid",
         })
         {
-            await report.CheckAsync($"list ?{(query.Length > 40 ? query[..40] + "..." : query)}", await ownerClient.GetAsync("/api/products?" + query), HttpStatusCode.BadRequest, validationProblem: true);
+            await report.CheckAsync($"conversations ?{query}", await ownerClient.GetAsync("/api/conversations?" + query), HttpStatusCode.BadRequest, validationProblem: true);
         }
 
         report.AssertClean();
@@ -367,7 +299,7 @@ public class SpanishApiMessagesTests
     [Fact]
     public async Task Every_rule_of_granting_and_revoking_a_permission_answers_in_spanish()
     {
-        var (token, _, _, memberId) = await ArrangeAsync();
+        var (token, _, memberId) = await ArrangeAsync();
         using var ownerClient = AuthorizedClient(_factory, token);
         var report = new ApiMessageReport();
         var grant = $"/api/users/{memberId}/permissions";
@@ -396,7 +328,7 @@ public class SpanishApiMessagesTests
     [Fact]
     public async Task Malformed_json_a_missing_body_and_wrong_value_types_answer_in_spanish()
     {
-        var (token, productId, rowVersion, memberId) = await ArrangeAsync();
+        var (token, conversationId, memberId) = await ArrangeAsync();
         using var ownerClient = AuthorizedClient(_factory, token);
         var report = new ApiMessageReport();
 
@@ -405,8 +337,8 @@ public class SpanishApiMessagesTests
             ("login", HttpMethod.Post, LoginUrl, _client),
             ("register", HttpMethod.Post, RegisterUrl, _client),
             ("create user", HttpMethod.Post, "/api/users", ownerClient),
-            ("create product", HttpMethod.Post, "/api/products", ownerClient),
-            ("update product", HttpMethod.Put, $"/api/products/{productId}", ownerClient),
+            ("create branch", HttpMethod.Post, BranchesUrl, ownerClient),
+            ("assign advisor", HttpMethod.Put, $"/api/conversations/{conversationId}/advisor", ownerClient),
             ("grant permission", HttpMethod.Post, $"/api/users/{memberId}/permissions", ownerClient),
         };
         var badBodies = new (string Label, string Body)[]
@@ -429,17 +361,11 @@ public class SpanishApiMessagesTests
             ("register: email object", RegisterUrl, HttpMethod.Post, """{"tenantName":"x","email":{},"password":"Sup3r-Secret!"}""", _client),
             ("login: password number", LoginUrl, HttpMethod.Post, """{"email":"a@b.test","password":123}""", _client),
             ("login: email array", LoginUrl, HttpMethod.Post, """{"email":["a@b.test"],"password":"x"}""", _client),
-            ("create product: price string", "/api/products", HttpMethod.Post, """{"name":"x","sku":"A1","price":"abc","stock":1}""", ownerClient),
-            ("create product: price boolean", "/api/products", HttpMethod.Post, """{"name":"x","sku":"A1","price":true,"stock":1}""", ownerClient),
-            ("create product: price array", "/api/products", HttpMethod.Post, """{"name":"x","sku":"A1","price":[1],"stock":1}""", ownerClient),
-            ("create product: stock string", "/api/products", HttpMethod.Post, """{"name":"x","sku":"A1","price":1,"stock":"x"}""", ownerClient),
-            ("create product: stock decimal", "/api/products", HttpMethod.Post, """{"name":"x","sku":"A1","price":1,"stock":1.5}""", ownerClient),
-            ("create product: stock overflow", "/api/products", HttpMethod.Post, """{"name":"x","sku":"A1","price":1,"stock":99999999999}""", ownerClient),
-            ("create product: price overflow", "/api/products", HttpMethod.Post, """{"name":"x","sku":"A1","price":1e400,"stock":1}""", ownerClient),
-            ("create product: sku number", "/api/products", HttpMethod.Post, """{"name":"x","sku":123,"price":1,"stock":1}""", ownerClient),
-            ("create product: name array", "/api/products", HttpMethod.Post, """{"name":[],"sku":"A1","price":1,"stock":1}""", ownerClient),
-            ("update product: rowVersion number", $"/api/products/{productId}", HttpMethod.Put, """{"name":"x","price":1,"stock":1,"rowVersion":123}""", ownerClient),
-            ("update product: price string", $"/api/products/{productId}", HttpMethod.Put, $$"""{"name":"x","price":"abc","stock":1,"rowVersion":"{{rowVersion}}"}""", ownerClient),
+            ("create branch: name number", BranchesUrl, HttpMethod.Post, """{"name":123}""", ownerClient),
+            ("create branch: name array", BranchesUrl, HttpMethod.Post, """{"name":[]}""", ownerClient),
+            ("create branch: name object", BranchesUrl, HttpMethod.Post, """{"name":{}}""", ownerClient),
+            ("assign advisor: advisorId number", $"/api/conversations/{conversationId}/advisor", HttpMethod.Put, """{"advisorId":123}""", ownerClient),
+            ("assign advisor: advisorId not a guid", $"/api/conversations/{conversationId}/advisor", HttpMethod.Put, """{"advisorId":"abc"}""", ownerClient),
             ("grant: permission string", $"/api/users/{memberId}/permissions", HttpMethod.Post, """{"permission":"abc"}""", ownerClient),
             ("grant: permission unknown enum name", $"/api/users/{memberId}/permissions", HttpMethod.Post, """{"permission":"Superuser"}""", ownerClient),
         };
@@ -488,7 +414,7 @@ public class SpanishApiMessagesTests
     {
         var owner = await RegisterTenantSessionAsync(_client);
         using var ownerClient = AuthorizedClient(_factory, owner.OwnerToken);
-        var product = await CreateProductAsync(ownerClient, "Tornillo", UniqueSku());
+        var branch = await CreateBranchAsync(ownerClient, "Sede Centro");
         var report = new ApiMessageReport();
 
         async Task<HttpResponseMessage> Send(HttpClient client, HttpMethod method, string url, string? json)
@@ -500,24 +426,24 @@ public class SpanishApiMessagesTests
         await report.CheckAsync($"[{language}] validation 400 (empty login)", await Send(_client, HttpMethod.Post, LoginUrl, "{}"), HttpStatusCode.BadRequest, validationProblem: true);
         await report.CheckAsync($"[{language}] validation 400 (weak password)", await Send(_client, HttpMethod.Post, RegisterUrl,
             $$"""{"tenantName":"{{UniqueTenantName("Idioma")}}","email":"{{UniqueEmail("idioma")}}","password":"corta"}"""), HttpStatusCode.BadRequest, validationProblem: true);
-        await report.CheckAsync($"[{language}] validation 400 (product list paging)", await Send(ownerClient, HttpMethod.Get, "/api/products?page=0", null), HttpStatusCode.BadRequest, validationProblem: true);
+        await report.CheckAsync($"[{language}] validation 400 (conversation list paging)", await Send(ownerClient, HttpMethod.Get, "/api/conversations?page=0", null), HttpStatusCode.BadRequest, validationProblem: true);
         await report.CheckAsync($"[{language}] malformed json", await Send(_client, HttpMethod.Post, LoginUrl, "{ this is not valid json "), HttpStatusCode.BadRequest, validationProblem: true);
-        await report.CheckAsync($"[{language}] wrong value type", await Send(ownerClient, HttpMethod.Post, "/api/products", """{"name":"x","sku":"A1","price":"abc","stock":1}"""), HttpStatusCode.BadRequest, validationProblem: true);
+        await report.CheckAsync($"[{language}] wrong value type", await Send(ownerClient, HttpMethod.Post, BranchesUrl, """{"name":123}"""), HttpStatusCode.BadRequest, validationProblem: true);
         await report.CheckAsync($"[{language}] 401 invalid credentials", await Send(_client, HttpMethod.Post, LoginUrl,
             $$"""{"email":"{{owner.OwnerEmail}}","password":"Wr0ng-Pass-Value-123"}"""), HttpStatusCode.Unauthorized);
-        await report.CheckAsync($"[{language}] 404 unknown product", await Send(ownerClient, HttpMethod.Get, $"/api/products/{Guid.NewGuid()}", null), HttpStatusCode.NotFound);
+        await report.CheckAsync($"[{language}] 404 unknown branch", await Send(ownerClient, HttpMethod.Get, $"{BranchesUrl}/{Guid.NewGuid()}", null), HttpStatusCode.NotFound);
         await report.CheckAsync($"[{language}] 409 duplicate email", await Send(_client, HttpMethod.Post, RegisterUrl,
             $$"""{"tenantName":"{{UniqueTenantName("Duplicada")}}","email":"{{owner.OwnerEmail}}","password":"{{StrongPassword}}"}"""), HttpStatusCode.Conflict);
-        await report.CheckAsync($"[{language}] 409 duplicate sku", await Send(ownerClient, HttpMethod.Post, "/api/products",
-            $$"""{"name":"Otro","sku":"{{product.Sku}}","price":1,"stock":1}"""), HttpStatusCode.Conflict);
+        await report.CheckAsync($"[{language}] 409 duplicate branch name", await Send(ownerClient, HttpMethod.Post, BranchesUrl,
+            $$"""{"name":"{{branch.Name}}"}"""), HttpStatusCode.Conflict);
 
         report.AssertClean();
 
         // The exact canonical texts, too: the language header must not select another wording.
         using var unauthorized = await Send(_client, HttpMethod.Post, LoginUrl, $$"""{"email":"{{owner.OwnerEmail}}","password":"Wr0ng-Pass-Value-123"}""");
         Assert.Equal(ApiMessages.InvalidCredentials, (await ReadProblemJsonAsync(unauthorized)).Detail);
-        using var duplicate = await Send(ownerClient, HttpMethod.Post, "/api/products", $$"""{"name":"Otro","sku":"{{product.Sku}}","price":1,"stock":1}""");
-        Assert.Equal(ApiMessages.DuplicateSku, (await ReadProblemJsonAsync(duplicate)).Detail);
+        using var duplicate = await Send(ownerClient, HttpMethod.Post, BranchesUrl, $$"""{"name":"{{branch.Name}}"}""");
+        Assert.Equal(ApiMessages.DuplicateBranchName, (await ReadProblemJsonAsync(duplicate)).Detail);
         using var validation = await Send(_client, HttpMethod.Post, LoginUrl, "{}");
         Assert.Equal(ApiMessages.ValidationTitle, (await ReadProblemJsonAsync(validation)).Title);
     }
@@ -589,7 +515,7 @@ public class SpanishApiMessagesTests
         }
 
         Assert.Empty(EnglishLeaks.Find(ApiMessages.ValidationTitle));
-        Assert.Empty(EnglishLeaks.Find(ApiMessages.Concurrency));
+        Assert.Empty(EnglishLeaks.Find(ApiMessages.DuplicateBranchName));
     }
 
     /// <summary>Stands in for the login use case and fails the way an infrastructure fault would, with a message that must never reach the caller.</summary>

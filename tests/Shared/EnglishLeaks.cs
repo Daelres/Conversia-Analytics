@@ -13,7 +13,7 @@ namespace Conversia.TestSupport;
 /// merely starts or ends with a term. Nothing is matched by substring.</para>
 ///
 /// <para><b>What is deliberately NOT on the list</b> (legitimate in a Spanish interface, or ambiguous with Spanish):
-/// <c>stock</c>, <c>email</c>, <c>SKU</c>, <c>demo</c>, <c>login</c>, <c>logout</c>, <c>JWT</c>, <c>API</c>, <c>Docker</c>,
+/// <c>stock</c>, <c>email</c>, <c>SKU</c>, <c>login</c>, <c>logout</c>, <c>JWT</c>, <c>API</c>, <c>Docker</c>,
 /// <c>Blazor</c>, <c>token</c>, <c>tenant</c>, <c>tour</c>, <c>workspace</c>, <c>manager</c>, <c>error</c>, <c>total</c>,
 /// <c>menu</c>, <c>status</c>, <c>version</c> (loanwords and technology names), and short function words that are also
 /// Spanish or too ambiguous (<c>no</c>, <c>has</c>, <c>me</c>, <c>as</c>, <c>do</c>, <c>in</c>, <c>on</c>, <c>of</c>, <c>or</c>,
@@ -21,12 +21,12 @@ namespace Conversia.TestSupport;
 ///
 /// <para><b>Allowlist</b> (text removed before matching, because it is a name or data and not interface wording):
 /// e-mail addresses, URLs, the product name <c>Conversia[.X]</c>, the technology names <c>ASP.NET Core</c>,
-/// <c>.NET</c>, <c>PostgreSQL</c>, <c>Docker Compose</c>, and the shared demo password. Callers additionally exclude
+/// <c>.NET</c>, <c>PostgreSQL</c>, <c>Docker Compose</c>. Callers additionally exclude
 /// user-entered data cells, <c>data-*</c> attributes and the lines of <c>&lt;code&gt;</c>/<c>&lt;pre&gt;</c> blocks that are a route, JSON,
 /// a command line or a key name; English prose inside those elements is still scanned (see the HTML extractor in the Web tests).</para>
 ///
 /// <para><b>Homograph checks for the later additions</b> (Close ... Email address): each was checked against Spanish and against the
-/// product/demo texts. <c>Roles</c> was dropped because it is the Spanish plural of <c>rol</c>. <c>Continue</c> only collides with an
+/// Spanish texts of the interface. <c>Roles</c> was dropped because it is the Spanish plural of <c>rol</c>. <c>Continue</c> only collides with an
 /// unaccented misspelling of <c>continúe</c> (matching is accent-sensitive, so the correct <c>continúe</c> is not flagged); <c>Open</c> and
 /// <c>Enter</c> have no Spanish meaning and only match as whole words (<c>OpenAPI</c> is not flagged).</para>
 /// </summary>
@@ -119,7 +119,6 @@ internal static class EnglishLeaks
         new(@"https?://\S+", RegexOptions.Compiled),                                // URLs
         new(@"DR\.Template(\.\w+)*", RegexOptions.Compiled),                       // the product name
         new(@"ASP\.NET Core|\.NET|PostgreSQL|Docker Compose|Entity Framework( Core)?", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-        new(@"Demo-Pass-\d+!?", RegexOptions.Compiled),                             // the shared demo password
     };
 
     private static readonly Regex SpanishMarker = new(

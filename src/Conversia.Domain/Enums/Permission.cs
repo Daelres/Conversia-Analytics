@@ -9,8 +9,8 @@ public enum Permission
 {
     UsersView = 1,
     UsersManage = 2,
-    ProductsView = 3,
-    ProductsManage = 4,
+    // 3 and 4 belonged to the retired Products permissions. Granted numbers are persisted in UserPermissions.Permission:
+    // never renumber the values below and never reuse 3 or 4.
     OrganizationView = 5,
     OrganizationManage = 6,
     ConversationsView = 7,

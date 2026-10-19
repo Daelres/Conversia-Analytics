@@ -2,8 +2,9 @@ using System.Collections.Concurrent;
 using System.Data.Common;
 using System.Net.Http.Headers;
 using System.Text;
+using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Auth;
-using Conversia.Application.DTOs.Products;
+using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.Interfaces;
 using Conversia.Application.Services;
 using Conversia.Infrastructure.Persistence;
@@ -119,7 +120,7 @@ internal sealed class ErrorTestHost
     /// </summary>
     public static async Task<OwnDatabaseHost> StartOnOwnDatabaseAsync(CustomWebApplicationFactory shared)
     {
-        var database = DemoDatabase.Create(shared);
+        var database = TestDatabase.Create(shared);
         ErrorTestHost? host = null;
         try
         {
@@ -222,16 +223,16 @@ internal sealed class ErrorTestHost
     }
 
     /// <summary>
-    /// A real, valid <c>PUT /api/products/{id}</c> (owner token) that fails inside the use case. Its body, headers, cookie and
-    /// query carry unique secrets the registry must never store.
+    /// A real, valid <c>PUT /api/conversations/{id}/advisor</c> (owner token) that fails inside the use case. Its body, headers,
+    /// cookie and query carry unique secrets the registry must never store.
     /// </summary>
-    public static HttpRequestMessage FailingProductUpdate(
-        Guid productId, string marker, string token, string fault = FaultInjection.InvalidOperation, string? message = null, string query = "", string? callId = null)
+    public static HttpRequestMessage FailingAdvisorAssignment(
+        Guid conversationId, string marker, string token, string fault = FaultInjection.InvalidOperation, string? message = null, string query = "", string? callId = null)
     {
-        var request = new HttpRequestMessage(HttpMethod.Put, $"/api/products/{productId}{query}")
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/api/conversations/{conversationId}/advisor{query}")
         {
             Content = new StringContent(
-                $$"""{"name":"Yunque BODY-NAME-{{marker}}","price":10.5,"stock":3,"rowVersion":"AAAAAAAAB9E=","note":"BODY-SECRET-{{marker}}"}""",
+                $$"""{"advisorId":null,"name":"Ana BODY-NAME-{{marker}}","note":"BODY-SECRET-{{marker}}"}""",
                 Encoding.UTF8,
                 "application/json"),
         };
@@ -265,7 +266,7 @@ internal sealed class ErrorTestHost
 }
 
 /// <summary>An <see cref="ErrorTestHost"/> together with the throw-away database it runs on; disposing drops both.</summary>
-internal sealed class OwnDatabaseHost(ErrorTestHost host, DemoDatabase database) : IAsyncDisposable
+internal sealed class OwnDatabaseHost(ErrorTestHost host, TestDatabase database) : IAsyncDisposable
 {
     public ErrorTestHost Host { get; } = host;
 
@@ -456,8 +457,8 @@ internal static class FaultInjection
         services.AddSingleton(signals);
         Replace<IAuthService>(services, sp => new FaultyAuthService(
             ActivatorUtilities.CreateInstance<AuthService>(sp), sp.GetRequiredService<IHttpContextAccessor>(), signals));
-        Replace<IProductService>(services, sp => new FaultyProductService(
-            ActivatorUtilities.CreateInstance<ProductService>(sp), sp.GetRequiredService<IHttpContextAccessor>(), signals));
+        Replace<IConversationService>(services, sp => new FaultyConversationService(
+            ActivatorUtilities.CreateInstance<ConversationService>(sp), sp.GetRequiredService<IHttpContextAccessor>(), signals));
     }
 
     private static void Replace<TService>(IServiceCollection services, Func<IServiceProvider, TService> factory) where TService : class
@@ -563,36 +564,30 @@ internal static class FaultInjection
         }
     }
 
-    private sealed class FaultyProductService(IProductService inner, IHttpContextAccessor accessor, AbortSignals signals) : IProductService
+    private sealed class FaultyConversationService(IConversationService inner, IHttpContextAccessor accessor, AbortSignals signals) : IConversationService
     {
-        public async Task<PagedResponse<ProductResponse>> ListAsync(ProductQuery query, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<ConversationListItem>> ListAsync(ConversationQuery query, CancellationToken cancellationToken = default)
         {
             await MaybeFailAsync(accessor, signals, cancellationToken);
             return await inner.ListAsync(query, cancellationToken);
         }
 
-        public async Task<ProductResponse> GetAsync(Guid id, CancellationToken cancellationToken = default)
+        public async Task<ConversationDetailResponse> GetAsync(Guid id, CancellationToken cancellationToken = default)
         {
             await MaybeFailAsync(accessor, signals, cancellationToken);
             return await inner.GetAsync(id, cancellationToken);
         }
 
-        public async Task<ProductResponse> CreateAsync(Guid callerTenantId, CreateProductRequest request, CancellationToken cancellationToken = default)
+        public async Task<ConversationListItem> AssignAdvisorAsync(Guid id, AssignAdvisorRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default)
         {
             await MaybeFailAsync(accessor, signals, cancellationToken);
-            return await inner.CreateAsync(callerTenantId, request, cancellationToken);
+            return await inner.AssignAdvisorAsync(id, request, actingUserId, cancellationToken);
         }
 
-        public async Task<ProductResponse> UpdateAsync(Guid id, UpdateProductRequest request, CancellationToken cancellationToken = default)
+        public async Task<OpportunityResponse> SetOutcomeAsync(Guid id, SetOpportunityOutcomeRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default)
         {
             await MaybeFailAsync(accessor, signals, cancellationToken);
-            return await inner.UpdateAsync(id, request, cancellationToken);
-        }
-
-        public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
-        {
-            await MaybeFailAsync(accessor, signals, cancellationToken);
-            await inner.DeleteAsync(id, cancellationToken);
+            return await inner.SetOutcomeAsync(id, request, actingUserId, cancellationToken);
         }
     }
 }

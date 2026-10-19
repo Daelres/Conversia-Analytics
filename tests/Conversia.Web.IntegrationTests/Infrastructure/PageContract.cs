@@ -30,52 +30,11 @@ namespace Conversia.Web.IntegrationTests.Infrastructure;
 /// <c>data-testid="profile-permission"</c> element per held permission whose <c>data-permission</c> is the enum name
 /// (<c>UsersView</c>, ...) and whose visible text is the Spanish label (<see cref="SpanishText.PermissionLabels"/>).</item>
 /// <item>Any authenticated page offers one <c>&lt;form method="post" action="/logout"&gt;</c>.</item>
-/// <item><c>/products</c>: one element per listed product with <c>data-testid="product-row"</c> and
-/// <c>data-product-id="{guid}"</c>, containing four cells marked <c>data-field="sku"</c>, <c>"name"</c>, <c>"price"</c>
-/// and <c>"stock"</c>; the sku and name cells hold exactly the text; the price cell carries <c>data-price</c> = the invariant
-/// number with two decimals (<c>249.90</c>, <c>1234.50</c>) and the stock cell <c>data-stock</c> = the invariant integer
-/// (<c>1200</c>), so numbers are read without parsing locale text. The price is DISPLAYED with the Spanish culture
-/// (<c>1.234,50</c>). Management is offered as plain links inside the row whose path is
-/// <c>/products/{id}/edit</c> and <c>/products/{id}/delete</c>; "shown" means present and not inside a <c>hidden</c> element.</item>
-/// <item><c>/products</c> pager: <c>data-testid="pager"</c> with <c>data-page</c>, <c>data-page-count</c> and
-/// <c>data-total-count</c> (the API's total, over all pages) and, in its text, the current page and the page count
-/// (the Spanish wording around them is free). Previous/next are anchors
-/// <c>data-testid="pager-prev"</c> / <c>"pager-next"</c> with an <c>href</c> (a non-link when there is no previous/next
-/// page: the anchor is absent or has no <c>href</c>). Their targets keep the current <c>search</c>.</item>
-/// <item><c>/products</c> search: a <c>&lt;form data-testid="product-search"&gt;</c> (GET) with a text input whose
-/// last name segment is <c>search</c>, showing the current term back.</item>
-/// <item>Product forms are located by their fields (never by id or class): the create form is the visible, usable POST form
-/// with a <c>sku</c> field (plus <c>name</c>, <c>price</c>, <c>stock</c>); the edit form the visible, usable POST form with a
-/// <c>rowVersion</c> field (hidden input, base64 exactly as the API returned it) plus <c>name</c>, <c>price</c>, <c>stock</c>;
-/// the delete confirmation the one visible, usable POST form of <c>/products/{id}/delete</c> other than logout. The price field accepts
-/// <c>19,99</c> and <c>19.99</c> (both 19.99) and <c>1,5</c> (1.5), and the edit form pre-fills it with a comma decimal (<c>19,99</c>).
-/// A management
-/// form may exist in the markup for a caller who may not manage (static SSR needs it in the render tree to answer a forged
-/// post) but then it is inside a <c>hidden</c> element or has no submit control.</item>
-/// <item>A success confirmation after a product is created, edited or deleted is an element
-/// <c>data-testid="notice-success"</c> on the page the redirect lands on. Failures are recognised by text only, using the
-/// Spanish words the requirement quotes (<see cref="SpanishText"/>): "No tienes permiso", "no está disponible",
-/// "Ya existe un producto con ese SKU.", "Producto no encontrado.", "Otra persona modificó este producto" (plus a link to the
-/// product's edit page). "Producto no encontrado." is the visible text of the 404 response itself: the generic
-/// page for an unknown route is a different page and does not satisfy it.</item>
-/// <item><c>/demo</c> (signed in): <c>data-testid="you-now"</c> contains <c>you-tenant-id</c> (text = tenant id),
-/// <c>you-is-owner</c> (<c>data-value="true|false"</c>), one <c>you-permission</c> per held permission (<c>data-permission</c> =
-/// enum name, text = Spanish label), and the access matrix: one <c>data-testid="access-cell"</c> per permission of Users view/manage and
-/// Products view/manage with <c>data-permission="UsersView|UsersManage|ProductsView|ProductsManage"</c> and
-/// <c>data-held="true|false"</c>. What the matrix says about an owner is not pinned.</item>
-/// <item><c>/demo</c> with <c>Demo:ShowAccounts</c>: one <c>data-testid="demo-account-row"</c> per account with
-/// <c>data-email</c>, <c>data-testid="demo-password"</c> elements (text = the shared password) and
-/// <c>data-testid="demo-scenario"</c> items. <c>/login</c> with <c>Demo:ShowAccounts</c>: a
-/// <c>data-testid="demo-login-panel"</c> holding one POST form per account whose <c>email</c> and <c>password</c> fields are
-/// hidden inputs (the page still has exactly one form with a <c>type=password</c> input, the real login form) and a submit
-/// button whose text starts with "Entrar como" (the rest names the account and is free). The panel and the demo table are
-/// introduced by a heading containing "Cuentas de demostración". With the setting off none of these exist and
-/// neither an account email nor the password appears anywhere.</item>
-/// <item><c>/demo</c> (public): what the template provides is a list of elements <c>data-testid="tour-feature"</c>, one per
-/// feature, each with non-blank text. The tests require the list to be non-empty and the page to link to <c>/login</c>,
-/// <c>/register</c>, <c>/users</c> and <c>/products</c>; they pin no wording of the tour itself.</item>
-/// <item>The navigation is the <c>nav</c> element: a link to <c>/demo</c> always, links to <c>/products</c>
-/// and <c>/users</c> only when signed in (their Spanish wording is free; each has visible text).</item>
+/// <item>A success confirmation after a write is an element <c>data-testid="notice-success"</c> on the page the redirect lands on.
+/// Failures are recognised by text only, using the Spanish words the requirement quotes (<see cref="SpanishText"/>): "No tienes permiso",
+/// "no está disponible".</item>
+/// <item>The navigation is the <c>nav</c> element: a link to <c>/</c> always, a link to <c>/users</c>
+/// only when signed in (their Spanish wording is free; each has visible text).</item>
 /// <item>Language: every page is <c>&lt;html lang="es"&gt;</c> with a non-empty <c>&lt;title&gt;</c>, and no visible text or user-visible
 /// attribute (<c>title</c>, <c>placeholder</c>, <c>aria-label</c>, <c>alt</c>, submit <c>value</c>) contains English interface wording
 /// (<see cref="SpanishUi"/>; the denylist and allowlist are documented in <c>EnglishLeaks</c>). The Web always renders in the
@@ -98,28 +57,10 @@ internal static class PageContract
     public const string ProfilePermission = "[data-testid='profile-permission']";
     public const string PermissionLabel = "[data-testid='permission-label']";
 
-    public const string ProductRow = "[data-testid='product-row']";
     public const string Pager = "[data-testid='pager']";
     public const string PagerPrevious = "a[data-testid='pager-prev'][href]";
     public const string PagerNext = "a[data-testid='pager-next'][href]";
-    public const string SearchForm = "form[data-testid='product-search']";
     public const string NoticeSuccess = "[data-testid='notice-success']";
-
-    public const string TourFeature = "[data-testid='tour-feature']";
-
-    public const string YouNow = "[data-testid='you-now']";
-    public const string YouTenantId = "[data-testid='you-tenant-id']";
-    public const string YouIsOwner = "[data-testid='you-is-owner']";
-    public const string YouPermission = "[data-testid='you-permission']";
-    public const string AccessCell = "[data-testid='access-cell']";
-
-    public const string DemoAccountRow = "[data-testid='demo-account-row']";
-    public const string DemoPassword = "[data-testid='demo-password']";
-    public const string DemoScenario = "[data-testid='demo-scenario']";
-    public const string DemoLoginPanel = "[data-testid='demo-login-panel']";
-
-    /// <summary>Every hook that only exists while <c>Demo:ShowAccounts</c> is on.</summary>
-    public static readonly string[] DemoAccountHooks = { DemoAccountRow, DemoPassword, DemoScenario, DemoLoginPanel };
 
     public static string Field(string name) => $"[data-field='{name}']";
 

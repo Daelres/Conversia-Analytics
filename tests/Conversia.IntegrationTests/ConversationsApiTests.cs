@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Conversations;
-using Conversia.Application.DTOs.Products;
 using Conversia.Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
 using static Conversia.IntegrationTests.TestHelpers;
@@ -332,7 +332,7 @@ public class ConversationsApiTests
         var seeded = await SeedAsync(f, D0);
         var advisor = await CreateAdvisorAsync(f.Tenant.Owner.Client, f.Branch.Id);
         using var none = await f.Tenant.AddMemberAsync("none");
-        using var others = await f.Tenant.AddMemberAsync("others", Permission.OrganizationView, Permission.OrganizationManage, Permission.UsersView, Permission.ProductsManage);
+        using var others = await f.Tenant.AddMemberAsync("others", Permission.OrganizationView, Permission.OrganizationManage, Permission.UsersView, Permission.MetricsView);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await RunAsync(none.Client, op, seeded, advisor.Id)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await RunAsync(others.Client, op, seeded, advisor.Id)).StatusCode);
