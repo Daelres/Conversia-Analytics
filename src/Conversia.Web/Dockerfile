@@ -16,8 +16,11 @@ RUN dotnet restore src/Conversia.Web/Conversia.Web.csproj
 COPY src/Conversia.Domain/ src/Conversia.Domain/
 COPY src/Conversia.Application/ src/Conversia.Application/
 COPY src/Conversia.Web/ src/Conversia.Web/
+# No --no-restore on purpose. The restore above only sees the .csproj files, and the SDK adds the ASP.NET Core
+# internal assets package (it carries _framework/blazor.web.js) only when the project has Razor components. Publishing
+# without a second restore leaves that script out of the image, so every page asks for it and gets a 404.
 RUN dotnet publish src/Conversia.Web/Conversia.Web.csproj \
-    -c Release --no-restore -o /app/publish /p:UseAppHost=false
+    -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
