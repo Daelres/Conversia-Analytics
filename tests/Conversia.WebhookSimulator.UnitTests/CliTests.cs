@@ -24,17 +24,42 @@ public class CliTests
 
     [Theory]
     [InlineData("https://conversia.example.com")]
-    [InlineData("http://192.168.1.20:5030")]
-    [InlineData("http://10.0.0.5")]
-    [InlineData("http://localhost.evil.example")]
-    [InlineData("http://evil.example/localhost")]
-    [InlineData("http://api.internal")]
+    [InlineData("https://192.168.1.20:5030")]
+    [InlineData("https://10.0.0.5")]
+    [InlineData("https://localhost.evil.example")]
+    [InlineData("https://evil.example/localhost")]
+    [InlineData("https://api.internal")]
     public void A_remote_address_is_refused_unless_it_is_allowed_on_purpose(string url)
     {
         var refused = Assert.Throws<UsageException>(() => ApiUrlGuard.Check(url, allowRemote: false));
 
         Assert.Contains("--allow-remote", refused.Message);
         Assert.Equal(new Uri(url).Host, ApiUrlGuard.Check(url, allowRemote: true).Host);
+    }
+
+    [Theory]
+    [InlineData("http://conversia.example.com")]
+    [InlineData("http://192.168.1.20:5030")]
+    [InlineData("http://10.0.0.5")]
+    [InlineData("http://localhost.evil.example")]
+    [InlineData("http://api.internal")]
+    public void A_remote_address_over_plain_http_is_refused_even_when_remote_is_allowed(string url)
+    {
+        var refused = Assert.Throws<UsageException>(() => ApiUrlGuard.Check(url, allowRemote: true));
+
+        Assert.Contains("https", refused.Message);
+        Assert.Contains("cleartext", refused.Message);
+        Assert.Throws<UsageException>(() => ApiUrlGuard.Check(url, allowRemote: false));
+    }
+
+    [Theory]
+    [InlineData("http://localhost:5030")]
+    [InlineData("http://127.0.0.1:5030")]
+    [InlineData("http://[::1]:5030")]
+    [InlineData("http://api.localhost:5030")]
+    public void Plain_http_stays_accepted_for_loopback_even_with_allow_remote(string url)
+    {
+        Assert.Equal("http", ApiUrlGuard.Check(url, allowRemote: true).Scheme);
     }
 
     [Theory]

@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Caching.Memory;
-
 namespace Conversia.Web.Services;
 
 /// <summary>
@@ -7,12 +5,22 @@ namespace Conversia.Web.Services;
 /// an address nor wait in a cookie), so a reload would send it again and make a second channel or rotate a secret just shown. Each drawn
 /// form carries a random id; the first submission claims it, a repeated one is refused. Kept in memory for a few minutes: a restart
 /// forgets it, which only means a second submission could go through, the same as before this guard existed.
+/// The set is bounded: ids are claimed before authorization is checked, so a signed-in user posting made-up ids must not grow it without
+/// limit. Past <see cref="DefaultCapacity"/> live ids the oldest one is forgotten first; ids expire after <see cref="Lifetime"/>.
 /// </summary>
-public sealed class OneTimeSubmissions(IMemoryCache cache)
+public sealed class OneTimeSubmissions(TimeProvider? clock = null, int capacity = OneTimeSubmissions.DefaultCapacity)
 {
-    private readonly object _gate = new();
+    public const int DefaultCapacity = 10_000;
 
-    private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(15);
+    public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(15);
+
+    private readonly object _gate = new();
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+    private readonly int _capacity = Math.Max(1, capacity);
+
+    // Every id lives the same time, so the order of arrival is also the order of expiry: the front is always the next to go.
+    private readonly Queue<(string Id, DateTimeOffset Expires)> _order = new();
+    private readonly HashSet<string> _live = new(StringComparer.Ordinal);
 
     public static string NewId() => Guid.NewGuid().ToString("N");
 
@@ -24,15 +32,28 @@ public sealed class OneTimeSubmissions(IMemoryCache cache)
             return false;
         }
 
+        id = id.ToLowerInvariant();
+        var now = _clock.GetUtcNow();
+
         // Check and claim under one lock: two submissions of the same form racing each other must not both win.
         lock (_gate)
         {
-            if (cache.TryGetValue("onetime:" + id, out _))
+            while (_order.TryPeek(out var oldest) && oldest.Expires <= now)
+            {
+                _live.Remove(_order.Dequeue().Id);
+            }
+
+            if (!_live.Add(id))
             {
                 return false;
             }
 
-            cache.Set("onetime:" + id, true, Lifetime);
+            _order.Enqueue((id, now + Lifetime));
+            while (_live.Count > _capacity)
+            {
+                _live.Remove(_order.Dequeue().Id);
+            }
+
             return true;
         }
     }

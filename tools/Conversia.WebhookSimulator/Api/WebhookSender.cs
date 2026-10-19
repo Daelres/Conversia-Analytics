@@ -17,8 +17,15 @@ public sealed class WebhookSender
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
     private long _nextSlotTicks;
 
+    /// <param name="http">A client of its own: same base address as the API, no redirects and NO default <c>Authorization</c> header. The owner's
+    /// token belongs to <see cref="ConversiaApi"/> only; a webhook delivery carries just the channel secret.</param>
     public WebhookSender(HttpClient http, int requestsPerSecond, Func<TimeSpan, CancellationToken, Task>? delay = null)
     {
+        if (http.DefaultRequestHeaders.Authorization is not null)
+        {
+            throw new ArgumentException("The webhook sender must not share the client that carries the API token.", nameof(http));
+        }
+
         _http = http;
         _interval = TimeSpan.FromSeconds(1.0 / Math.Max(1, requestsPerSecond));
         _delay = delay ?? ((span, token) => Task.Delay(span, token));
@@ -29,14 +36,37 @@ public sealed class WebhookSender
 
     public int Throttled { get; private set; }
 
+    /// <summary>
+    /// The path comes from an API answer, so it is not trusted: only a relative path under <c>/api/webhooks/360dialog/</c> is accepted. Anything
+    /// else (an absolute address, a scheme-relative <c>//host</c>, a backslash, <c>..</c>, a query, an escape, a control character) would let
+    /// the secret travel to a host or a route other than the channel's webhook. The error never quotes the path: it holds the channel key.
+    /// </summary>
+    public static string ValidatePath(string? webhookPath)
+    {
+        var prefix = "/" + WebhookRoutes.Dialog360Base + "/";
+        if (webhookPath is null
+            || webhookPath.Length <= prefix.Length
+            || !webhookPath.StartsWith(prefix, StringComparison.Ordinal)
+            || webhookPath.Any(c => char.IsControl(c) || char.IsWhiteSpace(c) || c is '\\' or '?' or '#' or '%')
+            || webhookPath.Contains("..", StringComparison.Ordinal)
+            || webhookPath.Contains("//", StringComparison.Ordinal))
+        {
+            throw new ApiFailure(
+                $"The API gave a webhook path that is not a relative '{prefix}...' path. The simulator refuses to send a secret to it.");
+        }
+
+        return webhookPath.TrimStart('/');
+    }
+
     public async Task SendAsync(string webhookPath, string secret, string json, CancellationToken cancellationToken)
     {
+        var relativePath = ValidatePath(webhookPath);
         await PaceAsync(cancellationToken);
         for (var attempt = 1; ; attempt++)
         {
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Post, webhookPath.TrimStart('/'))
+                using var request = new HttpRequestMessage(HttpMethod.Post, relativePath)
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json"),
                 };

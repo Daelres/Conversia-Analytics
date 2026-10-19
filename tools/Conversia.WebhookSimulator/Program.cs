@@ -53,13 +53,18 @@ public static class Program
             using var handler = new SocketsHttpHandler { AllowAutoRedirect = false };
             using var http = new HttpClient(handler) { BaseAddress = apiUrl, Timeout = TimeSpan.FromSeconds(60) };
             var api = new ConversiaApi(http);
+
+            // Webhook deliveries get a client of their own: the owner's token (set on `http` by the login) must never ride along with a
+            // channel secret, and a webhook is a public route that wants only that secret.
+            using var webhookHandler = new SocketsHttpHandler { AllowAutoRedirect = false };
+            using var webhookHttp = new HttpClient(webhookHandler) { BaseAddress = apiUrl, Timeout = TimeSpan.FromSeconds(60) };
             await api.LoginAsync(email, password, cancellation.Token);
 
             return options.Command switch
             {
                 SimulatorCommandName.Setup => await new SetupCommand(api, Console.Out).RunAsync(options, cancellation.Token),
-                SimulatorCommandName.Play => await new PlayCommand(api, new WebhookSender(http, options.Rate), environment, TimeProvider.System, Console.Out).RunAsync(options, cancellation.Token),
-                _ => await new PopulateCommand(api, new WebhookSender(http, options.Rate), environment, TimeProvider.System, Console.Out).RunAsync(options, cancellation.Token),
+                SimulatorCommandName.Play => await new PlayCommand(api, new WebhookSender(webhookHttp, options.Rate), environment, TimeProvider.System, Console.Out).RunAsync(options, cancellation.Token),
+                _ => await new PopulateCommand(api, new WebhookSender(webhookHttp, options.Rate), environment, TimeProvider.System, Console.Out).RunAsync(options, cancellation.Token),
             };
         }
         catch (UsageException exception)

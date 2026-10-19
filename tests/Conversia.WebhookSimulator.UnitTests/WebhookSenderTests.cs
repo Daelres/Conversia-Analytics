@@ -13,8 +13,11 @@ public class WebhookSenderTests
 
         public List<(HttpMethod Method, string Path, string? Secret, string? Body)> Requests { get; } = [];
 
+        public List<(Uri Uri, bool HasAuthorization)> Targets { get; } = [];
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            Targets.Add((request.RequestUri!, request.Headers.Authorization is not null));
             Requests.Add((request.Method, request.RequestUri!.AbsolutePath, request.Headers.TryGetValues("X-Webhook-Secret", out var values) ? values.Single() : null,
                 request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken)));
             var step = script[Math.Min(_next++, script.Length - 1)];
@@ -148,5 +151,71 @@ public class WebhookSenderTests
         Assert.Equal(TimeSpan.FromSeconds(1), ConversiaApi.RetryAfter(Status(HttpStatusCode.TooManyRequests, 0)));
         Assert.Equal(TimeSpan.FromSeconds(30), ConversiaApi.RetryAfter(Status(HttpStatusCode.TooManyRequests, 30)));
         Assert.Equal(TimeSpan.FromSeconds(60), ConversiaApi.RetryAfter(Status(HttpStatusCode.TooManyRequests, 99999)));
+    }
+
+    // ---- the path comes from an API answer: it is not trusted ----
+
+    [Theory]
+    [InlineData("https://evil.example/api/webhooks/360dialog/k")]
+    [InlineData("http://evil.example/")]
+    [InlineData("//evil.example/api/webhooks/360dialog/k")]
+    [InlineData("\\\\evil.example\\api")]
+    [InlineData("/api/webhooks/360dialog/../../auth/login")]
+    [InlineData("/api/webhooks/360dialog/k/../../x")]
+    [InlineData("/api/webhooks/360dialog//evil.example")]
+    [InlineData("/api/webhooks/360dialog/k\\x")]
+    [InlineData("/api/webhooks/360dialog/k?next=https://evil.example")]
+    [InlineData("/api/webhooks/360dialog/%2e%2e/x")]
+    [InlineData("/api/webhooks/360dialog/k\r\nHost: evil")]
+    [InlineData("/api/webhooks/360dialog/k\0")]
+    [InlineData("/api/webhooks/360dialog/")]
+    [InlineData("/api/webhooks/other/k")]
+    [InlineData("api/webhooks/360dialog/k")]
+    [InlineData("")]
+    public async Task A_path_that_is_not_a_relative_360dialog_webhook_path_is_rejected_without_sending_anything(string path)
+    {
+        var (sender, handler, _) = Create(1000, _ => Status(HttpStatusCode.OK));
+
+        var failure = await Assert.ThrowsAsync<ApiFailure>(() => sender.SendAsync(path, Secret, "{}", CancellationToken.None));
+
+        Assert.Empty(handler.Requests);
+        Assert.Equal(0, sender.Sent);
+        Assert.DoesNotContain(Secret, failure.Message);
+        Assert.DoesNotContain("evil", failure.Message);
+        Assert.Contains("/api/webhooks/360dialog/", failure.Message);
+    }
+
+    [Theory]
+    [InlineData("/api/webhooks/360dialog/some-key")]
+    [InlineData("/api/webhooks/360dialog/AbC123_-")]
+    public async Task A_relative_360dialog_path_is_accepted_and_goes_to_the_base_address(string path)
+    {
+        var (sender, handler, _) = Create(1000, _ => Status(HttpStatusCode.OK));
+
+        await sender.SendAsync(path, Secret, "{}", CancellationToken.None);
+
+        var target = Assert.Single(handler.Targets);
+        Assert.Equal("localhost", target.Uri.Host);
+        Assert.Equal(5030, target.Uri.Port);
+        Assert.Equal(path, target.Uri.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task A_webhook_delivery_carries_no_authorization_header()
+    {
+        var (sender, handler, _) = Create(1000, _ => Status(HttpStatusCode.OK));
+
+        await sender.SendAsync("/api/webhooks/360dialog/k", Secret, "{}", CancellationToken.None);
+
+        Assert.False(Assert.Single(handler.Targets).HasAuthorization);
+    }
+
+    [Fact]
+    public void A_client_that_carries_the_api_token_cannot_be_used_for_webhook_deliveries()
+    {
+        var http = new HttpClient(new ScriptedHandler(_ => Status(HttpStatusCode.OK))) { BaseAddress = new Uri("http://localhost:5030/") };
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "owner-jwt-for-tests");
+
+        Assert.Throws<ArgumentException>(() => new WebhookSender(http, 10));
     }
 }

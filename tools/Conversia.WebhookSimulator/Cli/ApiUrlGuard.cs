@@ -2,7 +2,7 @@ namespace Conversia.WebhookSimulator.Cli;
 
 /// <summary>
 /// The simulator sends fabricated conversations and logs in with real credentials: it must not be pointed at somebody's production by a slip.
-/// Only a local address is accepted unless the person says <c>--allow-remote</c> on purpose.
+/// Only a local address is accepted unless the person says <c>--allow-remote</c> on purpose, and even then a remote address must be <c>https</c>.
 /// </summary>
 public static class ApiUrlGuard
 {
@@ -28,6 +28,14 @@ public static class ApiUrlGuard
             throw new UsageException(
                 $"Refusing to talk to '{uri.Host}': the simulator sends fabricated conversations and is meant for a local API. " +
                 "If you really want a remote one (a staging environment of yours), add --allow-remote.");
+        }
+
+        // The login, the token and the webhook secrets travel in this address: off the machine they must travel encrypted, --allow-remote or not.
+        if (!IsLocal(uri) && uri.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new UsageException(
+                $"Refusing plain http to '{uri.Host}': the login, the token and the webhook secrets would travel in cleartext. " +
+                "A remote API must be reached over https; plain http is only accepted for localhost.");
         }
 
         return new Uri(uri.GetLeftPart(UriPartial.Path).TrimEnd('/') + "/");

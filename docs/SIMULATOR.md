@@ -53,7 +53,10 @@ dashboard counts those conversations as still open and "unanswered". The overlay
 
 All of them take `--api-url` (default `$SIM_API_URL`, else `http://localhost:5030`). Only local addresses are accepted: `localhost`, `*.localhost`
 and loopback IPs. Pointing at anything else needs `--allow-remote`, which you should only say about an environment of yours that is meant to
-receive fabricated data. The simulator never follows redirects, so an answer cannot send the token or a secret somewhere else.
+receive fabricated data, and a remote address must be `https`: plain `http` is accepted only for the local addresses above, even with
+`--allow-remote`, because the login, the token and the webhook secrets travel in that connection. The simulator never follows redirects, and it
+only sends webhook deliveries to a relative `/api/webhooks/360dialog/...` path under the address you gave. They go through a client of their
+own that never carries the owner's token, so neither the token nor a webhook secret is sent to any host other than `--api-url`.
 
 ### `setup`
 
