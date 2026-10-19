@@ -325,7 +325,9 @@ public class ConversationClassificationTests
         await DeliverAsync(_client, f, Dialog360Samples.OutboundEcho("wamid.2", t0 + 60, text: "Son $60.000."));
         await DeliverAsync(_client, f, Dialog360Samples.InboundText("wamid.3", t0 + 120, text: "No gracias"));
         await DrainAsync(webhookRunner);
-        var afterTheWorld = new FixedTimeProvider(Dialog360Samples.T0 is var t ? DateTimeOffset.FromUnixTimeSeconds(t).UtcDateTime.AddDays(1) : default);
+        // The classifier claims by arrival time (the real clock), so the fake clock must be ahead of the real one,
+        // not ahead of the fixed sample timestamps.
+        var afterTheWorld = new FixedTimeProvider(DateTime.UtcNow.AddDays(1));
         var runner = Runner(afterTheWorld, Options(debounceSeconds: 0));
         await DrainClassificationAsync(runner);
         var conversationId = Assert.Single((await SnapshotAsync(_factory.Services, f.TenantId)).Conversations).Id;
