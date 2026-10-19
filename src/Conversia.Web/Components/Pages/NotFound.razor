@@ -11,11 +11,17 @@
 
     <ProductNotFoundView />
 }
-else if (ConversationNotFoundMarker.IsMarked(HttpContext))
+else if (NotFoundMarker.IsMarked(HttpContext, NotFoundMarker.Conversation))
 {
     <PageTitle>Conversación no encontrada - Conversia</PageTitle>
 
     <ConversationNotFoundView />
+}
+else if (NotFoundMarker.IsMarked(HttpContext, NotFoundMarker.Channel))
+{
+    <PageTitle>Número no encontrado - Conversia</PageTitle>
+
+    <ChannelNotFoundView />
 }
 else
 {

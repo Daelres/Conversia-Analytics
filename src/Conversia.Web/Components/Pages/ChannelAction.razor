@@ -1,0 +1,234 @@
+@page "/organizacion/canales/{Id:guid}/{Action}"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Organization
+@using Conversia.Domain.Enums
+@using Conversia.Web.Components.Organization
+@using Conversia.Web.Http
+@inherits AuthenticatedPageBase
+@inject OneTimeSubmissions Submissions
+
+<PageTitle>@PageTitleText - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (_missing)
+{
+    <ChannelNotFoundView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="channel-action" data-action="@Action">
+        <PageHeader Eyebrow="Organización" EyebrowIcon="building" Title="@Heading" Description="@Intro">
+            <a class="btn btn--secondary" href="/organizacion"><Icon Name="arrow-left" />Volver a organización</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_secret is not null)
+        {
+            <OneTimeSecret Channel="_secret" Title="Secreto nuevo: guarda su dirección y su secreto" />
+        }
+
+        @* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller
+           without OrganizationManage who forges one must still reach the API and be refused there, not crash here. *@
+        <div hidden="@(!ShowForm)">
+            <Card Title="@Question" IconName="@(Kind == ChannelActionKind.Rotate ? "key" : "power")" data-testid="channel-confirm">
+                <dl class="kv">
+                    <div>
+                        <dt>Número</dt>
+                        <dd data-testid="confirm-number">@_channel?.DisplayPhoneNumber</dd>
+                    </div>
+                    <div>
+                        <dt>Estado ahora</dt>
+                        <dd>@(_channel?.IsActive == true ? "Activo" : "Desactivado")</dd>
+                    </div>
+                </dl>
+                <p class="muted" data-testid="confirm-effect">@Effect</p>
+                <EditForm Model="Input" FormName="channel-action" OnValidSubmit="RunAsync" OnInvalidSubmit="ReloadAsync" method="post" class="form" data-testid="channel-action-form">
+                    <input type="hidden" name="@($"{nameof(Input)}.{nameof(ChannelActionInput.SubmissionId)}")" value="@_submissionId" />
+                    <div class="form-actions">
+                        @if (ShowForm)
+                        {
+                            <button type="submit" class="@(Kind == ChannelActionKind.Activate ? "btn btn--primary" : "btn btn--danger")"><Icon Name="@(Kind == ChannelActionKind.Rotate ? "key" : "power")" />@Confirm</button>
+                        }
+                        <a class="btn btn--ghost" href="/organizacion">Cancelar</a>
+                    </div>
+                </EditForm>
+            </Card>
+        </div>
+    </div>
+}
+
+@code {
+    private enum ChannelActionKind
+    {
+        Unknown,
+        Activate,
+        Deactivate,
+        Rotate,
+    }
+
+    private ChannelResponse? _channel;
+    private CreateChannelResponse? _secret;
+    private bool _missing;
+    private bool _canManage;
+    private string _submissionId = OneTimeSubmissions.NewId();
+    private ChannelActionInput? _input;
+
+    [SupplyParameterFromForm(FormName = "channel-action")]
+    private ChannelActionInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [Parameter]
+    public string Action { get; set; } = string.Empty;
+
+    private ChannelActionKind Kind => Action switch
+    {
+        "activar" => ChannelActionKind.Activate,
+        "desactivar" => ChannelActionKind.Deactivate,
+        "rotar-secreto" => ChannelActionKind.Rotate,
+        _ => ChannelActionKind.Unknown,
+    };
+
+    // A rotation that just ran shows its secret and no longer offers the action again.
+    private bool ShowForm => _channel is not null && _canManage && _secret is null && !Redirected;
+
+    private string PageTitleText => Kind switch
+    {
+        ChannelActionKind.Activate => "Activar número",
+        ChannelActionKind.Deactivate => "Desactivar número",
+        _ => "Rotar secreto",
+    };
+
+    private string Heading => PageTitleText;
+
+    private string Intro => Kind switch
+    {
+        ChannelActionKind.Activate => "Vuelve a recibir los mensajes de este número.",
+        ChannelActionKind.Deactivate => "Deja de recibir los mensajes de este número.",
+        _ => "Genera un secreto nuevo para la dirección de este número.",
+    };
+
+    private string Question => Kind switch
+    {
+        ChannelActionKind.Activate => "¿Activar este número?",
+        ChannelActionKind.Deactivate => "¿Desactivar este número?",
+        _ => "¿Rotar el secreto de este número?",
+    };
+
+    private string Confirm => Kind switch
+    {
+        ChannelActionKind.Activate => "Sí, activar",
+        ChannelActionKind.Deactivate => "Sí, desactivar",
+        _ => "Sí, rotar el secreto",
+    };
+
+    private string Effect => Kind switch
+    {
+        ChannelActionKind.Activate => "El webhook vuelve a aceptar los mensajes del proveedor con el secreto que ya tenga configurado.",
+        ChannelActionKind.Deactivate => "El proveedor recibirá un rechazo (401) y los mensajes que envíe mientras esté desactivado no se guardarán. Puedes volver a activarlo cuando quieras.",
+        _ => "El secreto actual deja de funcionar al instante: hasta que configures el nuevo en 360dialog, los mensajes de este número serán rechazados. El secreto nuevo se mostrará una sola vez.",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Kind == ChannelActionKind.Unknown)
+        {
+            SetStatusCode(StatusCodes.Status404NotFound);
+            _missing = true;
+            NotFoundMarker.Mark(HttpContext, NotFoundMarker.Channel);
+            return;
+        }
+
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    protected override void OnNotFound()
+    {
+        _missing = true;
+        NotFoundMarker.Mark(HttpContext, NotFoundMarker.Channel);
+        SetStatusCode(StatusCodes.Status404NotFound);
+        Message = null;
+    }
+
+    private Task ReloadAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var channelTask = Api.GetChannelAsync(Token!, Id);
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        await Task.WhenAll(channelTask, profileTask);
+
+        if (await TryFailAsync(channelTask.Result, profileTask.Result))
+        {
+            return;
+        }
+
+        Shell.Remember(profileTask.Result.Value!);
+        _channel = channelTask.Result.Value;
+        _canManage = profileTask.Result.Value!.Can(Permission.OrganizationManage);
+        if (!_canManage)
+        {
+            Deny();
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        // Rotating shows a secret and answers without a redirect, so a reload would send the form again: it is processed once.
+        if (!Submissions.TryClaim(Input.SubmissionId))
+        {
+            Message = "Este formulario ya se envió. Revisa el estado del número en la lista.";
+            await LoadAsync();
+            return;
+        }
+
+        switch (Kind)
+        {
+            case ChannelActionKind.Activate:
+            case ChannelActionKind.Deactivate:
+                var active = Kind == ChannelActionKind.Activate;
+                var changed = await Api.SetChannelActiveAsync(Token!, Id, active);
+                if (changed.IsSuccess)
+                {
+                    RedirectTo(OrganizationNotice.Url(active ? OrganizationNotice.ChannelActivated : OrganizationNotice.ChannelDeactivated));
+                    return;
+                }
+
+                await TryFailAsync(changed);
+                break;
+            case ChannelActionKind.Rotate:
+                var rotated = await Api.RotateChannelSecretAsync(Token!, Id);
+                if (rotated.IsSuccess)
+                {
+                    _secret = rotated.Value;
+                    await LoadAsync();
+                    return;
+                }
+
+                await TryFailAsync(rotated);
+                break;
+        }
+
+        if (!Redirected && !_missing && !Denied)
+        {
+            await LoadAsync();
+        }
+    }
+}

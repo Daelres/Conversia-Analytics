@@ -20,6 +20,8 @@ builder.Services.AddDemoAccounts(builder.Configuration, builder.Environment);
 builder.Services.AddScoped<ShellState>();
 builder.Services.AddTenantTimeZone(builder.Configuration);
 builder.Services.AddScoped<DashboardLoader>();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<OneTimeSubmissions>();
 
 var app = builder.Build();
 

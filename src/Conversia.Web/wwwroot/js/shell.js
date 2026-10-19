@@ -56,10 +56,55 @@
     }
   }
 
+  // Copy buttons ("data-copy-target" names the element whose text is copied). The text never leaves the page: it goes to the clipboard
+  // only, and the result is announced in the polite live region of the same section.
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.className = "sr-only";
+      document.body.appendChild(area);
+      area.select();
+      var ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch (e) {
+        ok = false;
+      }
+      document.body.removeChild(area);
+      ok ? resolve() : reject(new Error("copy failed"));
+    });
+  }
+
+  function announce(button, message) {
+    var section = button.closest("section") || document;
+    var status = section.querySelector("[data-copy-status]");
+    if (status) {
+      status.textContent = "";
+      window.setTimeout(function () { status.textContent = message; }, 30);
+    }
+  }
+
   document.addEventListener("click", function (event) {
     var toggle = event.target.closest("[data-theme-toggle]");
     if (toggle) {
       apply(current() === "dark" ? "light" : "dark");
+      return;
+    }
+
+    var copy = event.target.closest("[data-copy-target]");
+    if (copy) {
+      var source = document.querySelector(copy.getAttribute("data-copy-target"));
+      if (source) {
+        copyText(source.textContent.trim()).then(
+          function () { announce(copy, copy.getAttribute("data-copy-done") || "Copiado"); },
+          function () { announce(copy, "No se pudo copiar: selecciona el texto y cópialo a mano."); }
+        );
+      }
     }
   });
 

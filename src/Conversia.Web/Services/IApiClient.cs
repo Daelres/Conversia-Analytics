@@ -69,4 +69,23 @@ public interface IApiClient
 
     /// <summary><c>PUT /api/conversations/{id}/opportunity</c>: a person decides the outcome.</summary>
     Task<ApiResult<OpportunityResponse>> SetOpportunityOutcomeAsync(string token, Guid id, SetOpportunityOutcomeRequest request, CancellationToken cancellationToken = default);
+
+    // ---- organization writes (OrganizationManage) ----
+
+    Task<ApiResult<IReadOnlyList<ChannelResponse>>> GetChannelsAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ChannelResponse>> GetChannelAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<BranchResponse>> CreateBranchAsync(string token, CreateBranchRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AdvisorResponse>> CreateAdvisorAsync(string token, CreateAdvisorRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>The answer carries the webhook secret: the only time it is ever given.</summary>
+    Task<ApiResult<CreateChannelResponse>> CreateChannelAsync(string token, CreateChannelRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary><c>POST /api/channels/{id}/activate</c> or <c>/deactivate</c>.</summary>
+    Task<ApiResult<ChannelResponse>> SetChannelActiveAsync(string token, Guid id, bool active, CancellationToken cancellationToken = default);
+
+    /// <summary>The answer carries the NEW webhook secret: the only time it is ever given.</summary>
+    Task<ApiResult<CreateChannelResponse>> RotateChannelSecretAsync(string token, Guid id, CancellationToken cancellationToken = default);
 }

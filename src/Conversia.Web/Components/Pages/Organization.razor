@@ -1,0 +1,439 @@
+@page "/organizacion"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Organization
+@using Conversia.Domain.Enums
+@using Conversia.Web.Components.Organization
+@using Conversia.Web.Time
+@using Conversia.Application.Time
+@inherits AuthenticatedPageBase
+@inject TenantTimeZone TimeZone
+@inject OneTimeSubmissions Submissions
+
+<PageTitle>Organización - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <StatusView DataPage="forbidden" Code="403" Title="Sin acceso a la organización" Art="locked"
+                Hint="Pide acceso a la persona propietaria de tu espacio de trabajo.">
+        <ChildContent>Tu cuenta no tiene el permiso «@PermissionLabels.For(Permission.OrganizationView)». Con él verás las sucursales, los asesores y los números de WhatsApp de tu negocio.</ChildContent>
+        <Actions>
+            <a class="btn btn--primary" href="/"><Icon Name="home" />Ir al inicio</a>
+        </Actions>
+    </StatusView>
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="organization">
+        <PageHeader Eyebrow="Tu negocio" EyebrowIcon="building" Title="Organización"
+                    Description="Las sucursales, los asesores que atienden y los números de WhatsApp que Conversia lee." />
+
+        @if (OrganizationNotice.Describe(Notice) is { } notice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">@notice</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_secret is not null)
+        {
+            <OneTimeSecret Channel="_secret" Title="@_secretTitle" />
+        }
+
+        <Card Title="Sucursales" Subtitle="Cada conversación pertenece a la sucursal de su número de WhatsApp." IconName="building" id="sucursales" data-testid="branches-card">
+                <div class="stack">
+                    @if (!_loaded)
+                    {
+                    }
+                    else if (_branches.Count == 0)
+                    {
+                        <EmptyState Title="Aún no hay sucursales" Art="box"
+                                    Text="@(_canManage ? "Crea la primera: los asesores y los números de WhatsApp se asignan a una sucursal." : "Cuando alguien cree las sucursales, las verás aquí.")" />
+                    }
+                    else
+                    {
+                        <div class="table-wrap" role="region" aria-label="Sucursales" tabindex="0">
+                            <table class="table table--cards">
+                                <caption class="sr-only">Sucursales de tu negocio</caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Nombre</th>
+                                        <th scope="col">Estado</th>
+                                        <th scope="col" data-align="end">Creada</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var branch in _branches)
+                                    {
+                                        <tr data-testid="branch-row" data-branch-id="@branch.Id">
+                                            <th scope="row" data-label="Nombre">@branch.Name</th>
+                                            <td data-label="Estado"><Chip Tone="@(branch.IsActive ? ChipTone.Success : ChipTone.Neutral)" IconName="@(branch.IsActive ? "check-circle" : "minus")">@(branch.IsActive ? "Activa" : "Inactiva")</Chip></td>
+                                            <td data-label="Creada" data-align="end">@MetricsFormat.Date(DateOnly.FromDateTime(TimeZone.ToLocal(branch.CreatedAt)))</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    @* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller
+                       without OrganizationManage who forges one must still reach the API and be refused there, not crash here. *@
+                    <div hidden="@(!_canManage)" data-testid="branch-form-panel">
+                        <EditForm Model="NewBranch" FormName="create-branch" OnValidSubmit="CreateBranchAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="branch-form">
+                            <DataAnnotationsValidator />
+                            <FormField TValue="string" For="() => NewBranch.Name" Id="branch-name" Label="Nueva sucursal" IconName="building" ApiErrors="_branchErrors" Context="field">
+                                <TextInput id="branch-name" class="input" autocomplete="off" name="@($"{nameof(NewBranch)}.{nameof(NewBranchInput.Name)}")" @bind-Value="NewBranch.Name" @attributes="field" Invalid="field.Invalid" />
+                            </FormField>
+                            <ApiFieldErrors Errors="_branchErrors" KnownFields="@(["Name"])" />
+                            <div class="form-actions">
+                                @if (_canManage)
+                                {
+                                    <button type="submit" class="btn btn--primary"><Icon Name="plus" />Crear sucursal</button>
+                                }
+                            </div>
+                        </EditForm>
+                    </div>
+                </div>
+            </Card>
+
+            <Card Title="Asesores" Subtitle="Las personas que contestan. Una conversación se asigna a un asesor de su propia sucursal." IconName="users" id="asesores" data-testid="advisors-card">
+                <div class="stack">
+                    @if (!_loaded)
+                    {
+                    }
+                    else if (_advisors.Count == 0)
+                    {
+                        <EmptyState Title="Aún no hay asesores" Art="box"
+                                    Text="@(_canManage ? "Crea un asesor para poder repartir las conversaciones y medir a cada persona." : "Cuando alguien cree los asesores, los verás aquí.")" />
+                    }
+                    else
+                    {
+                        <div class="table-wrap" role="region" aria-label="Asesores" tabindex="0">
+                            <table class="table table--cards">
+                                <caption class="sr-only">Asesores de tu negocio</caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Nombre</th>
+                                        <th scope="col">Sucursal</th>
+                                        <th scope="col">Estado</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var advisor in _advisors)
+                                    {
+                                        <tr data-testid="advisor-row" data-advisor-id="@advisor.Id">
+                                            <th scope="row" data-label="Nombre">@advisor.Name</th>
+                                            <td data-label="Sucursal">@BranchName(advisor.BranchId)</td>
+                                            <td data-label="Estado"><Chip Tone="@(advisor.IsActive ? ChipTone.Success : ChipTone.Neutral)" IconName="@(advisor.IsActive ? "check-circle" : "minus")">@(advisor.IsActive ? "Activo" : "Inactivo")</Chip></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    <div hidden="@(!_canManage)" data-testid="advisor-form-panel">
+                        <EditForm Model="NewAdvisor" FormName="create-advisor" OnValidSubmit="CreateAdvisorAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="advisor-form">
+                            <DataAnnotationsValidator />
+                            <div class="form-grid form-grid--2">
+                                <FormField TValue="string" For="() => NewAdvisor.Name" Id="advisor-name" Label="Nuevo asesor" IconName="user" ApiErrors="_advisorErrors" Context="field">
+                                    <TextInput id="advisor-name" class="input" autocomplete="off" name="@($"{nameof(NewAdvisor)}.{nameof(NewAdvisorInput.Name)}")" @bind-Value="NewAdvisor.Name" @attributes="field" Invalid="field.Invalid" />
+                                </FormField>
+                                <FormField TValue="string" For="() => NewAdvisor.BranchId" Id="advisor-branch" Label="Sucursal" ApiErrors="_advisorErrors" Context="field">
+                                    <InputSelect id="advisor-branch" class="input" name="@($"{nameof(NewAdvisor)}.{nameof(NewAdvisorInput.BranchId)}")" @bind-Value="NewAdvisor.BranchId" @attributes="field">
+                                        <option value="">Elige una sucursal</option>
+                                        @foreach (var branch in ActiveBranches)
+                                        {
+                                            <option value="@branch.Id">@branch.Name</option>
+                                        }
+                                    </InputSelect>
+                                </FormField>
+                            </div>
+                            <ApiFieldErrors Errors="_advisorErrors" KnownFields="@(["Name", "BranchId"])" />
+                            <div class="form-actions">
+                                @if (_canManage)
+                                {
+                                    <button type="submit" class="btn btn--primary"><Icon Name="plus" />Crear asesor</button>
+                                }
+                            </div>
+                        </EditForm>
+                    </div>
+                </div>
+            </Card>
+
+            <Card Title="Números de WhatsApp" Subtitle="Cada número tiene su propia dirección de webhook y su secreto." IconName="phone" id="numeros" data-testid="channels-card">
+                <div class="stack">
+                    @if (!_loaded)
+                    {
+                    }
+                    else if (_channels.Count == 0)
+                    {
+                        <EmptyState Title="Aún no hay números conectados" Art="box"
+                                    Text="@(_canManage ? "Crea un número para obtener la dirección y el secreto que debes configurar en 360dialog." : "Cuando alguien conecte un número de WhatsApp, lo verás aquí.")" />
+                    }
+                    else
+                    {
+                        <div class="table-wrap" role="region" aria-label="Números de WhatsApp" tabindex="0">
+                            <table class="table table--cards">
+                                <caption class="sr-only">Números de WhatsApp conectados</caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Número</th>
+                                        <th scope="col">Sucursal</th>
+                                        <th scope="col">Estado</th>
+                                        <th scope="col" data-align="end">Creado</th>
+                                        @if (_canManage)
+                                        {
+                                            <th scope="col"><span class="sr-only">Acciones</span></th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var channel in _channels)
+                                    {
+                                        <tr data-testid="channel-row" data-channel-id="@channel.Id" data-active="@(channel.IsActive ? "true" : "false")">
+                                            <th scope="row" data-label="Número" id="ch-@channel.Id">@channel.DisplayPhoneNumber</th>
+                                            <td data-label="Sucursal">@BranchName(channel.BranchId)</td>
+                                            <td data-label="Estado"><Chip Tone="@(channel.IsActive ? ChipTone.Success : ChipTone.Warning)" IconName="@(channel.IsActive ? "check-circle" : "power")">@(channel.IsActive ? "Activo" : "Desactivado")</Chip></td>
+                                            <td data-label="Creado" data-align="end">@MetricsFormat.Date(DateOnly.FromDateTime(TimeZone.ToLocal(channel.CreatedAt)))</td>
+                                            @if (_canManage)
+                                            {
+                                                <td class="table__cell-actions">
+                                                    <div class="table__actions">
+                                                        @if (channel.IsActive)
+                                                        {
+                                                            <a href="/organizacion/canales/@channel.Id/desactivar" id="cd-@channel.Id" class="btn btn--danger-ghost btn--sm" aria-labelledby="cd-@channel.Id ch-@channel.Id"><Icon Name="power" Class="icon--sm" />Desactivar</a>
+                                                        }
+                                                        else
+                                                        {
+                                                            <a href="/organizacion/canales/@channel.Id/activar" id="ca-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="ca-@channel.Id ch-@channel.Id"><Icon Name="power" Class="icon--sm" />Activar</a>
+                                                        }
+                                                        <a href="/organizacion/canales/@channel.Id/rotar-secreto" id="cr-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="cr-@channel.Id ch-@channel.Id"><Icon Name="key" Class="icon--sm" />Rotar secreto</a>
+                                                    </div>
+                                                </td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    <div hidden="@(!_canManage)" data-testid="channel-form-panel">
+                        <EditForm Model="NewChannel" FormName="create-channel" OnValidSubmit="CreateChannelAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="channel-form">
+                            <DataAnnotationsValidator />
+                            <input type="hidden" name="@($"{nameof(NewChannel)}.{nameof(NewChannelInput.SubmissionId)}")" value="@_submissionId" />
+                            <div class="form-grid form-grid--2">
+                                <FormField TValue="string" For="() => NewChannel.DisplayPhoneNumber" Id="channel-phone" Label="Número de WhatsApp del negocio" IconName="phone"
+                                           Hint="Con el código del país, por ejemplo +57 300 123 4567." ApiErrors="_channelErrors" Context="field">
+                                    <TextInput id="channel-phone" class="input" inputmode="tel" autocomplete="off" name="@($"{nameof(NewChannel)}.{nameof(NewChannelInput.DisplayPhoneNumber)}")" @bind-Value="NewChannel.DisplayPhoneNumber" @attributes="field" Invalid="field.Invalid" />
+                                </FormField>
+                                <FormField TValue="string" For="() => NewChannel.BranchId" Id="channel-branch" Label="Sucursal" ApiErrors="_channelErrors" Context="field">
+                                    <InputSelect id="channel-branch" class="input" name="@($"{nameof(NewChannel)}.{nameof(NewChannelInput.BranchId)}")" @bind-Value="NewChannel.BranchId" @attributes="field">
+                                        <option value="">Elige una sucursal</option>
+                                        @foreach (var branch in ActiveBranches)
+                                        {
+                                            <option value="@branch.Id">@branch.Name</option>
+                                        }
+                                    </InputSelect>
+                                </FormField>
+                                <div class="form-grid__wide">
+                                    <FormField TValue="string" For="() => NewChannel.ProviderPhoneNumberId" Id="channel-provider-id" Label="Identificador del número en el proveedor (opcional)"
+                                               Hint="Solo si ya lo conoces (phone_number_id de 360dialog)." ApiErrors="_channelErrors" Context="field">
+                                        <TextInput id="channel-provider-id" class="input input--mono" autocomplete="off" name="@($"{nameof(NewChannel)}.{nameof(NewChannelInput.ProviderPhoneNumberId)}")" @bind-Value="NewChannel.ProviderPhoneNumberId" @attributes="field" Invalid="field.Invalid" />
+                                    </FormField>
+                                </div>
+                            </div>
+                            <ApiFieldErrors Errors="_channelErrors" KnownFields="@(["DisplayPhoneNumber", "BranchId", "ProviderPhoneNumberId"])" />
+                            <div class="form-actions">
+                                @if (_canManage)
+                                {
+                                    <button type="submit" class="btn btn--primary"><Icon Name="plus" />Crear número</button>
+                                }
+                            </div>
+                        </EditForm>
+                    </div>
+                </div>
+            </Card>
+    </div>
+}
+
+@code {
+    private bool _loaded;
+    private bool _canManage;
+    private string _submissionId = OneTimeSubmissions.NewId();
+    private IReadOnlyList<BranchResponse> _branches = [];
+    private IReadOnlyList<AdvisorResponse> _advisors = [];
+    private IReadOnlyList<ChannelResponse> _channels = [];
+    private CreateChannelResponse? _secret;
+    private string _secretTitle = string.Empty;
+    private IReadOnlyDictionary<string, string[]>? _branchErrors;
+    private IReadOnlyDictionary<string, string[]>? _advisorErrors;
+    private IReadOnlyDictionary<string, string[]>? _channelErrors;
+
+    private NewBranchInput? _newBranch;
+    private NewAdvisorInput? _newAdvisor;
+    private NewChannelInput? _newChannel;
+
+    [SupplyParameterFromForm(FormName = "create-branch")]
+    private NewBranchInput NewBranch
+    {
+        get => _newBranch ??= new();
+        set => _newBranch = value;
+    }
+
+    [SupplyParameterFromForm(FormName = "create-advisor")]
+    private NewAdvisorInput NewAdvisor
+    {
+        get => _newAdvisor ??= new();
+        set => _newAdvisor = value;
+    }
+
+    [SupplyParameterFromForm(FormName = "create-channel")]
+    private NewChannelInput NewChannel
+    {
+        get => _newChannel ??= new();
+        set => _newChannel = value;
+    }
+
+    [SupplyParameterFromQuery]
+    public string? Notice { get; set; }
+
+    private IEnumerable<BranchResponse> ActiveBranches => _branches.Where(branch => branch.IsActive);
+
+    private string BranchName(Guid id) => _branches.FirstOrDefault(branch => branch.Id == id)?.Name ?? MetricsFormat.NoData;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var branchesTask = Api.GetBranchesAsync(Token!);
+        var advisorsTask = Api.GetAdvisorsAsync(Token!);
+        var channelsTask = Api.GetChannelsAsync(Token!);
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        await Task.WhenAll(branchesTask, advisorsTask, channelsTask, profileTask);
+
+        if (await TryFailAsync(branchesTask.Result, advisorsTask.Result, channelsTask.Result, profileTask.Result))
+        {
+            return;
+        }
+
+        var profile = profileTask.Result.Value!;
+        Shell.Remember(profile);
+        if (!profile.Can(Permission.OrganizationView))
+        {
+            Deny();
+            return;
+        }
+
+        _canManage = profile.Can(Permission.OrganizationManage);
+        _branches = branchesTask.Result.Value!;
+        _advisors = advisorsTask.Result.Value!;
+        _channels = channelsTask.Result.Value!;
+        _loaded = true;
+    }
+
+    private async Task CreateBranchAsync()
+    {
+        var result = await Api.CreateBranchAsync(Token!, NewBranch.ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo(OrganizationNotice.Url(OrganizationNotice.BranchCreated));
+            return;
+        }
+
+        switch (result.Status)
+        {
+            case ApiResultStatus.ValidationFailed:
+                _branchErrors = result.ValidationErrors;
+                SetStatusCode(StatusCodes.Status400BadRequest);
+                break;
+            case ApiResultStatus.Conflict:
+                _branchErrors = new Dictionary<string, string[]> { ["Name"] = ["Ya existe una sucursal con ese nombre."] };
+                break;
+            default:
+                await TryFailAsync(result);
+                break;
+        }
+
+        await ReloadUnlessDoneAsync();
+    }
+
+    private async Task CreateAdvisorAsync()
+    {
+        var result = await Api.CreateAdvisorAsync(Token!, NewAdvisor.ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo(OrganizationNotice.Url(OrganizationNotice.AdvisorCreated));
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.ValidationFailed)
+        {
+            _advisorErrors = result.ValidationErrors;
+            SetStatusCode(StatusCodes.Status400BadRequest);
+        }
+        else
+        {
+            await TryFailAsync(result);
+        }
+
+        await ReloadUnlessDoneAsync();
+    }
+
+    private async Task CreateChannelAsync()
+    {
+        // The answer to this form carries a secret and is not redirected, so a reload would send it again: a form is processed once.
+        if (!Submissions.TryClaim(NewChannel.SubmissionId))
+        {
+            Message = "Este formulario ya se envió. Revisa la lista de números: si el número se creó, usa «Rotar secreto» para ver una dirección y un secreto nuevos.";
+            await LoadAsync();
+            return;
+        }
+
+        var result = await Api.CreateChannelAsync(Token!, NewChannel.ToRequest());
+        if (result.IsSuccess)
+        {
+            _secret = result.Value;
+            _secretTitle = "Número creado: guarda su dirección y su secreto";
+            NewChannel.DisplayPhoneNumber = null;
+            NewChannel.ProviderPhoneNumberId = null;
+            NewChannel.BranchId = null;
+            _submissionId = OneTimeSubmissions.NewId();
+            await LoadAsync();
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.ValidationFailed)
+        {
+            _channelErrors = result.ValidationErrors;
+            SetStatusCode(StatusCodes.Status400BadRequest);
+        }
+        else
+        {
+            await TryFailAsync(result);
+        }
+
+        // The form failed without creating anything: it may be sent again, with a fresh guard.
+        _submissionId = OneTimeSubmissions.NewId();
+        await ReloadUnlessDoneAsync();
+    }
+
+    private async Task ReloadUnlessDoneAsync()
+    {
+        if (!Redirected && !Denied)
+        {
+            await LoadAsync();
+        }
+    }
+}

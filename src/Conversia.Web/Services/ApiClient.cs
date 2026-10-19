@@ -106,6 +106,27 @@ public sealed class ApiClient : IApiClient
     public Task<ApiResult<OpportunityResponse>> SetOpportunityOutcomeAsync(string token, Guid id, SetOpportunityOutcomeRequest request, CancellationToken cancellationToken = default)
         => SendAsync<OpportunityResponse>(HttpMethod.Put, $"api/conversations/{id}/opportunity", token, request, isUsable: null, cancellationToken);
 
+    public Task<ApiResult<IReadOnlyList<ChannelResponse>>> GetChannelsAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<ChannelResponse>>(HttpMethod.Get, "api/channels", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ChannelResponse>> GetChannelAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<ChannelResponse>(HttpMethod.Get, $"api/channels/{id}", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<BranchResponse>> CreateBranchAsync(string token, CreateBranchRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<BranchResponse>(HttpMethod.Post, "api/branches", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<AdvisorResponse>> CreateAdvisorAsync(string token, CreateAdvisorRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<AdvisorResponse>(HttpMethod.Post, "api/advisors", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<CreateChannelResponse>> CreateChannelAsync(string token, CreateChannelRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<CreateChannelResponse>(HttpMethod.Post, "api/channels", token, request, response => !string.IsNullOrEmpty(response.WebhookSecret), cancellationToken);
+
+    public Task<ApiResult<ChannelResponse>> SetChannelActiveAsync(string token, Guid id, bool active, CancellationToken cancellationToken = default)
+        => SendAsync<ChannelResponse>(HttpMethod.Post, $"api/channels/{id}/{(active ? "activate" : "deactivate")}", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<CreateChannelResponse>> RotateChannelSecretAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<CreateChannelResponse>(HttpMethod.Post, $"api/channels/{id}/rotate-secret", token, body: null, response => !string.IsNullOrEmpty(response.WebhookSecret), cancellationToken);
+
     private static string ProductListPath(int page, int pageSize, string? search)
     {
         var path = $"api/products?page={page}&pageSize={pageSize}";

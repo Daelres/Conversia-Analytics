@@ -77,6 +77,9 @@ is for your own machine only: its accounts have a publicly known password.
   `/conversaciones` (the chats: filterable list with masked numbers, and a detail with the
   chat thread, the classifier's reading and, for `ConversationsManage`, advisor assignment and
   a manual outcome),
+  `/organizacion` (branches, advisors and WhatsApp numbers; creating a number shows its
+  webhook path and secret once, and numbers can be deactivated, activated or have the secret
+  rotated after a confirmation),
   `/users` (user list, create user, grant/revoke permissions),
   `/products` (the reference feature: list, search, create, edit, delete;
   prices are shown the Spanish way, `1.234,50`, and typed with a comma or a dot)

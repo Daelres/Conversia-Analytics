@@ -258,7 +258,7 @@ else if (!Redirected)
     protected override void OnNotFound()
     {
         _missing = true;
-        ConversationNotFoundMarker.Mark(HttpContext);
+        NotFoundMarker.Mark(HttpContext, NotFoundMarker.Conversation);
         SetStatusCode(StatusCodes.Status404NotFound);
         Message = null;
     }
