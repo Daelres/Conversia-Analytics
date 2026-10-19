@@ -2,6 +2,7 @@
 # Build context is the repository root:
 #   docker build -f src/Conversia.API/Dockerfile -t conversia-api .
 #   docker build -f src/Conversia.API/Dockerfile --target migrator -t conversia-migrator .
+# Optional build args (scripts/docker-build.sh sets them from git): APP_VERSION, GIT_SHA, BUILD_DATE, SOURCE_URL.
 #
 # Stages: restore -> publish -> final (the API, default target)
 #                 -> bundle -> migrator (one-shot EF Core migrations bundle)
@@ -63,6 +64,16 @@ RUN case "${TARGETARCH:-amd64}" in \
 FROM mcr.microsoft.com/dotnet/runtime-deps:10.0 AS migrator
 WORKDIR /app
 COPY --from=bundle /out/efbundle ./efbundle
+ARG APP_VERSION=0.0.0-local
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+ARG SOURCE_URL=https://github.com/Daelres/Conversia-Analytics
+LABEL org.opencontainers.image.title="conversia-migrator" \
+      org.opencontainers.image.description="Conversia EF Core migrations bundle (one-shot job)" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="${SOURCE_URL}"
 # Non-root user (the "app" user, uid 1654, ships with the .NET images).
 USER $APP_UID
 # Pass --connection "<connection string>" (compose sets it from the environment).
@@ -72,8 +83,22 @@ ENTRYPOINT ["./efbundle"]
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+# Liveness probe (bash /dev/tcp, no curl in the image): see docker/healthcheck.sh and docs/DOCKER.md.
+COPY --chmod=0555 docker/healthcheck.sh /usr/local/bin/healthcheck
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["/usr/local/bin/healthcheck", "/health"]
+ARG APP_VERSION=0.0.0-local
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+ARG SOURCE_URL=https://github.com/Daelres/Conversia-Analytics
+LABEL org.opencontainers.image.title="conversia-api" \
+      org.opencontainers.image.description="Conversia API: WhatsApp webhook ingestion, classification and metrics" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="${SOURCE_URL}"
 # Non-root user (the "app" user, uid 1654, ships with the .NET images).
 USER $APP_UID
 # No secrets are baked into the image: ConnectionStrings__DefaultConnection and

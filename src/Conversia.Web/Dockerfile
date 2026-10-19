@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build context is the repository root:
 #   docker build -f src/Conversia.Web/Dockerfile -t conversia-web .
+# Optional build args (scripts/docker-build.sh sets them from git): APP_VERSION, GIT_SHA, BUILD_DATE, SOURCE_URL.
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
@@ -25,8 +26,22 @@ RUN dotnet publish src/Conversia.Web/Conversia.Web.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
+# Liveness probe (bash /dev/tcp, no curl in the image): see docker/healthcheck.sh and docs/DOCKER.md.
+COPY --chmod=0555 docker/healthcheck.sh /usr/local/bin/healthcheck
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+  CMD ["/usr/local/bin/healthcheck", "/health"]
+ARG APP_VERSION=0.0.0-local
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+ARG SOURCE_URL=https://github.com/Daelres/Conversia-Analytics
+LABEL org.opencontainers.image.title="conversia-web" \
+      org.opencontainers.image.description="Conversia Web: executive dashboard (Blazor Web)" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="${SOURCE_URL}"
 # Non-root user (the "app" user, uid 1654, ships with the .NET images).
 USER $APP_UID
 # No secrets are baked into the image. Point the Web at the API at run time

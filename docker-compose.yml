@@ -5,7 +5,16 @@
 #
 # API: http://localhost:${API_PORT:-5030}   Web: http://localhost:${WEB_PORT:-5112}
 # Tear down (and delete the database volume): docker compose down -v
+#
+# Images are named conversia-api|web|migrator:${CONVERSIA_TAG:-local}. The optional build args CONVERSIA_VERSION,
+# CONVERSIA_GIT_SHA and CONVERSIA_BUILD_DATE only feed the image labels; scripts/docker-build.sh sets them from git.
+# The API and Web images carry their own HEALTHCHECK (GET /health), which `depends_on: service_healthy` relies on.
 name: conversia
+
+x-build-args: &build-args
+  APP_VERSION: ${CONVERSIA_VERSION:-0.0.0-local}
+  GIT_SHA: ${CONVERSIA_GIT_SHA:-unknown}
+  BUILD_DATE: ${CONVERSIA_BUILD_DATE:-unknown}
 
 # Connection strings: "GSS Encryption Mode=Disable" stops Npgsql from probing for Kerberos
 # (libgssapi), which the runtime images do not ship and which would log a harmless error.
@@ -32,10 +41,12 @@ services:
   # One-shot job: applies the EF Core migrations (a self-contained migrations
   # bundle built by the `migrator` target of the API Dockerfile), then exits.
   migrator:
+    image: conversia-migrator:${CONVERSIA_TAG:-local}
     build:
       context: .
       dockerfile: src/Conversia.API/Dockerfile
       target: migrator
+      args: *build-args
     command:
       - --connection
       - Host=postgres;Port=5432;Database=${POSTGRES_DB:?Set POSTGRES_DB in .env};Username=${POSTGRES_USER:?Set POSTGRES_USER in .env};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env};GSS Encryption Mode=Disable
@@ -50,9 +61,11 @@ services:
     restart: "no"
 
   api:
+    image: conversia-api:${CONVERSIA_TAG:-local}
     build:
       context: .
       dockerfile: src/Conversia.API/Dockerfile
+      args: *build-args
     environment:
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:?Set POSTGRES_DB in .env};Username=${POSTGRES_USER:?Set POSTGRES_USER in .env};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env};GSS Encryption Mode=Disable
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env (copy .env.example). It must be at least 32 bytes.}
@@ -70,9 +83,11 @@ services:
     restart: unless-stopped
 
   web:
+    image: conversia-web:${CONVERSIA_TAG:-local}
     build:
       context: .
       dockerfile: src/Conversia.Web/Dockerfile
+      args: *build-args
     environment:
       # The Web only ever talks to the API; it has no database connection.
       Api__BaseUrl: http://api:8080/
@@ -84,7 +99,7 @@ services:
       migrator:
         condition: service_completed_successfully
       api:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
