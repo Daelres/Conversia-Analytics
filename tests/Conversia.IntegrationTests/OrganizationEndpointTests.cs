@@ -23,7 +23,7 @@ public class OrganizationEndpointTests
         _client = factory.CreateClient();
     }
 
-    private Task<ProductTenant> NewTenantAsync() => StartProductTenantAsync(_factory, _client, "org");
+    private Task<TestTenant> NewTenantAsync() => StartTenantAsync(_factory, _client, "org");
 
     // ---- Branches ------------------------------------------------------------------------
 

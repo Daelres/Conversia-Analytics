@@ -61,7 +61,7 @@ internal sealed class MetricsTenant : IDisposable
 
     public static async Task<MetricsTenant> StartAsync(CustomWebApplicationFactory factory, HttpClient anonymous, string centroName = "Centro", string northName = "Norte")
     {
-        var tenant = await StartProductTenantAsync(factory, anonymous, "metrics");
+        var tenant = await StartTenantAsync(factory, anonymous, "metrics");
         var centro = await CreateBranchAsync(tenant.Owner.Client, centroName);
         var north = await CreateBranchAsync(tenant.Owner.Client, northName);
         var channel = await CreateChannelAsync(tenant.Owner.Client, centro.Id, "+57 300 555 0100", "pnid-metrics-1");

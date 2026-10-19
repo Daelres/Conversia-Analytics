@@ -16,7 +16,7 @@ namespace Conversia.IntegrationTests;
 internal static partial class TestHelpers
 {
     /// <summary>A tenant with one branch and one WhatsApp channel, and the secret of the channel (known only here, as in real life).</summary>
-    internal sealed record ChannelFixture(ProductTenant Tenant, BranchResponse Branch, CreateChannelResponse Channel) : IDisposable
+    internal sealed record ChannelFixture(TestTenant Tenant, BranchResponse Branch, CreateChannelResponse Channel) : IDisposable
     {
         public void Dispose() => Tenant.Dispose();
 
@@ -30,7 +30,7 @@ internal static partial class TestHelpers
     internal static async Task<ChannelFixture> StartChannelAsync(
         CustomWebApplicationFactory factory, HttpClient anonymous, string? providerPhoneNumberId = Dialog360Samples.PhoneNumberId, string phone = "+57 300 555 0100")
     {
-        var tenant = await StartProductTenantAsync(factory, anonymous, "hook");
+        var tenant = await StartTenantAsync(factory, anonymous, "hook");
         var branch = await CreateBranchAsync(tenant.Owner.Client);
         var channel = await CreateChannelAsync(tenant.Owner.Client, branch.Id, phone, providerPhoneNumberId);
         return new ChannelFixture(tenant, branch, channel);

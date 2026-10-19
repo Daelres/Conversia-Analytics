@@ -34,7 +34,7 @@ public class MetricsApiTests
     [MemberData(nameof(AllEndpoints))]
     public async Task Anonymous_Is401_WhileTheOwnerGets200(string endpoint)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "metrics");
+        using var tenant = await StartTenantAsync(_factory, _client, "metrics");
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await _factory.CreateClient().GetAsync(Url(endpoint))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await tenant.Owner.Client.GetAsync(Url(endpoint))).StatusCode);
@@ -44,7 +44,7 @@ public class MetricsApiTests
     [MemberData(nameof(AllEndpoints))]
     public async Task WithoutMetricsView_Is403_NoMatterWhatElseTheMemberCan(string endpoint)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "metrics");
+        using var tenant = await StartTenantAsync(_factory, _client, "metrics");
         using var none = await tenant.AddMemberAsync("none");
         using var others = await tenant.AddMemberAsync(
             "others", Permission.ConversationsView, Permission.ConversationsManage, Permission.OrganizationView, Permission.OrganizationManage, Permission.UsersView, Permission.ProductsView);
@@ -58,7 +58,7 @@ public class MetricsApiTests
     [Fact]
     public async Task MetricsView_DoesNotOpenTheConversations()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "metrics");
+        using var tenant = await StartTenantAsync(_factory, _client, "metrics");
         using var viewer = await tenant.AddMemberAsync("viewer", Permission.MetricsView);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.Client.GetAsync("/api/conversations")).StatusCode);
@@ -70,7 +70,7 @@ public class MetricsApiTests
     [MemberData(nameof(AllEndpoints))]
     public async Task ARangeLongerThan366Days_Is400WithASpanishProblem(string endpoint)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "metrics");
+        using var tenant = await StartTenantAsync(_factory, _client, "metrics");
 
         var tooLong = await tenant.Owner.Client.GetAsync(Url(endpoint, "from=2025-01-01&to=2026-01-03")); // 367 days
         var longest = await tenant.Owner.Client.GetAsync(Url(endpoint, "from=2025-01-01&to=2026-01-02")); // 366 days
@@ -88,7 +88,7 @@ public class MetricsApiTests
     [InlineData("advisorId=11111111-1111-1111-1111-111111111111&unassigned=true", "No se puede filtrar por un asesor y por conversaciones sin asesor a la vez.")]
     public async Task AnInconsistentQuery_Is400(string query, string message)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "metrics");
+        using var tenant = await StartTenantAsync(_factory, _client, "metrics");
 
         var response = await tenant.Owner.Client.GetAsync(Url("conversion", query));
 
@@ -106,7 +106,7 @@ public class MetricsApiTests
     [InlineData("unassigned=maybe")]
     public async Task ABadValue_Is400ProblemJson(string query)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "metrics");
+        using var tenant = await StartTenantAsync(_factory, _client, "metrics");
 
         var response = await tenant.Owner.Client.GetAsync(Url("summary", query));
 
@@ -173,7 +173,7 @@ public class MetricsApiTests
     [Fact]
     public async Task EveryEndpoint_AnswersAnEmptyTenant()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "metrics");
+        using var tenant = await StartTenantAsync(_factory, _client, "metrics");
 
         foreach (var endpoint in Endpoints)
         {

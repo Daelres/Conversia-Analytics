@@ -18,64 +18,6 @@ internal static partial class TestHelpers
     /// <summary>A SKU no other test (and no earlier run) has used, valid under the SKU rules.</summary>
     public static string UniqueSku(string prefix = "SKU") => $"{prefix}-{Guid.NewGuid():N}";
 
-    /// <summary>An authenticated caller (owner or member) with its own client; disposing releases the client.</summary>
-    internal sealed class ProductActor : IDisposable
-    {
-        public ProductActor(CustomWebApplicationFactory factory, Guid userId, string token)
-        {
-            UserId = userId;
-            Token = token;
-            Client = AuthorizedClient(factory, token);
-        }
-
-        public Guid UserId { get; }
-
-        public string Token { get; }
-
-        public HttpClient Client { get; }
-
-        public void Dispose() => Client.Dispose();
-    }
-
-    /// <summary>A freshly registered tenant with its owner signed in.</summary>
-    internal sealed class ProductTenant : IDisposable
-    {
-        private readonly CustomWebApplicationFactory _factory;
-        private readonly HttpClient _anonymous;
-
-        public ProductTenant(CustomWebApplicationFactory factory, HttpClient anonymous, TenantSession session)
-        {
-            _factory = factory;
-            _anonymous = anonymous;
-            Session = session;
-            Owner = new ProductActor(factory, session.OwnerId, session.OwnerToken);
-        }
-
-        public TenantSession Session { get; }
-
-        public Guid TenantId => Session.TenantId;
-
-        public ProductActor Owner { get; }
-
-        /// <summary>Seeds a non-owner member of this tenant holding exactly <paramref name="permissions"/>, and signs them in.</summary>
-        public async Task<ProductActor> AddMemberAsync(string prefix, params Permission[] permissions)
-        {
-            var member = await SeedMemberAsync(_factory, _anonymous, TenantId, prefix);
-            foreach (var permission in permissions)
-            {
-                await GrantAsync(Owner.Client, member.UserId, permission);
-            }
-
-            return new ProductActor(_factory, member.UserId, member.Token);
-        }
-
-        public void Dispose() => Owner.Dispose();
-    }
-
-    internal static async Task<ProductTenant> StartProductTenantAsync(
-        CustomWebApplicationFactory factory, HttpClient anonymous, string prefix = "shop")
-        => new(factory, anonymous, await RegisterTenantSessionAsync(anonymous, prefix));
-
     // ---- Calls -----------------------------------------------------------------------------
 
     public static Task<HttpResponseMessage> PostProductAsync(
@@ -157,27 +99,6 @@ internal static partial class TestHelpers
     /// <summary>Asserts the product still reads exactly as <paramref name="expected"/> (nothing was written).</summary>
     public static async Task AssertProductUnchangedAsync(HttpClient ownerClient, ProductResponse expected)
         => AssertSameProduct(expected, await GetProductOkAsync(ownerClient, expected.Id));
-
-    /// <summary>A 400 whose validation errors include <paramref name="key"/> (property name, matched case-insensitively).</summary>
-    public static async Task AssertValidationErrorUnderAsync(HttpResponseMessage response, string key)
-    {
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        var problem = await response.Content.ReadFromJsonAsync<ValidationProblemDetails>();
-        Assert.NotNull(problem);
-        Assert.True(
-            problem!.Errors.Any(e => string.Equals(e.Key, key, StringComparison.OrdinalIgnoreCase) && e.Value.Length > 0),
-            $"Expected a validation error under '{key}' but got keys: {string.Join(", ", problem.Errors.Keys)}.");
-    }
-
-    /// <summary>The generic markers of a leaked failure; a handled error body must never contain them.</summary>
-    public static void AssertNoInternalsLeaked(string body)
-    {
-        foreach (var marker in new[] { "StackTrace", "   at ", "Exception", "SqlException", "IX_", "Cannot insert duplicate", "DbUpdate" })
-        {
-            Assert.DoesNotContain(marker, body, StringComparison.Ordinal);
-        }
-    }
 
     // ---- Seeding and inspection ------------------------------------------------------------
 

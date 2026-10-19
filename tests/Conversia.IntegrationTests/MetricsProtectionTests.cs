@@ -46,7 +46,7 @@ public class MetricsProtectionTests
     [Fact]
     public async Task TheMetricsEndpointsAndTheConversationList_ShareOneBudgetPerUser_ThenAnswer429WithRetryAfter()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "throttle");
+        using var tenant = await StartTenantAsync(_factory, _client, "throttle");
         using var client = As(Limited(), tenant.Owner.Token, TestClientIp.Next());
 
         // Three requests across different endpoints spend the same budget...
@@ -66,7 +66,7 @@ public class MetricsProtectionTests
     [Fact]
     public async Task TheBudgetBelongsToTheUser_NotToTheAddressOrToTheTenant()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "throttle");
+        using var tenant = await StartTenantAsync(_factory, _client, "throttle");
         using var colleague = await tenant.AddMemberAsync("colleague", Permission.MetricsView);
         var host = Limited();
         var address = TestClientIp.Next();
@@ -88,7 +88,7 @@ public class MetricsProtectionTests
     [Fact]
     public async Task OtherEndpoints_AreNotThrottledByTheHeavyQueryBudget()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "throttle");
+        using var tenant = await StartTenantAsync(_factory, _client, "throttle");
         using var client = As(Limited(), tenant.Owner.Token, TestClientIp.Next());
         for (var i = 0; i < Budget; i++)
         {
@@ -129,7 +129,7 @@ public class MetricsProtectionTests
     [Fact]
     public async Task AQueryThatTakesTooLong_Is503WithASpanishProblem_NoSqlAndNoStack_AndTheNextOneWorks()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "timeout");
+        using var tenant = await StartTenantAsync(_factory, _client, "timeout");
         var capture = new CapturingLoggerProvider();
         using var host = WebhookHost(_factory, new() { ["Metrics:QueryTimeoutSeconds"] = "1" }, configureLogging: logging => logging.AddProvider(capture));
         using var client = As(host, tenant.Owner.Token);
@@ -191,7 +191,7 @@ public class MetricsProtectionTests
     [MemberData(nameof(ExtremeQueries))]
     public async Task AnExtremeDate_IsA400WithASpanishMessage_NeverA500_OnEveryMetricsEndpoint(string query)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "dates");
+        using var tenant = await StartTenantAsync(_factory, _client, "dates");
 
         foreach (var endpoint in MetricsEndpoints)
         {
@@ -205,7 +205,7 @@ public class MetricsProtectionTests
     [MemberData(nameof(ExtremeQueries))]
     public async Task AnExtremeDate_IsA400_AlsoOnTheConversationList(string query)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "dates");
+        using var tenant = await StartTenantAsync(_factory, _client, "dates");
 
         var response = await tenant.Owner.Client.GetAsync($"/api/conversations?{query}");
 
@@ -225,7 +225,7 @@ public class MetricsProtectionTests
     [Fact]
     public async Task TheEdgesOfTheWindow_AreAccepted()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "dates");
+        using var tenant = await StartTenantAsync(_factory, _client, "dates");
         var inAYear = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(360);
 
         Assert.Equal(HttpStatusCode.OK, (await tenant.Owner.Client.GetAsync("/api/metrics/summary?from=2015-01-01&to=2015-02-01")).StatusCode);

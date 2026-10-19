@@ -45,7 +45,7 @@ public class PostgresValueRulesTests
         var login = await _client.PostAsJsonAsync("/api/auth/login", new { email, password = StrongPassword });
         await AssertValidationErrorUnderAsync(login, "email");
 
-        using var tenant = await StartProductTenantAsync(_factory, _client, "nul-user");
+        using var tenant = await StartTenantAsync(_factory, _client, "nul-user");
         var create = await tenant.Owner.Client.PostAsJsonAsync("/api/users", new { email, password = StrongPassword });
         await AssertValidationErrorUnderAsync(create, "email");
     }
@@ -53,7 +53,7 @@ public class PostgresValueRulesTests
     [Fact]
     public async Task ANulCharacterInTheProductName_IsAValidationError_OnCreateAndUpdate()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "nul-product");
+        using var tenant = await StartTenantAsync(_factory, _client, "nul-product");
         var client = tenant.Owner.Client;
 
         await AssertValidationErrorUnderAsync(await PostProductAsync(client, $"Wid{Nul}get", UniqueSku()), "name");
@@ -66,7 +66,7 @@ public class PostgresValueRulesTests
     [Fact]
     public async Task StampedTimestamps_AreWholeMicroseconds_AndEveryWriteResponseEqualsTheLaterRead()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "stamps");
+        using var tenant = await StartTenantAsync(_factory, _client, "stamps");
         var client = tenant.Owner.Client;
 
         var created = await CreateProductAsync(client);

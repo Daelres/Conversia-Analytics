@@ -56,7 +56,7 @@ public class OrganizationAuthorizationTests
     [MemberData(nameof(AllOps))]
     public async Task Anonymous_Is401_WhileTheOwnerSucceeds(Op op)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "auth");
+        using var tenant = await StartTenantAsync(_factory, _client, "auth");
         var targets = await SeedAsync(tenant.Owner.Client);
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await RunAsync(_factory.CreateClient(), op, targets)).StatusCode);
@@ -67,7 +67,7 @@ public class OrganizationAuthorizationTests
     [MemberData(nameof(AllOps))]
     public async Task MemberWithoutOrganizationPermissions_Is403_AndAUsersOrProductsPermissionDoesNotHelp(Op op)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "auth");
+        using var tenant = await StartTenantAsync(_factory, _client, "auth");
         var targets = await SeedAsync(tenant.Owner.Client);
         using var none = await tenant.AddMemberAsync("none");
         using var others = await tenant.AddMemberAsync("others", Permission.UsersView, Permission.UsersManage, Permission.ProductsView, Permission.ProductsManage);
@@ -80,7 +80,7 @@ public class OrganizationAuthorizationTests
     [MemberData(nameof(AllOps))]
     public async Task OrganizationView_AllowsExactlyTheReads(Op op)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "auth");
+        using var tenant = await StartTenantAsync(_factory, _client, "auth");
         var targets = await SeedAsync(tenant.Owner.Client);
         using var viewer = await tenant.AddMemberAsync("viewer", Permission.OrganizationView);
 
@@ -92,7 +92,7 @@ public class OrganizationAuthorizationTests
     [MemberData(nameof(AllOps))]
     public async Task OrganizationManage_AllowsExactlyTheWrites(Op op)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "auth");
+        using var tenant = await StartTenantAsync(_factory, _client, "auth");
         var targets = await SeedAsync(tenant.Owner.Client);
         using var manager = await tenant.AddMemberAsync("manager", Permission.OrganizationManage);
 
@@ -103,7 +103,7 @@ public class OrganizationAuthorizationTests
     [Fact]
     public async Task ARevokedPermissionStopsWorkingOnTheNextRequest()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client, "auth");
+        using var tenant = await StartTenantAsync(_factory, _client, "auth");
         using var viewer = await tenant.AddMemberAsync("viewer", Permission.OrganizationView);
         Assert.Equal(HttpStatusCode.OK, (await viewer.Client.GetAsync(BranchesUrl)).StatusCode);
 

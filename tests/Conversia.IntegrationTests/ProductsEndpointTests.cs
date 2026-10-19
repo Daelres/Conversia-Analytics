@@ -25,7 +25,7 @@ public class ProductsEndpointTests
         _client = factory.CreateClient();
     }
 
-    private Task<ProductTenant> NewTenantAsync(string prefix = "shop") => StartProductTenantAsync(_factory, _client, prefix);
+    private Task<TestTenant> NewTenantAsync(string prefix = "shop") => StartTenantAsync(_factory, _client, prefix);
 
     // ---- Lifecycle -------------------------------------------------------------------------
 

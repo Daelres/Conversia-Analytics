@@ -22,7 +22,7 @@ public class ProductsTenantIsolationTests
         _client = factory.CreateClient();
     }
 
-    private Task<ProductTenant> NewTenantAsync(string prefix) => StartProductTenantAsync(_factory, _client, prefix);
+    private Task<TestTenant> NewTenantAsync(string prefix) => StartTenantAsync(_factory, _client, prefix);
 
     [Fact]
     public async Task TheSameSkuCanExistInTwoTenants_EachSeeingOnlyItsOwn()

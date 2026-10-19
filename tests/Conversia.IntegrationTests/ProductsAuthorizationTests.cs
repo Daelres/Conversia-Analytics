@@ -80,7 +80,7 @@ public class ProductsAuthorizationTests
     public async Task Member_CanDoExactlyWhatTheirProductsPermissionsAllow_AndEachRefusalLiftsOnceGranted(
         string _, Permission[] held)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var owner = tenant.Owner.Client;
         var targets = await SeedTargetsAsync(owner);
         using var member = await tenant.AddMemberAsync("member", held);
@@ -126,7 +126,7 @@ public class ProductsAuthorizationTests
     [Fact]
     public async Task Owner_CanDoEverythingWithoutAnyExplicitPermissionRow()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var owner = tenant.Owner.Client;
         var targets = await SeedTargetsAsync(owner);
 
@@ -141,7 +141,7 @@ public class ProductsAuthorizationTests
     [Fact]
     public async Task Member_WithBothProductsPermissions_CanDoEverything()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var targets = await SeedTargetsAsync(tenant.Owner.Client);
         using var member = await tenant.AddMemberAsync("both", Permission.ProductsView, Permission.ProductsManage);
 
@@ -157,7 +157,7 @@ public class ProductsAuthorizationTests
     [MemberData(nameof(UnauthenticatedCallers))]
     public async Task Unauthenticated_EveryOperationIs401_WhileTheOwnerSucceedsOnTheSameCalls(string kind)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var owner = tenant.Owner.Client;
         var targets = await SeedTargetsAsync(owner);
         using var anonymous = _factory.CreateClient();
@@ -186,7 +186,7 @@ public class ProductsAuthorizationTests
     [Fact]
     public async Task Authorization_IsDecidedBeforeTheTargetIsLookedUpAndBeforeTheBodyIsValidated()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var real = await CreateProductAsync(tenant.Owner.Client);
         using var viewer = await tenant.AddMemberAsync("viewer", Permission.ProductsView);
         using var usersAdmin = await tenant.AddMemberAsync("usersAdmin", Permission.UsersManage);
@@ -213,7 +213,7 @@ public class ProductsAuthorizationTests
     [Fact]
     public async Task UsersManageOnly_StillAdministersUsers_ButHasNoAccessToProducts()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         using var usersAdmin = await tenant.AddMemberAsync("usersAdmin", Permission.UsersManage);
 
         var createdUser = await CreateUserAsync(usersAdmin.Client, UniqueEmail("by-users-admin"));
@@ -232,7 +232,7 @@ public class ProductsAuthorizationTests
     [InlineData(Permission.ProductsManage, 4)]
     public async Task ProductsPermissions_CanBeGrantedByNumberThroughTheAssignmentEndpoint_AndAppearInTheProfile(Permission permission, int number)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var member = await SeedMemberAsync(_factory, _client, tenant.TenantId);
 
         var response = await tenant.Owner.Client.PostAsJsonAsync($"/api/users/{member.UserId}/permissions", new { permission = number });
@@ -251,7 +251,7 @@ public class ProductsAuthorizationTests
     [InlineData(-1)]
     public async Task GrantingAnUndefinedPermission_IsA400AndGrantsNothing(int number)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var member = await SeedMemberAsync(_factory, _client, tenant.TenantId);
 
         var response = await tenant.Owner.Client.PostAsJsonAsync($"/api/users/{member.UserId}/permissions", new { permission = number });
@@ -269,7 +269,7 @@ public class ProductsAuthorizationTests
     [InlineData("4", Permission.ProductsManage)]
     public async Task RevokingAProductsPermission_TakesEffectOnTheMembersVeryNextRequest(string spelling, Permission permission)
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var targets = await SeedTargetsAsync(tenant.Owner.Client);
         using var member = await tenant.AddMemberAsync("member", permission);
         var probe = permission == Permission.ProductsView ? Op.List : Op.Create;
@@ -284,7 +284,7 @@ public class ProductsAuthorizationTests
     [Fact]
     public async Task RevokingOneProductsPermission_LeavesTheOtherIntact()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var targets = await SeedTargetsAsync(tenant.Owner.Client);
         using var member = await tenant.AddMemberAsync("member", Permission.ProductsView, Permission.ProductsManage);
 
@@ -297,8 +297,8 @@ public class ProductsAuthorizationTests
     [Fact]
     public async Task AGrantInOneTenant_GivesNoAccessToProductsOfAnotherTenant()
     {
-        using var tenantA = await StartProductTenantAsync(_factory, _client, "a");
-        using var tenantB = await StartProductTenantAsync(_factory, _client, "b");
+        using var tenantA = await StartTenantAsync(_factory, _client, "a");
+        using var tenantB = await StartTenantAsync(_factory, _client, "b");
         var inB = await CreateProductAsync(tenantB.Owner.Client);
         using var viewerA = await tenantA.AddMemberAsync("viewerA", Permission.ProductsView, Permission.ProductsManage);
         var inA = await CreateProductAsync(viewerA.Client);

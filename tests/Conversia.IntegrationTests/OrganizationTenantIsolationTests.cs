@@ -24,8 +24,8 @@ public class OrganizationTenantIsolationTests
     [Fact]
     public async Task AnotherTenantsRecords_AreInvisibleByListAndByIdWithTheSame404AsAnUnknownId()
     {
-        using var a = await StartProductTenantAsync(_factory, _client, "a");
-        using var b = await StartProductTenantAsync(_factory, _client, "b");
+        using var a = await StartTenantAsync(_factory, _client, "a");
+        using var b = await StartTenantAsync(_factory, _client, "b");
         var branch = await CreateBranchAsync(a.Owner.Client);
         var advisor = await CreateAdvisorAsync(a.Owner.Client, branch.Id);
         var channel = await CreateChannelAsync(a.Owner.Client, branch.Id);
@@ -44,8 +44,8 @@ public class OrganizationTenantIsolationTests
     [Fact]
     public async Task TheSameBranchNameCanExistInTwoTenants()
     {
-        using var a = await StartProductTenantAsync(_factory, _client, "a");
-        using var b = await StartProductTenantAsync(_factory, _client, "b");
+        using var a = await StartTenantAsync(_factory, _client, "a");
+        using var b = await StartTenantAsync(_factory, _client, "b");
         var name = UniqueName("Centro");
 
         await CreateBranchAsync(a.Owner.Client, name);
@@ -57,8 +57,8 @@ public class OrganizationTenantIsolationTests
     [Fact]
     public async Task ABranchOrUserOfAnotherTenant_CannotBeReferenced()
     {
-        using var a = await StartProductTenantAsync(_factory, _client, "a");
-        using var b = await StartProductTenantAsync(_factory, _client, "b");
+        using var a = await StartTenantAsync(_factory, _client, "a");
+        using var b = await StartTenantAsync(_factory, _client, "b");
         var aBranch = await CreateBranchAsync(a.Owner.Client);
         var bBranch = await CreateBranchAsync(b.Owner.Client);
 
@@ -76,8 +76,8 @@ public class OrganizationTenantIsolationTests
     [Fact]
     public async Task ATenantIdInTheBodyIsIgnored_TheRecordLandsInTheCallersTenant()
     {
-        using var a = await StartProductTenantAsync(_factory, _client, "a");
-        using var b = await StartProductTenantAsync(_factory, _client, "b");
+        using var a = await StartTenantAsync(_factory, _client, "a");
+        using var b = await StartTenantAsync(_factory, _client, "b");
 
         var response = await a.Owner.Client.PostAsJsonAsync(BranchesUrl, new { name = UniqueName("Mine"), tenantId = b.TenantId });
 

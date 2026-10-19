@@ -22,7 +22,7 @@ public class ProductsListTests
         _client = factory.CreateClient();
     }
 
-    private Task<ProductTenant> NewTenantAsync() => StartProductTenantAsync(_factory, _client, "list");
+    private Task<TestTenant> NewTenantAsync() => StartTenantAsync(_factory, _client, "list");
 
     /// <summary>Creates P01..P{count} (zero-padded so name order is numeric order), created in reverse order.</summary>
     private static async Task<List<string>> SeedNumberedAsync(HttpClient http, int count)
@@ -192,18 +192,18 @@ public class ProductsListTests
         ("Back\\slash", "BSL-001"),
     };
 
-    private static readonly ConditionalWeakTable<CustomWebApplicationFactory, Lazy<Task<ProductTenant>>> SharedSearchCatalogs = new();
+    private static readonly ConditionalWeakTable<CustomWebApplicationFactory, Lazy<Task<TestTenant>>> SharedSearchCatalogs = new();
 
     /// <summary>
     /// One tenant holding <see cref="SearchCatalog"/>, created on first use and shared by every read-only search and
     /// budget test (seeding it per case dominated the runtime). Tests that write must use <see cref="NewTenantAsync"/>.
     /// </summary>
-    private Task<ProductTenant> SharedSearchCatalogAsync()
-        => SharedSearchCatalogs.GetValue(_factory, f => new Lazy<Task<ProductTenant>>(() => SeedSearchCatalogAsync(f))).Value;
+    private Task<TestTenant> SharedSearchCatalogAsync()
+        => SharedSearchCatalogs.GetValue(_factory, f => new Lazy<Task<TestTenant>>(() => SeedSearchCatalogAsync(f))).Value;
 
-    private static async Task<ProductTenant> SeedSearchCatalogAsync(CustomWebApplicationFactory factory)
+    private static async Task<TestTenant> SeedSearchCatalogAsync(CustomWebApplicationFactory factory)
     {
-        var tenant = await StartProductTenantAsync(factory, factory.CreateClient(), "list");
+        var tenant = await StartTenantAsync(factory, factory.CreateClient(), "list");
         foreach (var (name, sku) in SearchCatalog)
         {
             await CreateProductAsync(tenant.Owner.Client, name, sku);

@@ -52,7 +52,7 @@ public class ProductsConcurrencyTests
     [Fact]
     public async Task Create_20ParallelRequestsWithTheSameSku_ExactlyOneSucceedsAndTheRestConflict()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var sku = UniqueSku("race");
 
         var results = await RunInParallelWithBodiesAsync(
@@ -70,7 +70,7 @@ public class ProductsConcurrencyTests
     [Fact]
     public async Task Create_ParallelRequestsWhoseSkusDifferOnlyInCaseAndWhitespace_ExactlyOneSucceeds()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var sku = UniqueSku("Mixed");
         var spellings = new[] { sku, sku.ToUpperInvariant(), sku.ToLowerInvariant(), $"  {sku}  ", $"\t{sku.ToUpperInvariant()}\n" };
 
@@ -84,8 +84,8 @@ public class ProductsConcurrencyTests
     [Fact]
     public async Task Create_TheSameSkuInTwoTenantsAtOnce_SucceedsInBoth()
     {
-        using var a = await StartProductTenantAsync(_factory, _client, "a");
-        using var b = await StartProductTenantAsync(_factory, _client, "b");
+        using var a = await StartTenantAsync(_factory, _client, "a");
+        using var b = await StartTenantAsync(_factory, _client, "b");
         var sku = UniqueSku("twin");
 
         var results = await RunInParallelWithBodiesAsync(new[]
@@ -102,8 +102,8 @@ public class ProductsConcurrencyTests
     [Fact]
     public async Task Create_ManyParallelRequestsWithTheSameSkuInTwoTenants_EachTenantHasExactlyOneWinner()
     {
-        using var a = await StartProductTenantAsync(_factory, _client, "a");
-        using var b = await StartProductTenantAsync(_factory, _client, "b");
+        using var a = await StartTenantAsync(_factory, _client, "a");
+        using var b = await StartTenantAsync(_factory, _client, "b");
         var sku = UniqueSku("duel");
         var calls = Enumerable.Range(0, 20)
             .Select(i => Create(i % 2 == 0 ? a.Owner.Token : b.Owner.Token, $"Racer {i}", sku))
@@ -123,7 +123,7 @@ public class ProductsConcurrencyTests
     [Fact]
     public async Task Create_30ParallelRequestsWithDistinctSkus_AllSucceedAndAllLandInTheCallersTenant()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var skus = Enumerable.Range(0, 30).Select(_ => UniqueSku("load")).ToList();
 
         var results = await RunInParallelWithBodiesAsync(skus.Select((sku, i) => Create(tenant.Owner.Token, $"Load {i:D2}", sku)));
@@ -140,7 +140,7 @@ public class ProductsConcurrencyTests
     [Fact]
     public async Task Create_TwoCallersInParallel_EachProductRecordsItsOwnCreator()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         using var manager = await tenant.AddMemberAsync("manager", Permission.ProductsManage);
 
         var results = await RunInParallelWithBodiesAsync(
@@ -162,7 +162,7 @@ public class ProductsConcurrencyTests
     [Fact]
     public async Task Update_10ParallelRequestsWithTheSameRowVersion_ExactlyOneWinsAndThePersistedRowIsTheWinners()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
 
         for (var round = 0; round < 3; round++)
         {
@@ -185,7 +185,7 @@ public class ProductsConcurrencyTests
     [Fact]
     public async Task Update_ParallelRequestsFromTwoUsers_ExactlyOneWinsAndUpdatedByNamesTheWinner()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         using var editor = await tenant.AddMemberAsync("editor", Permission.ProductsManage);
         var original = await CreateProductAsync(tenant.Owner.Client);
         var tokens = new[] { tenant.Owner.Token, editor.Token };
@@ -205,7 +205,7 @@ public class ProductsConcurrencyTests
     [Fact]
     public async Task Update_SequentialWritersWhoReloadBetweenWrites_NeverConflict()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var product = await CreateProductAsync(tenant.Owner.Client);
 
         for (var i = 0; i < 5; i++)
@@ -219,7 +219,7 @@ public class ProductsConcurrencyTests
     [Fact]
     public async Task UpdateRacingDelete_NeverFailsWithA5xx_AndTheOutcomesAgreeWithTheFinalState()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
 
         for (var round = 0; round < 8; round++)
         {
@@ -257,7 +257,7 @@ public class ProductsConcurrencyTests
     [Fact]
     public async Task Delete_5ParallelRequestsForTheSameProduct_ExactlyOneSucceedsAndTheRestAre404()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var product = await CreateProductAsync(tenant.Owner.Client);
 
         var results = await RunInParallelWithBodiesAsync(
@@ -273,7 +273,7 @@ public class ProductsConcurrencyTests
     [Fact]
     public async Task DeleteThenRecreateWithTheSameSku_IsolatesTheOldVersionFromTheNewOne()
     {
-        using var tenant = await StartProductTenantAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
         var http = tenant.Owner.Client;
         var sku = UniqueSku("phoenix");
         var old = await CreateProductAsync(http, "Old", sku);
@@ -297,13 +297,13 @@ public class ProductsConcurrencyTests
         const int tenantCount = 4;
         const int seeded = 5;
         const int extraCreates = 6;
-        var tenants = new List<ProductTenant>();
+        var tenants = new List<TestTenant>();
         var seededIds = new List<List<Guid>>();
         try
         {
             for (var t = 0; t < tenantCount; t++)
             {
-                var tenant = await StartProductTenantAsync(_factory, _client, $"t{t}");
+                var tenant = await StartTenantAsync(_factory, _client, $"t{t}");
                 tenants.Add(tenant);
                 var ids = new List<Guid>();
                 for (var i = 0; i < seeded; i++)
