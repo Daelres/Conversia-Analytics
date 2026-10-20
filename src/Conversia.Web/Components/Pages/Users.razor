@@ -15,7 +15,7 @@ else if (!Redirected)
 {
     <div class="page" data-page="users">
         <PageHeader Eyebrow="Equipo" EyebrowIcon="users" Title="Usuarios"
-                    Description="Las personas de tu espacio de trabajo y lo que puede hacer cada una." />
+                    Description="Las personas de tu empresa y lo que puede hacer cada una." />
 
         @if (UsersNotice.Describe(Notice) is { } notice)
         {
@@ -55,7 +55,7 @@ else if (!Redirected)
 
         @if (_users is not null)
         {
-            <ul class="user-list" aria-label="Usuarios del espacio de trabajo">
+            <ul class="user-list" aria-label="Usuarios de la empresa">
                 @foreach (var user in _users)
                 {
                     <li class="card user" data-testid="user-row" data-user-id="@user.UserId">

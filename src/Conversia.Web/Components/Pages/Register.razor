@@ -6,11 +6,11 @@
 
 <PageTitle>Registrarse - Conversia</PageTitle>
 <HeadContent>
-    <meta name="description" content="Crea tu espacio de trabajo en Conversia: registra tu equipo y empieza a gestionar usuarios y permisos." />
+    <meta name="description" content="Crea la cuenta de tu empresa en Conversia, una versión de prueba para analizar las conversaciones de ventas de WhatsApp." />
 </HeadContent>
 
 <div class="page auth-page" data-page="register">
-    <PageHeader Eyebrow="Empieza en un minuto" EyebrowIcon="sparkles" Title="Crea tu espacio de trabajo"
+    <PageHeader Eyebrow="Empieza en un minuto" EyebrowIcon="sparkles" Title="Crea la cuenta de tu empresa"
                 Description="Serás la persona propietaria: podrás invitar a tu equipo y decidir qué puede hacer cada quien." />
 
     @if (_message is not null)
@@ -22,7 +22,7 @@
         <EditForm Model="Input" FormName="register" OnValidSubmit="RegisterAsync" method="post" class="form">
             <DataAnnotationsValidator />
 
-            <FormField TValue="string" For="() => Input.TenantName" Id="tenantName" Label="Nombre del espacio de trabajo" IconName="building" ApiErrors="_apiErrors" Context="field">
+            <FormField TValue="string" For="() => Input.TenantName" Id="tenantName" Label="Nombre de la empresa" IconName="building" ApiErrors="_apiErrors" Context="field">
                 <TextInput id="tenantName" class="input" autocomplete="organization" placeholder="Mi empresa" @bind-Value="Input.TenantName" @attributes="field" Invalid="field.Invalid" />
             </FormField>
 

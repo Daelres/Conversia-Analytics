@@ -25,7 +25,7 @@ public class User : BaseEntity
     {
         if (tenantId == Guid.Empty)
         {
-            throw new DomainException("El identificador del espacio de trabajo es obligatorio.");
+            throw new DomainException("El identificador de la empresa es obligatorio.");
         }
 
         if (string.IsNullOrWhiteSpace(email))

@@ -3,7 +3,7 @@ namespace Conversia.Domain.Common;
 /// <summary>
 /// Base type for every persisted entity in the system. Provides the identity
 /// and full audit trail (who created/updated the row and when) that every
-/// table in this template must carry.
+/// table in this project must carry.
 /// </summary>
 public abstract class BaseEntity
 {

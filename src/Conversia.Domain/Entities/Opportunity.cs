@@ -73,7 +73,7 @@ public class Opportunity : BaseEntity
     public static Opportunity Open(Guid tenantId, Guid conversationId)
         => new()
         {
-            TenantId = TextRules.RequiredId(tenantId, "El identificador del espacio de trabajo es obligatorio."),
+            TenantId = TextRules.RequiredId(tenantId, "El identificador de la empresa es obligatorio."),
             ConversationId = TextRules.RequiredId(conversationId, "La conversación es obligatoria."),
         };
 

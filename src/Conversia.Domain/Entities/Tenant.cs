@@ -18,17 +18,17 @@ public class Tenant : BaseEntity
     {
         if (string.IsNullOrWhiteSpace(name))
         {
-            throw new DomainException("El nombre del espacio de trabajo es obligatorio.");
+            throw new DomainException("El nombre de la empresa es obligatorio.");
         }
 
         if (name.Length > MaxNameLength)
         {
-            throw new DomainException($"El nombre del espacio de trabajo no puede superar los {MaxNameLength} caracteres.");
+            throw new DomainException($"El nombre de la empresa no puede superar los {MaxNameLength} caracteres.");
         }
 
         if (name.Contains('\0'))
         {
-            throw new DomainException("El nombre del espacio de trabajo no puede contener caracteres nulos.");
+            throw new DomainException("El nombre de la empresa no puede contener caracteres nulos.");
         }
 
         return new Tenant

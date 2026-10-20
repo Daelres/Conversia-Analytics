@@ -71,16 +71,12 @@
   max-width: 54ch;
 }
 
-.hero--compact {
-  padding-block: clamp(1.5rem, 1rem + 2vw, 2.75rem);
-}
-
 .hero__art {
   display: none;
 }
 
 @media (min-width: 900px) {
-  .hero:not(.hero--compact) {
+  .hero {
     grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
     align-items: center;
   }

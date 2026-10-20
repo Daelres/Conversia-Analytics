@@ -56,7 +56,7 @@ public class ReportErrorRequest
     [Display(Name = "Usuario")]
     public Guid? UserId { get; set; }
 
-    [Display(Name = "Espacio de trabajo")]
+    [Display(Name = "Empresa")]
     public Guid? TenantId { get; set; }
 
     [Display(Name = "Agente de usuario")]

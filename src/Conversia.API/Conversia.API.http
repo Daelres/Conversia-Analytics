@@ -1,9 +1,9 @@
 @host = http://localhost:5030
 
 # Ready-to-run requests for VS Code (REST Client) and Rider. Send them from
-# top to bottom: register a workspace first, then log in as its owner.
+# top to bottom: register a company first, then log in as its owner.
 
-### Register a new workspace (201 + a token for its owner)
+### Register a new company (201 + a token for its owner)
 POST {{host}}/api/auth/register-tenant
 Content-Type: application/json
 
@@ -13,7 +13,7 @@ Content-Type: application/json
   "password": "Initech-Pass-2026"
 }
 
-### Log in as the owner of that workspace
+### Log in as the owner of that company
 # @name login
 POST {{host}}/api/auth/login
 Content-Type: application/json

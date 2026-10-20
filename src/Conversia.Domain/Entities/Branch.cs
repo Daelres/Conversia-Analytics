@@ -25,7 +25,7 @@ public class Branch : BaseEntity
     public static Branch Create(Guid tenantId, string name)
         => new()
         {
-            TenantId = TextRules.RequiredId(tenantId, "El identificador del espacio de trabajo es obligatorio."),
+            TenantId = TextRules.RequiredId(tenantId, "El identificador de la empresa es obligatorio."),
             Name = TextRules.Required(name, NameMaxLength, NameRuleMessage),
         };
 }

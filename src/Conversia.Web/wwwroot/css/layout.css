@@ -279,21 +279,6 @@
   color: var(--text-muted);
 }
 
-.site-footer__links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-5);
-}
-
-/* Touch targets of at least 44px where the pointer is a finger */
-@media (max-width: 719px), (pointer: coarse) {
-  .site-footer__links a {
-    display: inline-flex;
-    align-items: center;
-    min-height: var(--touch);
-  }
-}
-
 /* ---- Wide screens: sidebar for the app, horizontal bar for visitors ---- */
 @media (min-width: 960px) {
   .menu-check,

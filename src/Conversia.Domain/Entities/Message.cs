@@ -59,7 +59,7 @@ public class Message : BaseEntity
 
         return new Message
         {
-            TenantId = TextRules.RequiredId(tenantId, "El identificador del espacio de trabajo es obligatorio."),
+            TenantId = TextRules.RequiredId(tenantId, "El identificador de la empresa es obligatorio."),
             ConversationId = TextRules.RequiredId(conversationId, "La conversación es obligatoria."),
             ChannelId = TextRules.RequiredId(channelId, "El canal es obligatorio."),
             ProviderMessageId = TextRules.Required(providerMessageId, ProviderMessageIdMaxLength, ProviderMessageIdRuleMessage),

@@ -79,7 +79,7 @@ public class Conversation : BaseEntity
         var started = UtcTime.Normalize(startedAt);
         return new Conversation
         {
-            TenantId = TextRules.RequiredId(tenantId, "El identificador del espacio de trabajo es obligatorio."),
+            TenantId = TextRules.RequiredId(tenantId, "El identificador de la empresa es obligatorio."),
             ContactId = TextRules.RequiredId(contactId, "El contacto es obligatorio."),
             ChannelId = TextRules.RequiredId(channelId, "El canal es obligatorio."),
             BranchId = TextRules.RequiredId(branchId, "La sucursal es obligatoria."),

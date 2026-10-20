@@ -20,7 +20,7 @@ namespace Conversia.TestSupport;
 /// <c>a</c>, <c>to</c>, <c>is</c>, <c>it</c>, <c>can</c>, <c>may</c>, <c>by</c>).</para>
 ///
 /// <para><b>Allowlist</b> (text removed before matching, because it is a name or data and not interface wording):
-/// e-mail addresses, URLs, the product name <c>Conversia[.X]</c>, the technology names <c>ASP.NET Core</c>,
+/// e-mail addresses, URLs, the project name <c>Conversia[.X]</c>, the technology names <c>ASP.NET Core</c>,
 /// <c>.NET</c>, <c>PostgreSQL</c>, <c>Docker Compose</c>. Callers additionally exclude
 /// user-entered data cells, <c>data-*</c> attributes and the lines of <c>&lt;code&gt;</c>/<c>&lt;pre&gt;</c> blocks that are a route, JSON,
 /// a command line or a key name; English prose inside those elements is still scanned (see the HTML extractor in the Web tests).</para>
@@ -117,7 +117,6 @@ internal static class EnglishLeaks
     {
         new(@"[\w.+-]+@[\w-]+(\.[\w-]+)+", RegexOptions.Compiled),                // e-mail addresses (data)
         new(@"https?://\S+", RegexOptions.Compiled),                                // URLs
-        new(@"DR\.Template(\.\w+)*", RegexOptions.Compiled),                       // the product name
         new(@"ASP\.NET Core|\.NET|PostgreSQL|Docker Compose|Entity Framework( Core)?", RegexOptions.Compiled | RegexOptions.IgnoreCase),
     };
 

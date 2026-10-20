@@ -34,18 +34,18 @@
             <circle class="ill-solid-2" cx="34" cy="34" r="3" />
             break;
         default:
-            <path class="ill-shape" d="M80 34 116 52v32l-36 18-36-18V52z" />
-            <path class="ill-stroke" d="M44 52l36 18 36-18M80 70v32" />
-            <path class="ill-shape-2" d="M80 34 62 26l-18 8 18 8zM80 34l18-8 18 8-18 8z" />
-            <path class="ill-stroke-2" d="M130 18v10M125 23h10" />
-            <circle class="ill-solid-2" cx="30" cy="38" r="3" />
-            <circle class="ill-solid" cx="138" cy="72" r="2.5" />
+            <path class="ill-shape" d="M40 26h58a8 8 0 0 1 8 8v28a8 8 0 0 1-8 8H66l-14 12V70h-12a8 8 0 0 1-8-8V34a8 8 0 0 1 8-8z" />
+            <path class="ill-shape-2" d="M72 52h50a8 8 0 0 1 8 8v22a8 8 0 0 1-8 8h-8v12l-14-12H72a8 8 0 0 1-8-8V60a8 8 0 0 1 8-8z" />
+            <path class="ill-stroke" d="M48 40h40M48 54h24" />
+            <path class="ill-stroke-2" d="M78 66h36M78 78h22" />
+            <circle class="ill-solid-2" cx="30" cy="22" r="3" />
+            <circle class="ill-solid" cx="140" cy="40" r="2.5" />
             break;
     }
 </svg>
 
 @code {
-    /// <summary>"box" (default), "search", "lost", "locked", "invalid" or "error".</summary>
+    /// <summary>"chat" (default), "search", "lost", "locked", "invalid" or "error".</summary>
     [Parameter]
-    public string Kind { get; set; } = "box";
+    public string Kind { get; set; } = "chat";
 }

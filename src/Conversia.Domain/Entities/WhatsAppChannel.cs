@@ -69,7 +69,7 @@ public class WhatsAppChannel : BaseEntity
         var secret = GenerateToken();
         var channel = new WhatsAppChannel
         {
-            TenantId = TextRules.RequiredId(tenantId, "El identificador del espacio de trabajo es obligatorio."),
+            TenantId = TextRules.RequiredId(tenantId, "El identificador de la empresa es obligatorio."),
             BranchId = TextRules.RequiredId(branchId, "La sucursal es obligatoria."),
             DisplayPhoneNumber = displayPhoneNumber.Trim(),
             ProviderPhoneNumberId = string.IsNullOrWhiteSpace(providerPhoneNumberId) ? null : providerPhoneNumberId.Trim(),

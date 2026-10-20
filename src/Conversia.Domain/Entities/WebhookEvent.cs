@@ -66,7 +66,7 @@ public class WebhookEvent : BaseEntity
         var received = UtcTime.Normalize(receivedAt);
         return new WebhookEvent
         {
-            TenantId = TextRules.RequiredId(tenantId, "El identificador del espacio de trabajo es obligatorio."),
+            TenantId = TextRules.RequiredId(tenantId, "El identificador de la empresa es obligatorio."),
             ChannelId = TextRules.RequiredId(channelId, "El canal es obligatorio."),
             BodyHash = bodyHash,
             RawPayload = rawPayload,

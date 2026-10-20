@@ -38,7 +38,7 @@ public class Contact : BaseEntity
         var seen = UtcTime.Normalize(firstSeenAt);
         return new Contact
         {
-            TenantId = TextRules.RequiredId(tenantId, "El identificador del espacio de trabajo es obligatorio."),
+            TenantId = TextRules.RequiredId(tenantId, "El identificador de la empresa es obligatorio."),
             WaId = NormalizeWaId(waId) ?? throw new DomainException(WaIdRuleMessage),
             DisplayName = name,
             DisplayNameAt = name is null ? null : seen,

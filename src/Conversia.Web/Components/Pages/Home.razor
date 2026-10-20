@@ -6,7 +6,7 @@
 
 <PageTitle>Inicio - Conversia</PageTitle>
 <HeadContent>
-    <meta name="description" content="Conversia es una plantilla multiespacio para .NET 10: gestiona tu espacio de trabajo, sus usuarios y sus permisos con una API protegida y una interfaz Blazor." />
+    <meta name="description" content="Conversia lee las conversaciones de ventas de WhatsApp de tu empresa y muestra en un panel por qué los clientes no compran: conversión, tiempos de respuesta y motivos de no cierre. Versión de prueba." />
 </HeadContent>
 
 @if (!_signedIn)
@@ -14,32 +14,87 @@
     <div class="page" data-page="home">
         <section class="hero">
             <div class="hero__copy">
-                <span class="chip chip--brand"><Icon Name="sparkles" />Plantilla multiespacio para .NET 10</span>
-                <h1 class="hero__title">Tu espacio de trabajo, <span class="gradient-text">listo para crecer</span></h1>
-                <p class="hero__lead">Gestiona tu espacio de trabajo, sus usuarios y sus permisos. Una base sólida con API protegida e interfaz moderna.</p>
+                <span class="chip chip--brand" data-testid="test-version"><Icon Name="info" />Versión de prueba</span>
+                <h1 class="hero__title">Descubre por qué tus clientes <span class="gradient-text">no compran</span></h1>
+                <p class="hero__lead">Conversia lee en segundo plano las conversaciones de ventas de WhatsApp de tu equipo y las convierte en un panel claro. Tus asesores siguen respondiendo como siempre.</p>
                 <div class="cluster-md">
-                    <a class="btn btn--primary" href="/register">Crear espacio de trabajo<Icon Name="arrow-right" /></a>
+                    <a class="btn btn--primary" href="/register">Crear cuenta<Icon Name="arrow-right" /></a>
                     <a class="btn btn--secondary" href="/login">Iniciar sesión</a>
                 </div>
             </div>
             <div class="hero__art" aria-hidden="true">
-                <div class="hero-card hero-card--a"><span class="tile-icon"><Icon Name="building" /></span><span class="skeleton skeleton--w60"></span><span class="skeleton skeleton--w40"></span></div>
-                <div class="hero-card hero-card--b"><span class="tile-icon tile-icon--accent"><Icon Name="shield-check" /></span><span class="skeleton skeleton--w70"></span><span class="skeleton skeleton--w50"></span></div>
-                <div class="hero-card hero-card--c"><span class="tile-icon"><Icon Name="box" /></span><span class="skeleton skeleton--w50"></span><span class="skeleton skeleton--w30"></span></div>
+                <div class="hero-card hero-card--a"><span class="tile-icon"><Icon Name="message" /></span><span class="skeleton skeleton--w60"></span><span class="skeleton skeleton--w40"></span></div>
+                <div class="hero-card hero-card--b"><span class="tile-icon tile-icon--accent"><Icon Name="trending-up" /></span><span class="skeleton skeleton--w70"></span><span class="skeleton skeleton--w50"></span></div>
+                <div class="hero-card hero-card--c"><span class="tile-icon"><Icon Name="clock" /></span><span class="skeleton skeleton--w50"></span><span class="skeleton skeleton--w30"></span></div>
             </div>
         </section>
 
-        <section class="stack" aria-labelledby="home-features">
-            <h2 id="home-features">Todo lo necesario para empezar</h2>
+        <section class="stack" aria-labelledby="home-problem">
+            <h2 id="home-problem">El problema</h2>
             <div class="grid-cards">
-                @foreach (var feature in Features)
+                @foreach (var item in Problems)
                 {
                     <article class="card feature">
-                        <span class="tile-icon @feature.Tone"><Icon Name="@feature.Icon" /></span>
-                        <h3>@feature.Title</h3>
-                        <p class="muted">@feature.Text</p>
+                        <span class="tile-icon @item.Tone"><Icon Name="@item.Icon" /></span>
+                        <h3>@item.Title</h3>
+                        <p class="muted">@item.Text</p>
                     </article>
                 }
+            </div>
+        </section>
+
+        <section class="stack" aria-labelledby="home-steps">
+            <h2 id="home-steps">Cómo funciona</h2>
+            <div class="grid-cards">
+                @foreach (var item in Steps)
+                {
+                    <article class="card feature">
+                        <span class="tile-icon @item.Tone"><Icon Name="@item.Icon" /></span>
+                        <h3>@item.Title</h3>
+                        <p class="muted">@item.Text</p>
+                    </article>
+                }
+            </div>
+            <p class="muted">La clasificación es automática y se basa en reglas sobre el texto de los mensajes. No usamos un chatbot: Conversia no responde a tus clientes.</p>
+        </section>
+
+        <section class="stack" aria-labelledby="home-panel">
+            <h2 id="home-panel">Lo que verás en el panel</h2>
+            <div class="grid-cards">
+                @foreach (var item in PanelIndicators)
+                {
+                    <article class="card feature">
+                        <span class="tile-icon @item.Tone"><Icon Name="@item.Icon" /></span>
+                        <h3>@item.Title</h3>
+                        <p class="muted">@item.Text</p>
+                    </article>
+                }
+            </div>
+            <p class="muted">Además: desglose por sucursal, asesor y origen, volumen de conversaciones por día y hora, y alertas cuando algo requiere atención.</p>
+        </section>
+
+        <section class="stack" aria-labelledby="home-data">
+            <h2 id="home-data">Tus datos</h2>
+            <div class="grid-cards">
+                @foreach (var item in DataPoints)
+                {
+                    <article class="card feature">
+                        <span class="tile-icon @item.Tone"><Icon Name="@item.Icon" /></span>
+                        <h3>@item.Title</h3>
+                        <p class="muted">@item.Text</p>
+                    </article>
+                }
+            </div>
+        </section>
+
+        <section class="cta-band" aria-labelledby="home-cta">
+            <div class="stack-sm">
+                <h2 id="home-cta">Empieza con tu equipo</h2>
+                <p>Conversia está en versión de prueba: el piloto se sigue construyendo y puede cambiar.</p>
+            </div>
+            <div class="cluster-md">
+                <a class="btn btn--primary" href="/register">Crear cuenta<Icon Name="arrow-right" /></a>
+                <a class="btn btn--secondary" href="/login">Iniciar sesión</a>
             </div>
         </section>
     </div>
@@ -48,7 +103,7 @@ else
 {
     <div class="page" data-page="home">
         <PageHeader Eyebrow="Tu perfil" EyebrowIcon="user" Title="Te damos la bienvenida"
-                    Description="Este es el resumen de tu cuenta y de tu espacio de trabajo." />
+                    Description="Este es el resumen de tu cuenta y de tu empresa." />
 
         @if (_failure is not null)
         {
@@ -69,12 +124,12 @@ else
                             <Chip IconName="user">Miembro</Chip>
                         }
                     </div>
-                    <p class="stat__note">@(_profile.IsOwner ? "Tienes todos los permisos en tu espacio." : "Tus permisos los concede la persona propietaria.")</p>
+                    <p class="stat__note">@(_profile.IsOwner ? "Tienes todos los permisos en tu empresa." : "Tus permisos los concede la persona propietaria.")</p>
                 </Card>
                 <Card Class="stat">
-                    <p class="stat__label">Espacio de trabajo</p>
+                    <p class="stat__label">Empresa</p>
                     <p class="stat__value stat__value--mono" data-testid="profile-tenant-id">@_profile.TenantId</p>
-                    <p class="stat__note">Identificador de tu espacio.</p>
+                    <p class="stat__note">Identificador de tu empresa.</p>
                 </Card>
                 <Card Class="stat">
                     <p class="stat__label">Permisos</p>
@@ -103,22 +158,25 @@ else
             <section class="stack" aria-labelledby="home-actions">
                 <h2 id="home-actions">Por dónde seguir</h2>
                 <div class="grid-cards">
-                    @if (_profile.Can(Permission.UsersView))
+                    @foreach (var link in Links)
                     {
-                        <a class="card card--link" href="/users">
-                            <span class="tile-icon tile-icon--accent"><Icon Name="users" /></span>
-                            <span class="card-link__title">Usuarios</span>
-                            <span class="card-link__text">Mira quién forma parte del equipo y qué puede hacer cada quien.</span>
-                            <span class="card-link__go">Abrir usuarios<Icon Name="arrow-right" Class="icon--sm" /></span>
-                        </a>
-                    }
-                    else
-                    {
-                        <div class="card card--locked">
-                            <span class="tile-icon tile-icon--muted"><Icon Name="lock" /></span>
-                            <span class="card-link__title">Usuarios</span>
-                            <span class="card-link__text">Necesitas el permiso «@PermissionLabels.For(Permission.UsersView)». Pídeselo a la persona propietaria.</span>
-                        </div>
+                        @if (_profile.Can(link.Permission))
+                        {
+                            <a class="card card--link" href="@link.Href">
+                                <span class="tile-icon tile-icon--accent"><Icon Name="@link.Icon" /></span>
+                                <span class="card-link__title">@link.Title</span>
+                                <span class="card-link__text">@link.Text</span>
+                                <span class="card-link__go">Abrir @link.Title.ToLowerInvariant()<Icon Name="arrow-right" Class="icon--sm" /></span>
+                            </a>
+                        }
+                        else
+                        {
+                            <div class="card card--locked">
+                                <span class="tile-icon tile-icon--muted"><Icon Name="lock" /></span>
+                                <span class="card-link__title">@link.Title</span>
+                                <span class="card-link__text">Necesitas el permiso «@PermissionLabels.For(link.Permission)». Pídeselo a la persona propietaria.</span>
+                            </div>
+                        }
                     }
                 </div>
             </section>
@@ -127,13 +185,48 @@ else
 }
 
 @code {
+    private sealed record Shortcut(string Href, string Icon, string Title, string Text, Permission Permission);
+
+    private static readonly Shortcut[] Links =
+    [
+        new("/panel", "bar-chart", "Panel", "Mira cómo van las ventas por WhatsApp y qué requiere atención.", Permission.MetricsView),
+        new("/conversaciones", "message", "Conversaciones", "Revisa los chats de ventas, su etapa y su resultado.", Permission.ConversationsView),
+        new("/organizacion", "building", "Organización", "Administra sucursales, asesores y números de WhatsApp.", Permission.OrganizationView),
+        new("/users", "users", "Usuarios", "Mira quién forma parte del equipo y qué puede hacer cada quien.", Permission.UsersView)
+    ];
+
     private sealed record Feature(string Icon, string Tone, string Title, string Text);
 
-    private static readonly Feature[] Features =
+    private static readonly Feature[] Problems =
     [
-        new("building", string.Empty, "Espacios aislados", "Cada equipo trabaja en su propio espacio: sus usuarios y sus datos nunca se mezclan con los de otro."),
-        new("shield-check", "tile-icon--accent", "Permisos precisos", "Los propietarios lo tienen todo; el resto de personas solo hace lo que se les concede, comprobado en cada solicitud."),
-        new("zap", string.Empty, "Listo para ampliar", "Una base de arquitectura limpia con API protegida e interfaz Blazor, lista para añadir nuevas funcionalidades.")
+        new("trending-down", "tile-icon--danger", "Ventas que no cierran", "Inviertes en redes sociales y los clientes escriben, pero pocos compran. Sin datos, no sabes en qué punto se pierden."),
+        new("search", string.Empty, "Decisiones sin datos", "Cuando no hay evidencia, se culpa a los asesores o se adivina. Las conversaciones ya tienen la respuesta."),
+        new("users", "tile-icon--accent", "Rotación del equipo", "Cuando un asesor se va, se va lo que aprendió. Las conversaciones guardadas conservan ese conocimiento.")
+    ];
+
+    private static readonly Feature[] Steps =
+    [
+        new("phone", string.Empty, "1. Conecta tu número", "Conectas el número de WhatsApp Business de cada sucursal con el proveedor 360dialog."),
+        new("message", "tile-icon--accent", "2. Leemos las conversaciones", "Los mensajes de clientes y asesores se guardan en segundo plano. Nadie tiene que registrar nada a mano."),
+        new("tag", string.Empty, "3. Clasificamos cada una", "Identificamos el interés, el servicio consultado, las objeciones y el resultado: cerró, no cerró o sigue en seguimiento."),
+        new("bar-chart", "tile-icon--accent", "4. Ves qué corregir", "El panel muestra dónde se pierden las ventas para que actúes a tiempo.")
+    ];
+
+    private static readonly Feature[] PanelIndicators =
+    [
+        new("message", string.Empty, "Conversaciones", "Cuántos clientes escriben en el periodo."),
+        new("trending-up", "tile-icon--accent", "Tasa de conversión", "Qué parte de las conversaciones termina en venta."),
+        new("clock", string.Empty, "Primera respuesta", "Cuánto tarda tu equipo en contestar por primera vez."),
+        new("alert-circle", "tile-icon--accent", "Sin responder", "Conversaciones abiertas que siguen esperando respuesta."),
+        new("tag", string.Empty, "Motivo principal de no cierre", "La razón más frecuente por la que una venta no se cierra."),
+        new("activity", "tile-icon--accent", "Variación frente al periodo anterior", "Si los resultados mejoran o empeoran.")
+    ];
+
+    private static readonly Feature[] DataPoints =
+    [
+        new("building", string.Empty, "Separados por empresa", "Los datos de cada empresa viven aparte: nunca se mezclan con los de otra."),
+        new("shield-check", "tile-icon--accent", "Permisos por rol", "Cada persona ve y hace solo lo que se le concede. El propietario decide quién accede a qué."),
+        new("lock", string.Empty, "Pensado para la Ley 1581", "Se construye teniendo en cuenta la ley colombiana de protección de datos personales. Aún no cuenta con una certificación.")
     ];
 
     private bool _signedIn;

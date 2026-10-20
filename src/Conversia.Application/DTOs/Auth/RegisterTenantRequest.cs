@@ -5,7 +5,7 @@ namespace Conversia.Application.DTOs.Auth;
 
 public class RegisterTenantRequest
 {
-    [Display(Name = "Nombre del espacio de trabajo")]
+    [Display(Name = "Nombre de la empresa")]
     [Required(ErrorMessage = ValidationMessages.Required)]
     [MaxLength(200, ErrorMessage = ValidationMessages.MaxLength)]
     [NoNullCharacters]

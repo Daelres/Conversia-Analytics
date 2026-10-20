@@ -14,7 +14,7 @@
 @if (Denied)
 {
     <StatusView DataPage="forbidden" Code="403" Title="Sin acceso a la organización" Art="locked"
-                Hint="Pide acceso a la persona propietaria de tu espacio de trabajo.">
+                Hint="Pide acceso a la persona propietaria de tu empresa.">
         <ChildContent>Tu cuenta no tiene el permiso «@PermissionLabels.For(Permission.OrganizationView)». Con él verás las sucursales, los asesores y los números de WhatsApp de tu negocio.</ChildContent>
         <Actions>
             <a class="btn btn--primary" href="/"><Icon Name="home" />Ir al inicio</a>
@@ -46,7 +46,7 @@ else if (!Redirected)
                     }
                     else if (_branches.Count == 0)
                     {
-                        <EmptyState Title="Aún no hay sucursales" Art="box"
+                        <EmptyState Title="Aún no hay sucursales" Art="chat"
                                     Text="@(_canManage ? "Crea la primera: los asesores y los números de WhatsApp se asignan a una sucursal." : "Cuando alguien cree las sucursales, las verás aquí.")" />
                     }
                     else
@@ -102,7 +102,7 @@ else if (!Redirected)
                     }
                     else if (_advisors.Count == 0)
                     {
-                        <EmptyState Title="Aún no hay asesores" Art="box"
+                        <EmptyState Title="Aún no hay asesores" Art="chat"
                                     Text="@(_canManage ? "Crea un asesor para poder repartir las conversaciones y medir a cada persona." : "Cuando alguien cree los asesores, los verás aquí.")" />
                     }
                     else
@@ -167,7 +167,7 @@ else if (!Redirected)
                     }
                     else if (_channels.Count == 0)
                     {
-                        <EmptyState Title="Aún no hay números conectados" Art="box"
+                        <EmptyState Title="Aún no hay números conectados" Art="chat"
                                     Text="@(_canManage ? "Crea un número para obtener la dirección y el secreto que debes configurar en 360dialog." : "Cuando alguien conecte un número de WhatsApp, lo verás aquí.")" />
                     }
                     else

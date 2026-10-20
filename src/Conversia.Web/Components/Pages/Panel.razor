@@ -16,7 +16,7 @@
 @if (Denied)
 {
     <StatusView DataPage="forbidden" Code="403" Title="Sin acceso al panel" Art="locked"
-                Hint="Pide acceso a la persona propietaria de tu espacio de trabajo.">
+                Hint="Pide acceso a la persona propietaria de tu empresa.">
         <ChildContent>Tu cuenta no tiene el permiso «@PermissionLabels.For(Permission.MetricsView)». Con él verás aquí cómo van las ventas por WhatsApp.</ChildContent>
         <Actions>
             <a class="btn btn--primary" href="/"><Icon Name="home" />Ir al inicio</a>
