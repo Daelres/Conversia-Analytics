@@ -129,7 +129,7 @@ public class PopulationTests
 
         double MedianReply(string advisor)
         {
-            var waits = plan.Where(c => c.AdvisorName == advisor && c.Chat.HasBusinessReply)
+            var waits = plan.Where(c => c.AdvisorName == advisor && c.Messages.Any(m => m.Speaker == Speaker.Business))
                 .Select(c => (c.Messages.First(m => m.Speaker == Speaker.Business).SentAtUtc - c.Messages[0].SentAtUtc).TotalMinutes)
                 .Order().ToList();
             return waits[waits.Count / 2];
