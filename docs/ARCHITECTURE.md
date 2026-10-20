@@ -1,10 +1,8 @@
 # Architecture
 
-Conversia is a Clean Architecture solution template for building
-custom line-of-business systems on .NET. It ships with a working
-Users / Tenants / Permissions foundation so new client projects start
-from a solid, already-tested base instead of re-implementing auth from
-scratch.
+Conversia is a Clean Architecture solution on .NET: a multi-tenant API that ingests
+WhatsApp conversations, classifies them and computes sales metrics, plus a Blazor front
+end for the dashboard. It rests on a tested Users / Tenants / Permissions foundation.
 
 ## Layers and dependency direction
 
@@ -72,7 +70,7 @@ ASP.NET Core.
   `Services/WebhookIngestionService` is the request side: authenticate by
   channel secret, validate, store.
 
-No CQRS/MediatR pipeline is imposed by this template. Keep it simple:
+No CQRS/MediatR pipeline is imposed by this project. Keep it simple:
 one interface + one implementation class per use case. Do not
 introduce a mediator/pipeline layer speculatively — only adopt one if
 a client project's complexity genuinely calls for it, and document the
@@ -211,7 +209,7 @@ reaches it transitively through the Application DTOs.)
   element becomes a top bar whose menu opens with a checkbox + label (no
   JavaScript). `ShellState` is a per-request bridge: a page that already loaded
   `/api/users/me` hands the profile over so the account card can show role and
-  workspace without another API call.
+  company without another API call.
 - `Components/Shared/` — the component library of the design system:
   `Icon` (+ `IconSet`, hand-drawn 24 px / 1.75 stroke icons), `BrandMark`,
   `Avatar`, `PageHeader`, `Card`, `Alert` (`role="alert"` for problems,
@@ -283,7 +281,7 @@ build in Release, then each project in turn, on every push/PR to `main`).
   real API booted in-process (`WebApplicationFactory`) on a real
   PostgreSQL via **Testcontainers** (`Testcontainers.PostgreSql`), spun up once
   per test run and torn down automatically when the run ends.
-  **EF Core InMemory is banned in this template** — it does not
+  **EF Core InMemory is banned in this project** — it does not
   validate real PostgreSQL behavior (constraints, cascade rules,
   concurrency, case-insensitive columns), which is exactly what these tests exist to catch. Do
   not add it back.

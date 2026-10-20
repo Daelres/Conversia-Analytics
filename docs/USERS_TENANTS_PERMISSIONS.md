@@ -1,7 +1,7 @@
 # Users, Tenants & Permissions — foundational data model
 
 This is the concrete spec for the system every project derived from
-this template starts with. It is intentionally minimal: **three
+Conversia starts with. It is intentionally minimal: **three
 tables**, enough to register a tenant, log a user in, and gate an
 endpoint behind a permission. Everything client-specific gets built on
 top of this, not instead of it.
@@ -24,7 +24,7 @@ All three inherit `BaseEntity` (`Id: Guid`, `CreatedAt`, `CreatedBy`,
 | Column | Type | Notes |
 |---|---|---|
 | Id | Guid | PK (from `BaseEntity`) |
-| Name | string, required, max 200 | Display name of the tenant/workspace |
+| Name | string, required, max 200 | Display name of the tenant (the company) |
 
 ### `Users`
 
@@ -80,7 +80,7 @@ Client projects add their own values as they add features: the next free number,
 
 **Retired numbers.** `UserPermissions.Permission` stores the number, so a number that
 was granted once can exist in a database forever. `3` (`ProductsView`) and `4`
-(`ProductsManage`) belonged to the template's Products reference feature, removed on
+(`ProductsManage`) belonged to the retired Products reference feature, removed on
 2026-10-19; the `RemoveProducts` migration deletes the grants that carried them. Do not
 reuse `3` or `4` for a new permission, and never renumber the others
 (`PermissionCatalogTests` pins every value).
@@ -88,15 +88,15 @@ reuse `3` or `4` for a new permission, and never renumber the others
 ## Login and tenant resolution
 
 `Email` is unique **globally**, not per-tenant. This is a deliberate
-simplification for the template: a login only needs `email +
-password`, no separate "which workspace" step. `TenantId` is resolved
+simplification: a login only needs `email +
+password`, no separate "which company" step. `TenantId` is resolved
 from the authenticated user's own record, not supplied by the client.
 
 If a client project needs the same email to exist in more than one
-tenant (a consultant working across workspaces, for example), that is
+tenant (a consultant working across companies, for example), that is
 a breaking change to this table's unique index and to the login flow,
 and must be an explicit, documented decision — not an assumption made
-silently while extending the template.
+silently while extending the project.
 
 ## Auth flow
 
@@ -167,7 +167,7 @@ configured, which would put every client in one shared budget. Configure
 the ASP.NET Core Forwarded Headers middleware (`UseForwardedHeaders`
 with `ForwardedHeaders.XForwardedFor` and `KnownProxies`/`KnownNetworks`
 limited to your proxies) so the real client IP is resolved before the
-rate limiter runs. The template does not add it.
+rate limiter runs. The project does not add it.
 
 ## User endpoints
 

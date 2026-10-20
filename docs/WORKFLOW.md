@@ -1,7 +1,7 @@
 # Development workflow: TDD + isolated three-agent review
 
 This is the mandatory process for **every** feature built in a project
-derived from this template, human or AI-assisted. It exists to prevent
+of this project, human or AI-assisted. It exists to prevent
 a single author (human or AI) from writing the requirement, the test,
 the implementation, and the approval, all with the same blind spots.
 Splitting the work across isolated roles is what makes the review
@@ -124,6 +124,6 @@ and when.
 
 A requirement is never interpreted, tested, implemented, and approved
 by the same blind spot. If you are an AI agent reading this file to
-continue development on a project derived from this template: follow
+continue development on a project of this project: follow
 this process for any new feature, and do not skip a role or merge two
 roles into one invocation, even when it feels faster.

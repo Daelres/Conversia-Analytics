@@ -344,7 +344,7 @@ mentions it.
 ### What is sent
 
 `POST {Api:BaseUrl}api/diagnostics/errors` with the header `X-Error-Report-Key` and the [report body](#the-report-endpoint):
-the failed request's method, path, query, endpoint and route values, the signed-in user and workspace (claims of the auth
+the failed request's method, path, query, endpoint and route values, the signed-in user and company (claims of the auth
 cookie), trace id, request id, user agent, the exception type, message and `ToString()`, the environment, version and machine name,
 and for a failed API call its method and path (without query) in `context`. Everything is sanitized with the Application's
 `ErrorReportSanitizer` before it leaves the Web. **Never sent:** cookies, the `Authorization` header or any token, request bodies

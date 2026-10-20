@@ -21,12 +21,12 @@ pilot's. It does **not** prove what the real provider sends. The message the bus
 You need Docker and the .NET 10 SDK.
 
 ```bash
-# 1. The stack, with the two background workers made quicker for demos (docker-compose.simulator.yml).
+# 1. The stack, with the two background workers made quicker for quick local runs (docker-compose.simulator.yml).
 #    Use your own .env (cp .env.example .env, then set POSTGRES_PASSWORD and JWT_SIGNING_KEY).
 docker compose -f docker-compose.yml -f docker-compose.simulator.yml up -d --build
 #    API on http://localhost:5030, Web on http://localhost:5112 (API_PORT / WEB_PORT in .env change them).
 
-# 2. A workspace and its owner: open http://localhost:5112/register and create one (or POST /api/auth/register-tenant).
+# 2. A company (tenant) and its owner: open http://localhost:5112/register and create one (or POST /api/auth/register-tenant).
 
 # 3. Tell the simulator who you are. Credentials come from the environment only; there is no --password option.
 export SIM_EMAIL='you@example.test'
@@ -124,7 +124,7 @@ on purpose.
 
 | Variable | Meaning |
 |---|---|
-| `SIM_EMAIL`, `SIM_PASSWORD` | The user to log in as: the owner of the workspace (the simulator needs to read the webhook paths and to create things, so it needs Organization management and Conversations access). |
+| `SIM_EMAIL`, `SIM_PASSWORD` | The user to log in as: the owner of the company (the simulator needs to read the webhook paths and to create things, so it needs Organization management and Conversations access). |
 | `SIM_WEBHOOK_SECRETS` | One secret per number: `Centro=<secret>;Norte=<secret>;Sur=<secret>;Poblado=<secret>`. `setup --print-secret` prints the line. |
 | `SIM_WEBHOOK_SECRET` | One secret to try for a branch that `SIM_WEBHOOK_SECRETS` does not list. |
 | `SIM_API_URL` | The API address when `--api-url` is not given. |

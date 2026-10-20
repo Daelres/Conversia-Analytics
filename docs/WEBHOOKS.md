@@ -55,7 +55,7 @@ Behind a reverse proxy or tunnel every request arrives from the proxy's address,
 budget. `X-Forwarded-For` is therefore supported but **off by default and never trusted blindly**: name the proxies explicitly with
 `ForwardedHeaders:KnownProxies:0=10.0.0.5` (addresses) and/or `ForwardedHeaders:KnownNetworks:0=10.0.0.0/8` (CIDR). The header is
 honored only when the immediate sender is one of them, one hop (`ForwardLimit = 1`); otherwise it is ignored. Invalid entries stop
-the API at startup. It applies to the whole API (the login limiter too), as the template documents.
+the API at startup. It applies to the whole API (the login limiter too), as the rest of the API does.
 
 ### Managing a channel
 

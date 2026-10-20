@@ -1,76 +1,41 @@
 # Conversia
 
-Clean Architecture template for custom .NET systems. Ships with a
-working Users / Tenants / Permissions foundation so a new client project
-starts from a tested base instead of rebuilding auth from scratch.
+Conversia reads the WhatsApp sales conversations between advisors and customers in the
+background and turns them into metrics and an executive dashboard, so the managers of a
+small or medium company can see why customers do not buy. Advisors keep answering
+manually; Conversia only reads, classifies, stores and analyzes. It does not reply to
+anyone.
 
-## Sample data
+> **Test version.** This is the pilot under construction (first customer: a laser
+> hair-removal company with four branches). Behavior, screens and data may change, and
+> it is not a certified product. Open questions and scope live in [`CLAUDE.md`](CLAUDE.md).
 
-To fill a local stack with believable WhatsApp conversations (branches, advisors,
-numbers and chats the classifier and the dashboard can show), use the webhook
-simulator: [`docs/SIMULATOR.md`](docs/SIMULATOR.md). How to build your own feature
-the same way as the existing ones: [`docs/EXTENDING.md`](docs/EXTENDING.md).
-Port already in use, `password authentication failed` or forms failing after a
-restart: see [Docker troubleshooting](docs/DOCKER.md#troubleshooting).
+Provenance: the codebase started from an internal .NET template and has since been
+adapted to PostgreSQL and rewritten around this product.
 
-## Features
+## What it does
 
-- **A modern, accessible UI** — the Blazor Web has its own design system
-  (indigo-to-violet palette, light and dark themes, app shell with sidebar,
-  responsive down to 360 px, no Bootstrap, no web fonts, no external requests;
-  current Chrome/Edge 86+, Firefox 85+ and Safari 15.4+, with plain fallbacks for
-  `color-mix()`, `oklch()` and `dvh`, see
-  [Supported browsers](docs/EXTENDING.md#supported-browsers)).
-  See [Using the design system](docs/EXTENDING.md#using-the-design-system).
-- **Spanish UI and messages** — the user interface and every message the
-  API returns to users or clients (problem details, validation messages) are in
-  Spanish; code, logs, configuration keys, routes and JSON property names stay
-  in English. The culture is fixed to `es` (see
-  [Translating / changing the UI language](docs/EXTENDING.md#translating--changing-the-ui-language)).
-- **Tenant registration and login** — `register-tenant` creates a tenant
-  and its owner in one transaction and signs the owner in; `login` is
-  email + password (email is globally unique).
-- **JWT bearer authentication** — HS256 token valid for 8 hours with
-  `sub`, `tenant_id` and `is_owner` claims. The API refuses to start
-  with a missing, short (< 32 bytes) or placeholder signing key.
-- **Permission-based authorization** — one policy per `Permission` enum
-  value (`UsersView`, `UsersManage`,
-  `OrganizationView`, `OrganizationManage`, `ConversationsView`, `ConversationsManage`, `MetricsView`);
-  owners bypass checks inside their own tenant. Permissions are read from the database on every request,
-  so a revoke applies immediately.
-- **User creation and permission grant/revoke** — owners and
-  `UsersManage` holders create users in their own tenant and grant or
-  revoke permissions.
-- **Multi-tenancy** — EF Core global query filters on every
-  tenant-scoped table.
-- **Error registry** — every unexpected API error gets a unique code
-  (`ERR-20261018-7K3M9Q`) that is stored with its context in `ErrorLogs`,
-  logged, and returned to the client (`errorId` + `X-Error-Id`) so a user can
-  quote it; secrets are redacted, repeats are throttled, old rows are purged
-  (`docs/ERRORS.md`).
-- **Password policy** — 12-128 characters with an uppercase letter, a
-  lowercase letter and a digit (registration and user creation).
-- **Login rate limiting** — fixed window per client IP on
-  `POST /api/auth/login`, `429` + `Retry-After` when exceeded.
-- **Blazor UI** (`Conversia.Web`) — static server-side rendering with
-  cookie authentication: landing page, `/login`, `/register`,
-  `/panel` (the executive dashboard, where people land after signing in: six headline
-  numbers, alerts, breakdowns by branch, advisor and source, loss reasons, volume by day
-  and a day-by-hour heat map, all drawn with inline SVG/CSS and driven by the query string,
-  `docs/METRICS.md`),
-  `/conversaciones` (the chats: filterable list with masked numbers, and a detail with the
-  chat thread, the classifier's reading and, for `ConversationsManage`, advisor assignment and
-  a manual outcome),
-  `/organizacion` (branches, advisors and WhatsApp numbers; creating a number shows its
-  webhook path and secret once, and numbers can be deactivated, activated or have the secret
-  rotated after a confirmation),
-  and `/users` (user list, create user, grant/revoke permissions). The API's JWT lives only
-  inside the encrypted HttpOnly auth cookie.
-- **Consistent errors** — every error is `application/problem+json`; an
-  unhandled exception is a `500` with no stack trace or message.
-- **Docker** — Dockerfiles for API and Web, a `docker-compose.yml` with
-  PostgreSQL and a one-shot migrations job, and a rename script for starting a
-  client project.
+- **Ingestion** — receives the incoming and outgoing messages of a WhatsApp Business number
+  through the webhook of the provider (360dialog), stores them idempotently and processes
+  them in a background worker ([`docs/WEBHOOKS.md`](docs/WEBHOOKS.md)).
+- **Classification** — a rule-based classifier (Spanish rules, no AI model) reads each
+  conversation and extracts the service asked about, the reason for interest, the
+  objection and the outcome: won, lost or in follow-up
+  ([`docs/CLASSIFICATION.md`](docs/CLASSIFICATION.md)).
+- **Metrics** — conversion by branch, advisor and source; first-response time;
+  unanswered conversations; top reasons for not closing; volume by day and hour; and
+  alerts ([`docs/METRICS.md`](docs/METRICS.md)).
+- **Executive dashboard** — `/panel` shows six headline numbers, alerts and the breakdowns.
+  `/conversaciones` lists the chats and shows each thread with its classification;
+  `/organizacion` manages branches, advisors and WhatsApp numbers; `/users` manages users
+  and their permissions.
+- **Data separation** — every record belongs to a company (tenant); access is controlled
+  per company and per permission. The design takes the Colombian data-protection law
+  (Ley 1581 de 2012) into account; the project makes no certification claim.
+- **Spanish UI** — the interface and the messages the API returns to users are in Spanish;
+  code, logs, configuration keys, routes and JSON property names are in English.
+- **Not included** — automatic replies or a chatbot, integrations with external CRM/ERP
+  systems, and a mobile app.
 
 ## Stack
 
@@ -84,6 +49,16 @@ restart: see [Docker troubleshooting](docs/DOCKER.md#troubleshooting).
   runs all five test projects on every push/PR to `main`
 
 ## Solution layout
+
+Four layers plus the web front end, a background worker inside the API, and a
+development-only simulator:
+
+```
+WhatsApp -> 360dialog -> webhook (API) -> stored events -> background worker
+                                  |                              |
+                                  v                              v
+                             PostgreSQL <---- classification (rules) ----> metrics API -> Web dashboard
+```
 
 ```
 src/
@@ -101,8 +76,7 @@ tests/
   Conversia.WebhookSimulator.UnitTests the simulator's chats, plan, payloads and commands (no network)
 tools/
   Conversia.WebhookSimulator           dev-only: fills a local API with believable WhatsApp conversations (docs/SIMULATOR.md)
-docs/                                    ARCHITECTURE, WORKFLOW, USERS_TENANTS_PERMISSIONS, EXTENDING, ERRORS, SIMULATOR, DOCKER
-scripts/rename.sh                        rename the template for a new project
+docs/                                    ARCHITECTURE, WEBHOOKS, METRICS, CLASSIFICATION, SIMULATOR, DOCKER, ...
 docker-compose.yml, .env.example         full local stack
 docker/healthcheck.sh                    container health probe (bash /dev/tcp, no curl in the image)
 scripts/docker-build.sh                  builds the conversia-api, -migrator and -web images
@@ -110,7 +84,9 @@ scripts/docker-smoke-test.sh             image acceptance test: builds and exerc
 ```
 
 Read `docs/ARCHITECTURE.md` before adding anything — it defines the
-dependency direction and per-layer conventions this template enforces.
+dependency direction and per-layer conventions of the project. Background work (webhook
+event processing, classification, closing idle conversations, retention) runs in hosted
+services inside the API process.
 
 ## Quick start with Docker Compose
 
@@ -141,8 +117,14 @@ start only after the migrator completed successfully.
 | PostgreSQL | `127.0.0.1:5432` (`POSTGRES_USER` / `POSTGRES_PASSWORD`) |
 
 Host ports can be changed with `WEB_PORT`, `API_PORT` and `POSTGRES_PORT` in
-`.env`. Open the Web, register a workspace and sign in. Stop with
+`.env`. Open the Web, register a company and sign in. Stop with
 `docker compose down`; add `-v` to also delete the database volume.
+
+To fill the stack with believable WhatsApp conversations (branches, advisors, numbers
+and chats the classifier and the dashboard can show), use the webhook simulator:
+[`docs/SIMULATOR.md`](docs/SIMULATOR.md). If a port is already in use, you get
+`password authentication failed`, or forms fail after a restart, see
+[Docker troubleshooting](docs/DOCKER.md#troubleshooting).
 
 The images, their build arguments and labels, health checks, multi-arch builds
 and the smoke test (`scripts/docker-smoke-test.sh`) are described in
@@ -154,8 +136,8 @@ Behind a proxy or load balancer, configure the API's forwarded headers with
 trusted proxies: otherwise the per-IP rate limits (login and the error
 report endpoint) see the proxy's IP, so all clients, including the Web's
 error reports, share one budget (see [docs/ERRORS.md](docs/ERRORS.md)).
-The Web's auth cookie keys are not persisted, so restarting `web` signs
-users out. The Docker builds restore NuGet packages from nuget.org, so
+The Web's auth cookie keys persist in the `web-keys` volume, so restarting `web`
+keeps users signed in. The Docker builds restore NuGet packages from nuget.org, so
 the build needs internet access.
 
 ## Quick start without Docker (for development)
@@ -199,7 +181,7 @@ dotnet run --project src/Conversia.Web --launch-profile https
 
 The Web's default `Api:BaseUrl` is the API's https launch URL. Trust the
 dev certificate once with `dotnet dev-certs https --trust`, then open
-https://localhost:7221, register a workspace and sign in. Use an https
+https://localhost:7221, register a company and sign in. Use an https
 `Api:BaseUrl` wherever the API redirects http to https (as it does with
 the https launch profile), because the bearer token would not survive
 the redirect.
@@ -329,6 +311,11 @@ same five projects run in CI (`.github/workflows/tests.yml`).
 
 ## Documentation
 
+- `docs/WEBHOOKS.md` — the 360dialog webhook: endpoint, mapping, retries, closing of conversations.
+- `docs/METRICS.md` — the exact definition of every dashboard metric, the alerts and their settings.
+- `docs/CLASSIFICATION.md` — the rule-based classifier and how to plug in another one.
+- `docs/DOCKER.md` — the three images (api, migrator, web): build, variables, health checks, troubleshooting.
+- `docs/decisiones.md` — project decision log (in Spanish).
 - `docs/ARCHITECTURE.md` — layers, dependency rules, per-project
   conventions.
 - `docs/WORKFLOW.md` — the mandatory TDD + isolated three-agent review
@@ -345,60 +332,8 @@ same five projects run in CI (`.github/workflows/tests.yml`).
 - `docs/EXTENDING.md` — add a feature the way Branches are built, layer by
   layer, with the pitfalls hit so far.
 
-## Using this as a template
+## Status
 
-Copy this repository to start a new client project, then rename the
-`Conversia` namespace/solution with the helper script (run it from a
-clean git working tree):
-
-```bash
-scripts/rename.sh Acme.Billing --dry-run   # preview what changes
-scripts/rename.sh Acme.Billing             # apply
-dotnet build Acme.Billing.slnx
-```
-
-`<NewName>` must be a valid C# namespace (dot-separated identifiers, no
-spaces). The script renames the `src/`, `tests/` and `.slnx` files and
-folders, replaces `Conversia` in all text files (namespaces, project
-references, JWT issuer/audience, docs, Dockerfiles, compose, CI) and
-derives two more forms from the name: `AcmeBilling` (database name,
-auth cookie name) and `acme-billing` (compose project / image names). It
-also generates a fresh `UserSecretsId` for the API project (the only one
-that has one) and deletes stale `bin/`/`obj/` folders. EF Core migrations keep
-working because migration ids do not contain the namespace. Use `--force` to run
-on a dirty tree.
-
-Then add client-specific features on top of the
-Domain/Application/Infrastructure/API/Web split, following
-`docs/EXTENDING.md` (the Branch reference feature, layer by layer) and
-`docs/WORKFLOW.md` for every new feature.
-
-## Install as a dotnet new template
-
-The repository is also packaged as a `dotnet new` template, so a project
-can be created without cloning it. It needs the .NET 10 SDK.
-
-```bash
-dotnet new install Conversia                           # from a NuGet feed
-dotnet new drtemplate -n Acme.Billing                    # creates ./Acme.Billing
-```
-
-The result is the same as `scripts/rename.sh Acme.Billing`: `Conversia`
-becomes the name you pass, `AcmeBilling` and `acme-billing` are derived
-from it, the API project gets a fresh `UserSecretsId`, and `bin/`, `obj/`
-and local files such as `.env` are left out. `scripts/rename.sh` is not
-copied to the new project (it has nothing left to rename there) and stays
-available as the alternative when you copy or fork this repository.
-
-To publish or try the template locally, pack the project in `pack/` (it is
-not part of `Conversia.slnx`, CI or the Docker builds):
-
-```bash
-dotnet pack pack/Conversia.Pack.csproj -c Release -o artifacts
-dotnet new install artifacts/Conversia.1.0.0.nupkg     # from the local package
-dotnet new install .                                     # or straight from a checkout
-dotnet new uninstall Conversia
-```
-
-A generated project is a scaffold: it does not receive later changes to
-the template. To pick up a new version, create another project from it.
+Test version, pilot in progress. Product scope, open questions (how messages sent from the
+advisors' phones are captured, dashboard technology, classification engine, final name)
+and working conventions are in [`CLAUDE.md`](CLAUDE.md).
