@@ -12,6 +12,10 @@ public static class ProblemTexts
     public const string AdvisorNotFoundTitle = "Asesor no encontrado";
     public const string ChannelNotFoundTitle = "Canal no encontrado";
     public const string TenantNotFoundTitle = "Empresa no encontrada";
+    public const string TenantStatusConflictTitle = "Cambio de estado no permitido";
+    public const string LineQuotaConflictTitle = "Cupo de líneas no válido";
+    public const string LineQuotaFullTitle = "Cupo de líneas completo";
+    public const string TenantNotActiveTitle = "Empresa no activa";
     public const string ConversationNotFoundTitle = "Conversación no encontrada";
     public const string DuplicateBranchNameTitle = "Sucursal duplicada";
     public const string InvalidRequestTitle = "Solicitud no válida";

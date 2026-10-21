@@ -53,14 +53,15 @@ public class ConversationModelSchemaTests
         return ex;
     }
 
-    // ErrorLog is the operations table: it names a tenant as data and is deliberately unfiltered.
+    // ErrorLog is the operations table and PlatformAuditLog the platform administrators' trail: both name a tenant as data and are
+    // deliberately unfiltered (TenantFilterGuardTests pins that these are the only two).
     [Fact]
     public void EveryTenantScopedEntityHasTheTenantQueryFilter()
     {
         using var scope = Scope(out var db);
 
         var unfiltered = db.Model.GetEntityTypes()
-            .Where(t => t.FindProperty("TenantId") is not null && t.ClrType != typeof(ErrorLog) && t.GetDeclaredQueryFilters().Count == 0)
+            .Where(t => t.FindProperty("TenantId") is not null && t.ClrType != typeof(ErrorLog) && t.ClrType != typeof(PlatformAuditLog) && t.GetDeclaredQueryFilters().Count == 0)
             .Select(t => t.ClrType.Name);
 
         Assert.Empty(unfiltered);

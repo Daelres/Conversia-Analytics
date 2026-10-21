@@ -58,13 +58,16 @@ internal static partial class TestHelpers
             bool.Parse(jwt.Claims.First(c => c.Type == "is_owner").Value));
     }
 
-    /// <summary>Registers a tenant through the real endpoint and keeps the owner's token.</summary>
-    internal static async Task<TenantSession> RegisterTenantSessionAsync(HttpClient client, string prefix = "owner")
+    /// <summary>
+    /// Registers a tenant through the real endpoint and keeps the owner's token. <paramref name="pending"/> keeps the tenant as it
+    /// registers (Pending, quota 0), for the tests of the approval flow; any other test wants a tenant that operates.
+    /// </summary>
+    internal static async Task<TenantSession> RegisterTenantSessionAsync(HttpClient client, string prefix = "owner", bool pending = false)
     {
         var email = UniqueEmail(prefix);
         var response = await client.PostAsJsonAsync("/api/auth/register-tenant", new
         {
-            tenantName = UniqueTenantName(prefix),
+            tenantName = (pending ? PendingTenantPrefix : string.Empty) + UniqueTenantName(prefix),
             email,
             password = StrongPassword
         });

@@ -44,6 +44,12 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<WebhookEvent> WebhookEvents => Set<WebhookEvent>();
 
+    /// <summary>Platform-level: the people who run the platform. Not tenant-scoped (they belong to no company).</summary>
+    public DbSet<PlatformAdmin> PlatformAdmins => Set<PlatformAdmin>();
+
+    /// <summary>Platform-level trail of the administrators' changes. Names a tenant as data, so it is deliberately unfiltered.</summary>
+    public DbSet<PlatformAuditLog> PlatformAuditLogs => Set<PlatformAuditLog>();
+
     /// <summary>Operations table: not tenant-filtered, see <c>ErrorLogConfiguration</c>.</summary>
     public DbSet<ErrorLog> ErrorLogs => Set<ErrorLog>();
 

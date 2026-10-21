@@ -68,6 +68,23 @@ public class ExceptionHandlingMiddleware
         {
             await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.TenantNotFoundTitle, ex.Message);
         }
+        catch (TenantStatusConflictException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.TenantStatusConflictTitle, ex.Message);
+        }
+        catch (LineQuotaBelowActiveException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.LineQuotaConflictTitle, ex.Message);
+        }
+        catch (LineQuotaFullException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.LineQuotaFullTitle, ex.Message);
+        }
+        catch (TenantNotActiveException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status403Forbidden, ProblemTexts.TenantNotActiveTitle, ex.Message,
+                ("code", TenantNotActiveException.Code), ("tenantStatus", ex.Status.ToString()));
+        }
         catch (ConversationNotFoundException ex)
         {
             await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.ConversationNotFoundTitle, ex.Message);

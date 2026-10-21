@@ -65,4 +65,30 @@ public class CurrentTenantServiceTests
 
         Assert.Equal(tenant, service.TenantId);
     }
+
+    [Fact]
+    public void APlatformAdministratorsPrincipal_HasNoTenant_SoNoCompanyDataIsVisibleToIt()
+    {
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", Guid.NewGuid().ToString()), new Claim("role", "platform_admin")], "TestAuth")),
+        };
+        var accessor = new Mock<IHttpContextAccessor>();
+        accessor.SetupGet(a => a.HttpContext).Returns(context);
+
+        Assert.Equal(Guid.Empty, new CurrentTenantService(accessor.Object).TenantId);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-a-guid")]
+    [InlineData("00000000-0000-0000-0000-000000000000")]
+    public void ABadTenantClaim_IsNoTenant(string claim)
+    {
+        var context = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("tenant_id", claim)], "TestAuth")) };
+        var accessor = new Mock<IHttpContextAccessor>();
+        accessor.SetupGet(a => a.HttpContext).Returns(context);
+
+        Assert.Equal(Guid.Empty, new CurrentTenantService(accessor.Object).TenantId);
+    }
 }

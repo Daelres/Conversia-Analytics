@@ -63,8 +63,8 @@ internal static partial class TestHelpers
     }
 
     internal static async Task<TestTenant> StartTenantAsync(
-        CustomWebApplicationFactory factory, HttpClient anonymous, string prefix = "tenant")
-        => new(factory, anonymous, await RegisterTenantSessionAsync(anonymous, prefix));
+        CustomWebApplicationFactory factory, HttpClient anonymous, string prefix = "tenant", bool pending = false)
+        => new(factory, anonymous, await RegisterTenantSessionAsync(anonymous, prefix, pending));
 
     /// <summary>A 400 whose validation errors include <paramref name="key"/> (property name, matched case-insensitively).</summary>
     public static async Task AssertValidationErrorUnderAsync(HttpResponseMessage response, string key)

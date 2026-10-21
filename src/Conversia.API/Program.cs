@@ -7,6 +7,7 @@ using Conversia.Application.Interfaces;
 using Conversia.Application.Services;
 using Conversia.Domain.Enums;
 using Conversia.Domain.Interfaces;
+using Conversia.Infrastructure.Administration;
 using Conversia.Infrastructure.Authorization;
 using Conversia.Infrastructure.Configuration;
 using Conversia.Infrastructure.Persistence;
@@ -29,6 +30,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddLoginRateLimiting(builder.Configuration);
+builder.Services.AddAdminLoginRateLimiting(builder.Configuration);
 builder.Services.AddErrorLogging(builder.Configuration);
 builder.Services.AddWebhookIngestion(builder.Configuration);
 builder.Services.AddConversations(builder.Configuration);
@@ -58,6 +60,18 @@ builder.Services.AddScoped<ICurrentTenantService>(sp => sp.GetRequiredService<Cu
 builder.Services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<CurrentTenantService>());
 builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
+// The platform administrator: global, outside every company (docs/PLATFORM_ADMIN.md).
+var platformAdminOptions = PlatformAdminOptionsValidator.GetValidatedOptions(builder.Configuration);
+builder.Services.AddSingleton(Options.Create(platformAdminOptions));
+builder.Services.AddScoped<IPlatformAdminRepository, PlatformAdminRepository>();
+builder.Services.AddScoped<IPlatformAdminQueries, PlatformAdminQueries>();
+builder.Services.AddScoped<ITenantUnitOfWork, TenantUnitOfWork>();
+builder.Services.AddScoped<IPlatformAdminTokenService, PlatformAdminTokenService>();
+builder.Services.AddScoped<IPlatformAdminAuthService, PlatformAdminAuthService>();
+builder.Services.AddScoped<IPlatformAdminService, PlatformAdminService>();
+builder.Services.AddScoped<IAuthorizationHandler, PlatformAdminAuthorizationHandler>();
+builder.Services.AddHostedService<PlatformAdminBootstrapper>();
+
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
 jwtOptions.SigningKey = JwtSigningKeyValidator.GetValidatedSigningKey(builder.Configuration);
 builder.Services.AddSingleton(Options.Create(jwtOptions));
@@ -82,6 +96,23 @@ builder.Services
             ValidAudience = jwtOptions.Audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey))
         };
+    })
+    // A second, separate scheme for the platform administrator: another audience and another (derived) key, so neither kind of token
+    // validates as the other. Only the PlatformAdmin policy names it; every company endpoint keeps the default scheme above.
+    .AddJwtBearer(PlatformAdminTokens.Scheme, options =>
+    {
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtOptions.Issuer,
+            ValidAudience = PlatformAdminTokens.AudienceOf(jwtOptions),
+            IssuerSigningKey = PlatformAdminTokens.KeyOf(jwtOptions),
+            ClockSkew = TimeSpan.FromSeconds(30),
+        };
     });
 
 // One policy per Permission enum value, named after the enum
@@ -93,6 +124,11 @@ builder.Services.AddAuthorization(options =>
         options.AddPolicy(permission.ToString(), policy =>
             policy.Requirements.Add(new PermissionRequirement(permission)));
     }
+
+    options.AddPolicy(PlatformAdminTokens.PolicyName, policy => policy
+        .AddAuthenticationSchemes(PlatformAdminTokens.Scheme)
+        .RequireAuthenticatedUser()
+        .Requirements.Add(new PlatformAdminRequirement()));
 });
 
 var app = builder.Build();
