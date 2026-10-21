@@ -64,6 +64,10 @@ public class ExceptionHandlingMiddleware
         {
             await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.ChannelNotFoundTitle, ex.Message);
         }
+        catch (TenantNotFoundException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.TenantNotFoundTitle, ex.Message);
+        }
         catch (ConversationNotFoundException ex)
         {
             await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.ConversationNotFoundTitle, ex.Message);

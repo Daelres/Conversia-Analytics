@@ -10,6 +10,9 @@ public interface IWhatsAppChannelRepository
     /// <summary>The current tenant's channels ordered by display number.</summary>
     Task<IReadOnlyList<WhatsAppChannel>> ListAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>How many channels the current tenant has registered and how many of them are switched on.</summary>
+    Task<(int Registered, int Active)> CountAsync(CancellationToken cancellationToken = default);
+
     Task AddAsync(WhatsAppChannel channel, CancellationToken cancellationToken = default);
 
     /// <summary>Tracked lookup for the load-modify-<see cref="UpdateAsync"/> path; same tenant scoping as <see cref="GetByIdAsync"/>.</summary>

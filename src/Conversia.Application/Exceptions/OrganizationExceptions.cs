@@ -54,3 +54,14 @@ public class ConversationNotFoundException : Exception
     {
     }
 }
+
+/// <summary>A company that does not exist. The API layer maps this to 404 (the platform administrator's API) or 401 (a token whose company is gone).</summary>
+public class TenantNotFoundException : Exception
+{
+    public const string DefaultMessage = "Empresa no encontrada.";
+
+    public TenantNotFoundException()
+        : base(DefaultMessage)
+    {
+    }
+}
