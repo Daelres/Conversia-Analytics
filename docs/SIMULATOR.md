@@ -164,8 +164,13 @@ real provider's sandbox at your machine, once you have an account and a sandbox 
          }'
    ```
 
-4. Write to the sandbox number from your phone and watch **Conversaciones**. Messages **you** send from the sandbox are what tell whether the
-   business-side format is the one the parser expects: until you see a first-response time appear, treat that metric as unproven.
+4. Write to the sandbox number from your phone and watch **Mensajes** (`/mensajes`) and **Conversaciones**. In the sandbox your phone plays the
+   *customer*, so only inbound messages arrive; replies sent through the sandbox API are not documented as being echoed to the webhook. The
+   business-side (echo) format and the first-response time therefore **cannot be validated in the sandbox**: treat those metrics as unproven.
+
+The complete test-phase procedure (in Spanish: environment, registrations, tunnel, verification, problems table and acceptance checklist)
+is [`docs/PRUEBAS_SANDBOX.md`](PRUEBAS_SANDBOX.md). That guide also covers the open question below: whether the sandbox forwards the custom
+`X-Webhook-Secret` header.
 
 ## Limits
 

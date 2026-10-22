@@ -27,6 +27,8 @@ adapted to PostgreSQL and rewritten around this product.
   alerts ([`docs/METRICS.md`](docs/METRICS.md)).
 - **Executive dashboard** — `/panel` shows six headline numbers, alerts and the breakdowns.
   `/conversaciones` lists the chats and shows each thread with its classification;
+  `/mensajes` ("Mensajes recibidos") and `/mensajes/eventos` ("Entregas del webhook") show
+  what the webhook received, to check that messages are arriving;
   `/organizacion` manages branches, advisors and WhatsApp numbers (and shows the lines
   used out of the company's quota); `/users` manages users and their permissions.
   A company that is still pending or suspended sees `/cuenta-pendiente` instead.
@@ -51,7 +53,7 @@ adapted to PostgreSQL and rewritten around this product.
 - xUnit, Moq (unit tests), Testcontainers.PostgreSql (integration tests —
   real PostgreSQL in Docker, spun up and torn down per test run)
 - GitHub Actions (`.github/workflows/tests.yml`) builds the solution and
-  runs all five test projects on every push/PR to `main`
+  runs all six test projects (and the Docker smoke test) on every push/PR to `main`
 
 ## Solution layout
 
@@ -122,8 +124,16 @@ start only after the migrator completed successfully.
 | PostgreSQL | `127.0.0.1:5432` (`POSTGRES_USER` / `POSTGRES_PASSWORD`) |
 
 Host ports can be changed with `WEB_PORT`, `API_PORT` and `POSTGRES_PORT` in
-`.env`. Open the Web, register a company and sign in. Stop with
-`docker compose down`; add `-v` to also delete the database volume.
+`.env`. Open the Web, register a company and sign in. A new company is
+**Pending** and cannot register or activate WhatsApp numbers until a platform
+administrator activates it and sets its line quota: add `PLATFORM_ADMIN_EMAIL` and
+`PLATFORM_ADMIN_PASSWORD` to `.env` (not in `.env.example` yet) before the first
+start and use `/admin/login` ([`docs/PLATFORM_ADMIN.md`](docs/PLATFORM_ADMIN.md)).
+Stop with `docker compose down`; add `-v` to also delete the database volume.
+
+To test with real WhatsApp messages through the 360dialog sandbox, follow
+[`docs/PRUEBAS_SANDBOX.md`](docs/PRUEBAS_SANDBOX.md) (in Spanish): step by step, with an
+acceptance checklist.
 
 To fill the stack with believable WhatsApp conversations (branches, advisors, numbers
 and chats the classifier and the dashboard can show), use the webhook simulator:
@@ -306,7 +316,7 @@ policy in their own tenant.
 | POST | `/api/diagnostics/errors` | header `X-Error-Report-Key`, rate limited; off without `ErrorLogging:ReportKey` | `201` `{code,persisted}` | `400`, `401`, `404` (off), `413` over 64 KB, `429` (`Retry-After`) |
 
 The Web exposes `/`, `/login`, `/register`, `/cuenta-pendiente`, `/users`, `/panel`, `/conversaciones`,
-`/conversaciones/{id}`, `/organizacion` (and `/organizacion/canales/{id}/{activar|desactivar|rotar-secreto}`), `POST /logout` and the form endpoints
+`/conversaciones/{id}`, `/mensajes` and `/mensajes/eventos` (the messages the service stored and the webhook deliveries it received), `/organizacion` (and `/organizacion/canales/{id}/{activar|desactivar|rotar-secreto}`), `POST /logout` and the form endpoints
 `POST /users/permissions/grant` and `POST /users/permissions/revoke`. The platform administrator has its own pages: `/admin/login`, `/admin`,
 `/admin/empresas/{id}` (with `/estado/{accion}` and `/lineas/{id}/desactivar`), `/admin/auditoria` and `POST /admin/logout`, with a session of its own
 (`docs/PLATFORM_ADMIN.md`).
@@ -318,16 +328,18 @@ Details and the full error contract: `docs/USERS_TENANTS_PERMISSIONS.md`.
 dotnet test tests/Conversia.Domain.UnitTests
 dotnet test tests/Conversia.Application.UnitTests
 dotnet test tests/Conversia.Infrastructure.UnitTests
+dotnet test tests/Conversia.WebhookSimulator.UnitTests
 dotnet test tests/Conversia.IntegrationTests
 dotnet test tests/Conversia.Web.IntegrationTests
 ```
 
-The three unit-test projects need nothing else. The two integration
+The four unit-test projects need nothing else. The two integration
 projects require a running Docker daemon: they start their own
 disposable PostgreSQL container via Testcontainers (`postgres:17-alpine`,
 pulled on first use) and destroy it when the run ends — they never touch
 a local or shared database, and no other container is affected. The
-same five projects run in CI (`.github/workflows/tests.yml`).
+same six projects run in CI (`.github/workflows/tests.yml`), followed by the
+Docker smoke test.
 
 ## Documentation
 
@@ -347,6 +359,7 @@ same five projects run in CI (`.github/workflows/tests.yml`).
 - `docs/ERRORS.md` — the error registry: codes, what is stored and what is
   not, sanitization, storm control, the report endpoint, retention, SQL to
   investigate an error.
+- `docs/PRUEBAS_SANDBOX.md` — test-phase guide (Spanish): run the stack, register the company and the line, connect the 360dialog sandbox through a tunnel, check the messages in the UI, problems table and acceptance checklist.
 - `docs/SIMULATOR.md` — the webhook simulator: fill a local stack with believable
   conversations (setup, populate, play), the safety rules, and how to point the
   360dialog sandbox at your machine (documentation only).

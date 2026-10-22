@@ -46,7 +46,8 @@ stored hash using `CryptographicOperations.FixedTimeEquals`.
 Two limits, both fixed one-minute windows without queueing, kept in memory per instance (idle partitions are evicted
 by the limiter, so memory stays bounded):
 
-- **Unauthenticated junk, per client IP**: only *failed* authentications count. An address over its budget gets `429` before it
+- **Unauthenticated junk, per client IP**: only *failed* authentications count (60 per minute by default: more than that, even with the right secret,
+  answers `429` for up to a minute, which a person testing with wrong secrets can trigger on purpose). An address over its budget gets `429` before it
   is authenticated, so guessing keys and secrets is throttled and a legitimate provider never spends this budget.
 - **Authenticated deliveries, per channel**: generous, counted after the secret matched. One misbehaving channel cannot starve the others,
   and tenants behind the same proxy IP do not compete.
@@ -92,10 +93,11 @@ before it touches any tenant data. Every Conversia table carries `TenantId`, and
 
 **Documentation only. Nothing in this repository calls 360dialog.**
 
-1. Create a branch and a channel through the API (`POST /api/branches`,
-   `POST /api/channels`) and keep the `webhookPath` and the `webhookSecret`.
-   If you know the number's `phone_number_id`, send it as `providerPhoneNumberId`;
-   deliveries naming a different number are then ignored.
+1. Create a branch and a channel through the `/organizacion` page or the API (`POST /api/branches`,
+   `POST /api/channels`), after a platform administrator has activated the company and set a line quota, and keep the `webhookPath` and the
+   `webhookSecret`. The channel starts inactive: activate it. The number you register is the **business line** (in the sandbox, the
+   sandbox number), not the tester's phone; `displayPhoneNumber` is informational. If you know the number's `phone_number_id`, send it as
+   `providerPhoneNumberId`; deliveries naming a different number are then ignored (leave it empty in the sandbox).
 2. The sandbox must reach the API from the internet, so a public tunnel (ngrok,
    Cloudflare Tunnel, ...) in front of the local API is needed. Use its HTTPS URL.
 3. Register the URL with your sandbox API key (never commit the key; the app reads
@@ -113,6 +115,12 @@ curl -X POST "https://waba-sandbox.360dialog.io/v1/configs/webhook" \
 ```
 
 360dialog then sends the secret back in the `X-Webhook-Secret` header of every call.
+
+**Unverified for the sandbox.** 360dialog's API reference documents a `headers` object (string values) for `POST /v1/configs/webhook`, but the sandbox
+page does not mention custom headers on deliveries and the reference lists only the production server. If the sandbox does not forward the header,
+every delivery gets the uniform `401`: the endpoint reads the secret **only** from `X-Webhook-Secret` (`WebhooksController`). The proposed fallback
+(not implemented) is to accept the same secret in an `Authorization` header (360dialog documents `Authorization` for Basic authentication of webhooks);
+never in the URL. The step-by-step test procedure is [`docs/PRUEBAS_SANDBOX.md`](PRUEBAS_SANDBOX.md) (Spanish).
 
 ## Payload mapping
 
