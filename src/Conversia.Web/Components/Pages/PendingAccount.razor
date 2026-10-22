@@ -4,6 +4,7 @@
 @using Conversia.Domain.Enums
 @using Conversia.Web.Authentication
 @inherits AuthenticatedPageBase
+@inject SupportOptions Support
 
 <PageTitle>@TitleText - Conversia</PageTitle>
 
@@ -60,6 +61,13 @@
                     <li>Cuando tu empresa esté activa, podrás registrar y activar tus números, y ver el panel con tus conversaciones.</li>
                 </ol>
                 <p class="muted">Mientras tanto puedes dejar esta sesión abierta o volver más tarde. Si tienes dudas, contacta al equipo de Conversia.</p>
+            </Card>
+        }
+
+        @if (Support.ContactText is { } contact)
+        {
+            <Card Title="Cómo contactar al equipo" IconName="mail" data-testid="support-contact">
+                <p class="support-contact" data-testid="support-contact-text">@contact</p>
             </Card>
         }
 

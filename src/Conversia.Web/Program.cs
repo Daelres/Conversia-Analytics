@@ -19,6 +19,8 @@ builder.Services.AddApiClient();
 builder.Services.AddWebErrorReporting();
 builder.Services.AddScoped<ShellState>();
 builder.Services.AddTenantTimeZone(builder.Configuration);
+// Optional contact line for the pending and suspended pages; an invalid value stops the start.
+builder.Services.AddSingleton(SupportOptions.FromConfiguration(builder.Configuration));
 builder.Services.AddScoped<DashboardLoader>();
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<OneTimeSubmissions>();

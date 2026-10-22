@@ -99,6 +99,8 @@ services:
       Api__BaseUrl: http://api:8080/
       # Optional. Unset: the Web still shows and logs its error codes, it just does not report them to the API.
       ErrorReporting__ApiKey: ${ERROR_REPORT_KEY:-}
+      # Optional. One line of plain text (up to 300 characters) shown on the pending/suspended page, for example "Escríbenos a soporte@empresa.co o al +57 300 000 0000".
+      Support__ContactText: ${SUPPORT_CONTACT_TEXT:-}
     # Data Protection keys (the image sets DataProtection__KeysPath=/keys): they survive a restart or recreate, so sign-in
     # cookies and open forms stay valid. `down -v` deletes them with the database.
     volumes:

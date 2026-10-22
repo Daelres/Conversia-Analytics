@@ -177,6 +177,13 @@ other API: the pages of one area call only the endpoints of that area. Tests pin
 and is never rendered, logged or sent to the browser. The antiforgery token of an administrator page is bound to the administrator's identity, so every POST
 (login, quota, status, line, logout) needs one of its own; the logout endpoint runs under the administrator policy for the same reason.
 
+### Contact on the pending page
+
+A person whose company is pending or suspended is told to "contact the Conversia team", which is not enough by itself. Set `Support__ContactText`
+(compose: `SUPPORT_CONTACT_TEXT`) on the `web` service to one line of plain text (up to 300 characters) and `/cuenta-pendiente` shows it in a card
+titled "Cómo contactar al equipo". It is HTML-encoded (nothing in it is a link or markup), validated at startup (too long or with control characters
+stops the Web, naming the key) and absent when empty.
+
 ### What each role sees
 
 * **Company user**: its own company only, and only while it is Active (otherwise the page above). The line quota on `/organizacion`.

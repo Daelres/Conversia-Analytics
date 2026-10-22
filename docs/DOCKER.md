@@ -78,12 +78,13 @@ Nothing secret is baked into an image; everything below is supplied at run time.
 | `PlatformAdmin__PasswordFile` | api | no | Instead of `PlatformAdmin__Password`: the path, inside the container, of a file that holds the bootstrap password (a Docker secret you mount; a trailing newline is dropped). Both set, or a file that is unreadable or empty, stop the API at startup with an error that names the key. Compose passes it from `PLATFORM_ADMIN_PASSWORD_FILE`. |
 | `Api__BaseUrl` | web | yes | Base URL of the API as seen from the Web container. |
 | `ErrorReporting__ApiKey` | web | no | See `ErrorLogging__ReportKey`. |
+| `Support__ContactText` | web | no | One line of plain text (up to 300 characters) shown on the pending/suspended page so the person knows how to reach the team, for example `Escríbenos a soporte@empresa.co o al +57 300 000 0000`. Empty = no contact card. Too long or with control characters stops the Web at startup. Compose passes it from `SUPPORT_CONTACT_TEXT`; `.env.example` does not list it yet, add `SUPPORT_CONTACT_TEXT=` to your `.env` by hand. |
 | `DataProtection__KeysPath` | web | no | Directory where the Web persists its Data Protection keys. The image sets it to `/keys`. Must exist and be writable or the Web refuses to start. Unset: the framework default (not persisted in a container). |
 | `ASPNETCORE_ENVIRONMENT` | api, web | no | Defaults to Production. |
 | `ASPNETCORE_HTTP_PORTS` | api, web | no | Defaults to 8080 in the images. |
 | `--connection` (argument) | migrator | yes | Same connection string as the API. |
 
-Compose-level variables (`.env`, see `.env.example`): `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ERROR_REPORT_KEY`, `D360_API_KEY`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `PLATFORM_ADMIN_PASSWORD_FILE`, `API_PORT`, `WEB_PORT`, `POSTGRES_PORT`, `CONVERSIA_TAG`, `CONVERSIA_VERSION`, `CONVERSIA_GIT_SHA`, `CONVERSIA_BUILD_DATE`.
+Compose-level variables (`.env`, see `.env.example`): `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ERROR_REPORT_KEY`, `D360_API_KEY`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `PLATFORM_ADMIN_PASSWORD_FILE`, `SUPPORT_CONTACT_TEXT`, `API_PORT`, `WEB_PORT`, `POSTGRES_PORT`, `CONVERSIA_TAG`, `CONVERSIA_VERSION`, `CONVERSIA_GIT_SHA`, `CONVERSIA_BUILD_DATE`.
 
 ### Volumes
 

@@ -260,6 +260,7 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `ErrorReporting:ApiKey` | Web | *(unset)* | The API's `ErrorLogging:ReportKey` (>= 32 characters), sent as `X-Error-Report-Key`. **Unset: the Web only logs its codes.** In compose both come from `ERROR_REPORT_KEY`. Set it as a secret, never in a committed file. |
 | `ErrorReporting:TimeoutSeconds` | Web | `2` | How long the Web waits for the API to take a report (one attempt, no retries). 1 to 30. |
 | `ErrorReporting:MaxPerFingerprintPerMinute` | Web | `20` | Reports sent per defect and minute; beyond it an error still gets a code and a log entry. Whole number >= 1. |
+| `Support:ContactText` | Web | *(unset)* | Optional, one line of plain text (up to 300 characters, no control characters; longer or invalid stops the Web at startup) shown on the pending and suspended page as "Cómo contactar al equipo", for example `Escríbenos a soporte@empresa.co o al +57 300 000 0000`. Shown as text, never as markup. Compose: `SUPPORT_CONTACT_TEXT`. |
 | `Api:BaseUrl` | Web | `https://localhost:7199/` | Absolute http(s) URL of the API. Required. |
 | `Api:TimeoutSeconds` | Web | `10` | Timeout of each API call, 1 to 300. |
 
