@@ -720,3 +720,10 @@ textarea.input {
     grid-template-columns: 16rem minmax(0, 1fr);
   }
 }
+
+/* An outcome is a sentence ("Solo recibos de entrega"): it wraps inside its cell instead of running into the next one on a phone. */
+.chip[data-outcome] {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
