@@ -317,6 +317,31 @@ tenants, events or errors. The worker also logs the backlog at Information once 
 (pending count, age of the oldest, failures in the last hour). No metrics system is involved: point an
 uptime probe or the platform's health probe at `/health`.
 
+## Verifying deliveries in the UI
+
+To prove that what you send from WhatsApp reaches the service, without opening the database, sign in and use two pages (permission `ConversationsView`;
+a company that is not Active is sent to its pending page):
+
+* **`/mensajes` ("Mensajes recibidos")**: the messages the service has stored, newest first, in the company's time zone (`Metrics:TimeZone`), each with its
+  direction chip (Entrante/Saliente), the customer's name and the last four digits of the number (`...1234`, never the whole number), the line and branch,
+  the time it was sent and the time it arrived, and the text (plain text, HTML-encoded; long messages are cut to a few lines and the whole text is in the
+  conversation it links to). Above it: messages today, the last inbound and outbound message, the last 24 hours and, **per line, when the last delivery
+  arrived** ("Nunca ha llegado una entrega a esta línea" means the provider never called that line's webhook: check the registered URL, the secret and that the
+  line is active). **Actualizar** reloads; **Actualizar solo: 5 s / 10 s / 30 s** adds a `<meta http-equiv="refresh">` (`?auto=10`; off by default; no
+  JavaScript). **Marcar como vistos** (`?visto=<message id>`) flags the messages that arrive after it with "Nuevo", and the refresh keeps the mark.
+* **`/mensajes/eventos` ("Entregas del webhook")**: every delivery the lines received, including those that stored nothing: arrival time, line, status
+  (Pendiente/Procesada/Fallida), outcome, messages stored, skipped and delivery receipts, attempts and the sanitized last error (secrets redacted, long
+  numbers masked). A legend on the page explains each outcome. If your message is not in `/mensajes` but its delivery is here, the outcome says why
+  ("Mensajes omitidos": no usable phone number, id or timestamp, a group, another number; "Solo recibos de entrega": only sent/delivered/read notices).
+  If there is no delivery at all, the provider did not call the webhook.
+
+The same data is behind `GET /api/messages/recent`, `GET /api/messages/summary` and `GET /api/webhook-events` (README, endpoint table). The raw body of a
+delivery is never exposed by either page or endpoint. Deliveries disappear from `/mensajes/eventos` when the retention below purges them (14 days for
+processed ones, 60 for failed ones by default); the messages stay. The outcome labels come from the counts the worker records on each event
+(`StoredMessageCount`, `DuplicateMessageCount`, `SkippedMessageCount`, `StatusCount`); a delivery processed before those two columns existed only knows what
+it skipped and shows "Procesada". These endpoints share the rate limit of the metrics (`Metrics:RateLimitPerMinute`, 60 per minute and user), so a 5 s
+refresh (two calls per reload) leaves room for the rest.
+
 ## Privacy and retention
 
 `WebhookEvents.RawPayload` holds the delivery as received: customers' phone numbers,
