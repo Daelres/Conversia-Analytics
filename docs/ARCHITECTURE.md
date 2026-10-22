@@ -31,8 +31,8 @@ ASP.NET Core) beyond the BCL.
 - `Entities/` — aggregate/entity classes (`Tenant`, `User`,
   `UserPermission`, `ErrorLog`, the Conversia model `Branch`,
   `Advisor`, `WhatsAppChannel`, `Contact`, `Conversation`, `Message`,
-  `Opportunity`, `WebhookEvent`, and whatever business entities a client
-  project adds later). `Common/TextRules` and `Common/UtcTime` hold the
+  `Opportunity`, `WebhookEvent`, the platform administration's `PlatformAdmin`
+  and `PlatformAuditLog`, and whatever business entities a new feature adds). `Common/TextRules` and `Common/UtcTime` hold the
   free-text and UTC/microsecond rules the Conversia entities share.
 - `Common/ErrorCode` — pure generator/validator of the `ERR-yyyyMMdd-XXXXXX`
   code of a registered error (`docs/ERRORS.md`).
@@ -64,6 +64,10 @@ ASP.NET Core.
   are `Interfaces/IErrorRegistry` and `IErrorLogPurger`; its DTOs
   `DTOs/Diagnostics/` (`ErrorReport`, `ErrorRegistration`, and the
   `ReportErrorRequest`/`ReportErrorResponse` of the report endpoint).
+- `Classification/` (the rule-based classifier behind `IConversationClassifier`,
+  `docs/CLASSIFICATION.md`), `Messages/` (Spanish type labels, webhook outcome
+  names, the phone mask of the messages pages), `Metrics/` (`MetricsOptions`) and
+  `Time/` (`TenantTimeZone`).
 - `Ingestion/` — `Dialog360PayloadParser` (the only class that knows the
   360dialog payload shape; pure) and `WebhookEventProcessor` (one stored delivery
   into contacts, conversations, messages and opportunities, idempotently).
@@ -89,7 +93,12 @@ Everything that talks to the outside world.
   `citext` extension (case-insensitive emails) is created by the
   first one.
 - `Configuration/` — options bound from configuration (`JwtOptions`,
-  `ErrorLoggingOptions`).
+  `ErrorLoggingOptions`, `WebhookOptions`, `ClassificationOptions`,
+  `ConversationLifecycleOptions`, `PlatformAdminOptions`).
+- `Administration/` (platform administrator: token service, authorization handler,
+  startup bootstrap), `Classification/` (runner and worker of the classifier),
+  `Conversations/` (queries and the auto-close job), `Messages/` (the queries of
+  the messages pages) and `Metrics/` (the SQL of the metrics).
 - `ErrorLogging/` — `ErrorRegistry` (sanitizes, codes, applies the storm guard
   and writes one `ErrorLogs` row through a scope and `DbContext` of its own,
   never throwing), `ErrorLogPurger` (batched `ExecuteDelete`) and
@@ -97,7 +106,9 @@ Everything that talks to the outside world.
   24 h). `ErrorLogs` is an operations table: no tenant query filter.
 - `Webhooks/` — `WebhookEventRunner`, the queue worker's unit of work: claims one
   pending `WebhookEvents` row with `FOR UPDATE SKIP LOCKED`, processes it in a
-  savepoint and records failures with exponential back-off.
+  second, bounded transaction and records failures with exponential back-off
+  (`docs/WEBHOOKS.md`). The queue health check, the retention purge and the
+  backlog reporter live here too.
 - `Repositories/` — concrete repository implementations of the
   `Domain.Interfaces` contracts.
 - `Services/` — infrastructure-backed service implementations
@@ -112,7 +123,8 @@ feature areas map 1:1 to a controller and stay easy to navigate as the
 project grows.
 
 - `Controllers/` — one controller per feature area.
-- `Middleware/` — the global exception-handling middleware (every
+- `Middleware/` — `ActiveTenantMiddleware` (a company that is not Active gets `403`
+  `tenant_not_active`, `docs/PLATFORM_ADMIN.md`) and the global exception-handling middleware (every
   unhandled exception is caught here and turned into a consistent
   `application/problem+json` response — **the API must never leak an
   unhandled 500 with a stack trace**). An unexpected one is registered first
@@ -127,8 +139,11 @@ project grows.
   (`JwtSigningKeyValidator`, `LoginRateLimitOptionsValidator`,
   `ErrorLoggingOptionsValidator`) that refuse to boot on unsafe or invalid
   settings, plus the `AddErrorLogging` registration extension.
-- `HostedServices/` — background work (`WebhookEventProcessingService`
-  drains the webhook queue, [docs/WEBHOOKS.md](WEBHOOKS.md)).
+- `HostedServices/` — `WebhookEventProcessingService` drains the webhook queue
+  ([docs/WEBHOOKS.md](WEBHOOKS.md)). The other background services live in
+  Infrastructure and are registered from `Configuration/`: classification,
+  closing of idle conversations, and the retention of webhook events and error logs.
+  `PlatformAdminBootstrapper` (Infrastructure) creates the first administrator at startup.
 - `Controllers/WebhooksController` — the one anonymous endpoint besides
   login/registration: the provider webhook, authenticated by a per-channel
   secret instead of a JWT.
@@ -191,8 +206,11 @@ reaches it transitively through the Application DTOs.)
   authentication; user list, create-user form, per-user grant/revoke of
   every `Permission`), and the Conversia pages: `/panel` (the executive
   dashboard), `/conversaciones` and `/conversaciones/{id:guid}` (the
-  conversation list and detail) and `/organizacion` (branches, advisors and
-  WhatsApp numbers). Management controls are shown only to callers
+  conversation list and detail), `/mensajes` and `/mensajes/eventos` (messages
+  stored and webhook deliveries received), `/organizacion` (branches, advisors and
+  WhatsApp numbers; its confirmation pages live under `/organizacion/canales/{id}/...`),
+  `/cuenta-pendiente` (a company that is not Active) and the platform
+  administrator's own area under `/admin` (`docs/PLATFORM_ADMIN.md`). Management controls are shown only to callers
   with the matching `...Manage` permission (owner or holder) but the API
   stays the authority: a forged request is refused by the API and shown
   as a "No tienes permiso" message. An API `401` (expired token) signs the
@@ -268,7 +286,7 @@ query.
 
 ## Testing strategy
 
-Five test projects, all run by CI (`.github/workflows/tests.yml`: restore,
+Six test projects, all run by CI (`.github/workflows/tests.yml`: restore,
 build in Release, then each project in turn, on every push/PR to `main`).
 
 - **Unit tests** — pure logic, no database, no HTTP:
@@ -276,7 +294,8 @@ build in Release, then each project in turn, on every push/PR to `main`).
   `tests/Conversia.Application.UnitTests` (services and DTO validation,
   repository interfaces mocked with Moq) and
   `tests/Conversia.Infrastructure.UnitTests` (the permission
-  authorization handler).
+  authorization handler) and `tests/Conversia.WebhookSimulator.UnitTests` (the
+  development simulator's chats, plan and payloads, no network).
 - **API integration tests** (`tests/Conversia.IntegrationTests`) — the
   real API booted in-process (`WebApplicationFactory`) on a real
   PostgreSQL via **Testcontainers** (`Testcontainers.PostgreSql`), spun up once

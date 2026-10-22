@@ -1,7 +1,6 @@
 # Users, Tenants & Permissions — foundational data model
 
-This is the concrete spec for the system every project derived from
-Conversia starts with. It is intentionally minimal: **three
+This is the concrete spec of the foundation Conversia is built on. It is intentionally minimal: **three
 tables**, enough to register a tenant, log a user in, and gate an
 endpoint behind a permission. Everything client-specific gets built on
 top of this, not instead of it.
@@ -73,8 +72,8 @@ public enum Permission
 | `UsersView` | 1 | `GET /api/users` |
 | `UsersManage` | 2 | creating users, granting and revoking permissions |
 | `OrganizationView` | 5 | `GET` on `/api/branches`, `/api/advisors` and `/api/channels` |
-| `OrganizationManage` | 6 | `POST` on `/api/branches`, `/api/advisors` and `/api/channels` |
-| `ConversationsView` | 7 | `GET /api/conversations` and `GET /api/conversations/{id}` (the detail includes message text) |
+| `OrganizationManage` | 6 | `POST` on `/api/branches`, `/api/advisors` and `/api/channels`, and `POST /api/channels/{id}/activate`, `/deactivate` and `/rotate-secret`; also shows the channel key and webhook path in `GET /api/channels` |
+| `ConversationsView` | 7 | `GET /api/conversations`, `GET /api/conversations/{id}` (the detail includes message text), `GET /api/messages/recent`, `GET /api/messages/summary` and `GET /api/webhook-events` |
 | `ConversationsManage` | 8 | `PUT /api/conversations/{id}/advisor` and `PUT /api/conversations/{id}/opportunity` |
 | `MetricsView` | 9 | every `GET /api/metrics/*` endpoint (docs/METRICS.md) |
 
@@ -181,7 +180,9 @@ configured, which would put every client in one shared budget. Configure
 the ASP.NET Core Forwarded Headers middleware (`UseForwardedHeaders`
 with `ForwardedHeaders.XForwardedFor` and `KnownProxies`/`KnownNetworks`
 limited to your proxies) so the real client IP is resolved before the
-rate limiter runs. The project does not add it.
+rate limiter runs. The API already ships it, off by default: set
+`ForwardedHeaders:KnownProxies:N` and/or `ForwardedHeaders:KnownNetworks:N`
+(`docs/WEBHOOKS.md`, "Rate limits and proxies").
 
 ## User endpoints
 
