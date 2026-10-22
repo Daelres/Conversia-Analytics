@@ -27,6 +27,9 @@ public sealed record SimulatorOptions
 
     public bool RotateSecret { get; init; }
 
+    /// <summary>The number of lines the workspace may have active (setup, when a platform administrator approves it).</summary>
+    public int LineQuota { get; init; } = 4;
+
     // play
     public string Scenario { get; init; } = Scenarios.All;
 
@@ -51,9 +54,9 @@ public sealed record SimulatorOptions
     private static readonly HashSet<string> Flags = ["allow-remote", "print-secret", "rotate-secret", "no-assign", "help"];
 
     private static readonly HashSet<string> Valued =
-        ["api-url", "scenario", "branch", "conversations", "days", "seed", "previous-share", "wait-seconds", "rate"];
+        ["api-url", "scenario", "branch", "conversations", "days", "seed", "previous-share", "wait-seconds", "rate", "line-quota"];
 
-    private static readonly HashSet<string> CredentialLike = ["email", "password", "secret", "token", "api-key", "webhook-secret", "user", "username"];
+    private static readonly HashSet<string> CredentialLike = ["email", "password", "secret", "token", "api-key", "webhook-secret", "user", "username", "admin-email", "admin-password"];
 
     public static SimulatorOptions Parse(IReadOnlyList<string> args, string? apiUrlFromEnvironment = null)
     {
@@ -125,6 +128,7 @@ public sealed record SimulatorOptions
             AllowRemote = Flag(values, "allow-remote"),
             PrintSecret = Flag(values, "print-secret"),
             RotateSecret = Flag(values, "rotate-secret"),
+            LineQuota = Integer(values, "line-quota", 4, 0, 1000),
             NoAssign = Flag(values, "no-assign"),
             Scenario = scenario,
             Branch = values.GetValueOrDefault("branch"),

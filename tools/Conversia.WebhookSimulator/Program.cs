@@ -11,7 +11,7 @@ public static class Program
         Conversia webhook simulator: a development tool that fills a LOCAL Conversia API with believable WhatsApp conversations.
 
         Usage:
-          simulator setup    [--api-url URL] [--print-secret] [--rotate-secret]
+          simulator setup    [--api-url URL] [--print-secret] [--rotate-secret] [--line-quota 4]
           simulator play     [--api-url URL] [--scenario booking|price-objection|unanswered|ad-origin|bsuid|duplicate|out-of-order|all] [--branch NAME] [--seed N]
           simulator populate [--api-url URL] [--conversations 300] [--days 30] [--seed 42] [--previous-share 0.3] [--rate 15] [--wait-seconds 180] [--no-assign]
 
@@ -22,6 +22,7 @@ public static class Program
         Environment (never the command line):
           SIM_EMAIL, SIM_PASSWORD   Login of a user of the workspace (the owner).
           SIM_WEBHOOK_SECRETS       'Centro=<secret>;Norte=<secret>;...' one secret per number (setup --print-secret shows them once).
+          SIM_ADMIN_EMAIL, SIM_ADMIN_PASSWORD   Optional, for setup only: a platform administrator who activates a pending workspace and sets its line quota.
           SIM_WEBHOOK_SECRET        One secret to try for a branch that is not listed above.
 
         Details: docs/SIMULATOR.md
@@ -62,7 +63,7 @@ public static class Program
 
             return options.Command switch
             {
-                SimulatorCommandName.Setup => await new SetupCommand(api, Console.Out).RunAsync(options, cancellation.Token),
+                SimulatorCommandName.Setup => await new SetupCommand(api, Console.Out, environment).RunAsync(options, cancellation.Token),
                 SimulatorCommandName.Play => await new PlayCommand(api, new WebhookSender(webhookHttp, options.Rate), environment, TimeProvider.System, Console.Out).RunAsync(options, cancellation.Token),
                 _ => await new PopulateCommand(api, new WebhookSender(webhookHttp, options.Rate), environment, TimeProvider.System, Console.Out).RunAsync(options, cancellation.Token),
             };

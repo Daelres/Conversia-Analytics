@@ -73,6 +73,10 @@ services:
       ErrorLogging__ReportKey: ${ERROR_REPORT_KEY:-}
       # Optional. The 360dialog API key (configuration Dialog360:ApiKey). Nothing calls 360dialog yet; this only passes the value through.
       Dialog360__ApiKey: ${D360_API_KEY:-}
+      # Optional. Both set: the API creates this platform administrator at startup if no one has the email (it never changes an existing
+      # one). Empty = no bootstrap. The password needs at least 12 characters and must not be a placeholder. See docs/PLATFORM_ADMIN.md.
+      PlatformAdmin__Email: ${PLATFORM_ADMIN_EMAIL:-}
+      PlatformAdmin__Password: ${PLATFORM_ADMIN_PASSWORD:-}
     ports:
       - "${API_PORT:-5030}:8080"
     depends_on:

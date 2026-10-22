@@ -48,6 +48,7 @@ public class TenantStatusTests
         Assert.Equal(TenantStatus.Pending, asOwner.Status);
         Assert.Equal((0, 0, 0), (asOwner.MaxActiveLines, asOwner.ActiveLines, asOwner.RegisteredLines));
         Assert.Equal(asOwner.Id, asMember!.Id);
+        Assert.Contains("\"status\":\"Pending\"", await tenant.Owner.Client.GetStringAsync("/api/tenant")); // by name, like every enum of the API
     }
 
     [Fact]

@@ -106,6 +106,8 @@ jwt_key="$(openssl rand -hex 32)"
 report_key="$(openssl rand -hex 24)"
 owner_password="Aa1-$(openssl rand -hex 12)"
 owner_email="owner-$suffix@smoke.test"
+admin_password="Zz9-$(openssl rand -hex 12)"
+admin_email="admin-$suffix@smoke.test"
 postgres_db="conversia_smoke"
 postgres_user="conversia_smoke"
 
@@ -119,9 +121,11 @@ API_PORT=$api_port
 WEB_PORT=$web_port
 POSTGRES_PORT=$postgres_port
 CONVERSIA_TAG=$tag
+PLATFORM_ADMIN_EMAIL=$admin_email
+PLATFORM_ADMIN_PASSWORD=$admin_password
 EOF
 # The values that must never appear in an image, a container definition or a log.
-printf '%s\n' "$postgres_password" "$jwt_key" "$report_key" "$owner_password" >"$secrets"
+printf '%s\n' "$postgres_password" "$jwt_key" "$report_key" "$owner_password" "$admin_password" >"$secrets"
 
 # Everything is published on loopback only, so the throwaway stack is not reachable from the network.
 cat >"$override" <<'EOF'
@@ -290,6 +294,28 @@ printf '%s\n' "$token" >>"$secrets"
 auth_headers="$work/auth.headers"
 printf 'Authorization: Bearer %s\n' "$token" >"$auth_headers"
 
+# A new company is Pending: it can sign in, but nothing operates until a platform administrator activates it.
+status_of() { curl -s -o "$work/status-body.json" -w '%{http_code}' --max-time 20 "$@" || true; }
+pending_code="$(status_of -H "@$auth_headers" "$api_url/api/branches")"
+if [ "$pending_code" = "403" ] && [ "$(jq -r '.code // empty' "$work/status-body.json")" = "tenant_not_active" ]; then pass "a pending company is refused on the API (403 tenant_not_active)"; else fail "pending company: GET /api/branches -> $pending_code"; fi
+tenant_code="$(status_of -H "@$auth_headers" "$api_url/api/tenant")"
+if [ "$tenant_code" = "200" ] && [ "$(jq -r '.status' "$work/status-body.json")" = "Pending" ]; then pass "GET /api/tenant answers 200 and says Pending"; else fail "GET /api/tenant -> $tenant_code ($(jq -r '.status // empty' "$work/status-body.json"))"; fi
+
+admin_login_body="$(jq -nc --arg e "$admin_email" --arg p "$admin_password" '{email:$e,password:$p}')"
+admin_token="$(json_post "$api_url/api/admin/auth/login" "$admin_login_body" 2>/dev/null | jq -r '.token // empty' || true)"
+if [ -n "$admin_token" ]; then pass "the bootstrapped platform administrator can log in"; else fail "platform administrator login"; die "cannot continue without the administrator token"; fi
+printf '%s\n' "$admin_token" >>"$secrets"
+admin_headers="$work/admin.headers"
+printf 'Authorization: Bearer %s\n' "$admin_token" >"$admin_headers"
+[ "$(code_of -H "@$admin_headers" "$api_url/api/users/me")" = "401" ] && pass "an administrator token is rejected on a company endpoint (401)" || fail "an administrator token was accepted on a company endpoint"
+[ "$(code_of -H "@$auth_headers" "$api_url/api/admin/tenants")" = "401" ] && pass "a company token is rejected on the admin API (401)" || fail "a company token was accepted on the admin API"
+[ "$(code_of "$api_url/api/admin/tenants")" = "401" ] && pass "the admin API without a token -> 401" || fail "the admin API answered without a token"
+
+tenant_id="$(jq -r '.id' "$work/status-body.json")"
+admin_put() { printf '%s' "$2" | curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X PUT -H 'Content-Type: application/json' -H "@$admin_headers" --data-binary @- "$api_url/api/admin/tenants/$tenant_id/$1" || true; }
+[ "$(admin_put status '{"status":"Active","reason":"smoke test"}')" = "200" ] && pass "the administrator activates the company" || fail "activating the company"
+[ "$(admin_put line-quota '{"maxActiveLines":1}')" = "200" ] && pass "the administrator sets a quota of 1 active line" || fail "setting the line quota"
+
 branch_id="$(json_post "$api_url/api/branches" '{"name":"Sucursal Smoke"}' "$auth_headers" 2>/dev/null | jq -r '.id // empty' || true)"
 if [ -n "$branch_id" ]; then pass "create a branch"; else fail "create a branch"; die "cannot continue without a branch"; fi
 
@@ -301,9 +327,29 @@ customer_number="573005550199"
 channel_json="$(json_post "$api_url/api/channels" "$(jq -nc --arg b "$branch_id" '{branchId:$b,displayPhoneNumber:"+57 300 555 0100"}')" "$auth_headers" 2>/dev/null || true)"
 webhook_path="$(printf '%s' "$channel_json" | jq -r '.webhookPath // empty')"
 webhook_secret="$(printf '%s' "$channel_json" | jq -r '.webhookSecret // empty')"
+channel_id="$(printf '%s' "$channel_json" | jq -r '.id // empty')"
+channel_active="$(printf '%s' "$channel_json" | jq -r '.isActive')"
 unset channel_json
 if [ -n "$webhook_path" ] && [ -n "$webhook_secret" ]; then pass "create a channel (the webhook secret is returned once)"; else fail "create a channel"; die "cannot continue without a channel"; fi
 printf '%s\n' "$webhook_secret" >>"$secrets"
+[ "$channel_active" = "false" ] && pass "a new channel starts inactive" || fail "a new channel did not start inactive ($channel_active)"
+
+second_json="$(json_post "$api_url/api/channels" "$(jq -nc --arg b "$branch_id" '{branchId:$b,displayPhoneNumber:"+57 300 555 0101"}')" "$auth_headers" 2>/dev/null || true)"
+second_id="$(printf '%s' "$second_json" | jq -r '.id // empty')"
+printf '%s\n' "$(printf '%s' "$second_json" | jq -r '.webhookSecret // empty')" >>"$secrets"
+unset second_json
+
+post_webhook() { # <secret> <payload file> [path]: prints the HTTP status
+  printf 'X-Webhook-Secret: %s\n' "$1" | curl -s -o /dev/null -w '%{http_code}' --max-time 20 -H 'Content-Type: application/json' -H @- --data-binary "@$2" "$api_url${3:-$webhook_path}"
+}
+inactive_payload="$work/inactive.json"
+jq -nc '{object:"whatsapp_business_account",entry:[]}' >"$inactive_payload"
+[ "$(post_webhook "$webhook_secret" "$inactive_payload")" = "401" ] && pass "webhook: an inactive channel answers 401" || fail "webhook: an inactive channel did not answer 401"
+
+channel_on() { curl -s -o "$work/activate-body.json" -w '%{http_code}' --max-time 20 -X POST -H "@$auth_headers" "$api_url/api/channels/$1/activate" || true; }
+[ "$(channel_on "$channel_id")" = "200" ] && pass "the company switches its line on within the quota (1 of 1)" || fail "activating a line within the quota"
+over_code="$(channel_on "$second_id")"
+if [ "$over_code" = "409" ] && grep -q 'cupo de líneas activas está completo' "$work/activate-body.json"; then pass "switching on a second line beyond the quota is refused (409, Spanish message)"; else fail "activation beyond the quota -> $over_code"; fi
 
 now="$(date +%s)"
 inbound_text="Hola, quiero una cotizacion de depilacion laser para cuerpo completo"
@@ -320,15 +366,20 @@ jq -nc --arg bn "$business_number" --arg cn "$customer_number" --arg text "$outb
    metadata:{display_phone_number:$bn,phone_number_id:"106540352242922"},
    message_echoes:[{from:$bn,to:$cn,id:$id,timestamp:($ts|tostring),type:"text",text:{body:$text}}]}}]}]}' >"$outbound_payload"
 
-post_webhook() { # <secret> <payload file> [path]: prints the HTTP status
-  printf 'X-Webhook-Secret: %s\n' "$1" | curl -s -o /dev/null -w '%{http_code}' --max-time 20 -H 'Content-Type: application/json' -H @- --data-binary "@$2" "$api_url${3:-$webhook_path}"
-}
 
 [ "$(post_webhook "$webhook_secret" "$inbound_payload")" = "200" ] && pass "webhook: inbound message accepted (200)" || fail "webhook: inbound message was not accepted"
 [ "$(post_webhook "$webhook_secret" "$outbound_payload")" = "200" ] && pass "webhook: outbound echo accepted (200)" || fail "webhook: outbound echo was not accepted"
 [ "$(post_webhook "$webhook_secret" "$inbound_payload")" = "200" ] && pass "webhook: a redelivered event is accepted idempotently (200)" || fail "webhook: a redelivery was rejected"
 [ "$(post_webhook "wrong-$suffix" "$inbound_payload")" = "401" ] && pass "webhook: a wrong secret is rejected (401)" || fail "webhook: a wrong secret was not rejected with 401"
 [ "$(post_webhook "$webhook_secret" "$inbound_payload" "/api/webhooks/360dialog/unknown-$suffix")" = "401" ] && pass "webhook: an unknown channel key is rejected (401)" || fail "webhook: an unknown channel key was not rejected with 401"
+
+# A suspended company: the API is closed (403), the webhook answers the same 401 as a wrong secret, and activating it restores both.
+[ "$(admin_put status '{"status":"Suspended","reason":"smoke test"}')" = "200" ] && pass "the administrator suspends the company" || fail "suspending the company"
+suspended_code="$(status_of -H "@$auth_headers" "$api_url/api/branches")"
+[ "$suspended_code" = "403" ] && [ "$(jq -r '.code // empty' "$work/status-body.json")" = "tenant_not_active" ] && pass "a suspended company is refused on the API (403 tenant_not_active)" || fail "suspended company: GET /api/branches -> $suspended_code"
+[ "$(post_webhook "$webhook_secret" "$inbound_payload")" = "401" ] && pass "webhook: a suspended company's channel answers 401" || fail "webhook: a suspended company's channel was accepted"
+[ "$(admin_put status '{"status":"Active"}')" = "200" ] && pass "the administrator reactivates the company" || fail "reactivating the company"
+[ "$(post_webhook "$webhook_secret" "$inbound_payload")" = "200" ] && pass "webhook: accepted again after reactivation (idempotent redelivery)" || fail "webhook: not accepted after reactivation"
 
 conversation_with_two_messages() {
   local list id

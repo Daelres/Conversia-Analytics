@@ -3,9 +3,12 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Conversia.Application.DTOs;
+using Conversia.Application.DTOs.Admin;
 using Conversia.Application.DTOs.Auth;
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Organization;
+using Conversia.Application.DTOs.Tenants;
+using Conversia.Domain.Enums;
 
 namespace Conversia.WebhookSimulator.Api;
 
@@ -33,6 +36,46 @@ public sealed class ConversiaApi
 
         var auth = await ReadAsync<AuthResponse>(response, "login", cancellationToken);
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.Token);
+    }
+
+    public Task<TenantInfoResponse> GetTenantAsync(CancellationToken cancellationToken)
+        => GetAsync<TenantInfoResponse>("api/tenant", cancellationToken);
+
+    /// <summary>Switches a line on. The API refuses (409) when the quota of the company is full.</summary>
+    public Task<ChannelResponse> ActivateChannelAsync(Guid channelId, CancellationToken cancellationToken)
+        => SendAsync<ChannelResponse>(HttpMethod.Post, $"api/channels/{channelId}/activate", body: null, cancellationToken);
+
+    /// <summary>
+    /// Approves the company as a platform administrator: Active (when it is not) and a quota of at least <paramref name="lineQuota"/>.
+    /// The administrator's token is used for these calls only, on requests of its own: it is never set on the client, so it cannot ride
+    /// along with the owner's calls.
+    /// </summary>
+    public async Task ApproveAsync(string adminEmail, string adminPassword, TenantInfoResponse tenant, int lineQuota, CancellationToken cancellationToken)
+    {
+        using var login = await _http.PostAsJsonAsync("api/admin/auth/login", new LoginRequest { Email = adminEmail, Password = adminPassword }, Json, cancellationToken);
+        if (login.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.BadRequest)
+        {
+            throw new ApiFailure("The API refused the administrator login: check SIM_ADMIN_EMAIL and SIM_ADMIN_PASSWORD.", login.StatusCode);
+        }
+
+        var token = (await ReadAsync<AdminAuthResponse>(login, "administrator login", cancellationToken)).Token;
+        if (tenant.Status != TenantStatus.Active)
+        {
+            await SendAsAdminAsync(token, $"api/admin/tenants/{tenant.Id}/status", new ChangeTenantStatusRequest { Status = nameof(TenantStatus.Active), Reason = "Activated by the development simulator." }, cancellationToken);
+        }
+
+        if (tenant.MaxActiveLines < lineQuota)
+        {
+            await SendAsAdminAsync(token, $"api/admin/tenants/{tenant.Id}/line-quota", new SetLineQuotaRequest { MaxActiveLines = lineQuota }, cancellationToken);
+        }
+    }
+
+    private async Task SendAsAdminAsync(string token, string path, object body, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, path) { Content = JsonContent.Create(body, body.GetType(), options: Json) };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await _http.SendAsync(request, cancellationToken);
+        await ReadAsync<JsonElement>(response, $"PUT {path.Split('/')[^1]}", cancellationToken);
     }
 
     /// <summary>The API answers <c>200</c> with a status word (<c>Healthy</c> or <c>Degraded</c>); <c>503</c> means the queue cannot be read.</summary>

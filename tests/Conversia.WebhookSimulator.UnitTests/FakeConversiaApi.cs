@@ -3,9 +3,12 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Conversia.Application.DTOs;
+using Conversia.Application.DTOs.Admin;
 using Conversia.Application.DTOs.Auth;
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Organization;
+using Conversia.Application.DTOs.Tenants;
+using Conversia.Domain.Enums;
 using Conversia.Application.Ingestion;
 using Conversia.WebhookSimulator.Api;
 
@@ -19,6 +22,8 @@ internal sealed class FakeConversiaApi : HttpMessageHandler
 {
     public const string Email = "owner@example.test";
     public const string Password = "pw-dummy-for-tests";
+    public const string AdminEmail = "admin@example.test";
+    public const string AdminPassword = "admin-pw-dummy-for-tests";
 
     private readonly Dictionary<Guid, string> _secretHashes = [];
     private readonly Dictionary<Guid, string> _keys = [];
@@ -26,6 +31,8 @@ internal sealed class FakeConversiaApi : HttpMessageHandler
     private readonly Dictionary<(Guid Channel, string WaId), ConversationListItem> _conversations = [];
     private int _secretCounter;
     private string? _token;
+    private string? _adminToken;
+    private readonly Guid _tenantId = Guid.NewGuid();
 
     public List<BranchResponse> Branches { get; } = [];
 
@@ -48,6 +55,19 @@ internal sealed class FakeConversiaApi : HttpMessageHandler
 
     /// <summary>Answers every advisor assignment with a 400, as the API does for an advisor the conversation cannot have.</summary>
     public bool RefuseAssignments { get; set; }
+
+    /// <summary>Where the workspace stands with the platform. A fresh workspace is Pending with no lines; most tests want one that operates.</summary>
+    public TenantStatus Status { get; set; } = TenantStatus.Active;
+
+    public int MaxActiveLines { get; set; } = 100;
+
+    /// <summary>Every admin request: method, path and the bearer token it carried (so a test can check which token went where).</summary>
+    public List<(string Call, string? Token)> AdminCalls { get; } = [];
+
+    /// <summary>The bearer token each request of the owner carried.</summary>
+    public HashSet<string?> OwnerTokensSeen { get; } = [];
+
+    public string? IssuedAdminToken => _adminToken;
 
     public IReadOnlyCollection<ConversationListItem> Conversations => _conversations.Values;
 
@@ -88,9 +108,56 @@ internal sealed class FakeConversiaApi : HttpMessageHandler
             return Json(HttpStatusCode.OK, new AuthResponse { Token = _token, IsOwner = true });
         }
 
+        if (path == "api/admin/auth/login")
+        {
+            var login = Read<LoginRequest>(body!);
+            if (login.Email != AdminEmail || login.Password != AdminPassword)
+            {
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            }
+
+            _adminToken = "admin-token-" + Guid.NewGuid().ToString("N");
+            return Json(HttpStatusCode.OK, new AdminAuthResponse { Token = _adminToken });
+        }
+
+        if (path.StartsWith("api/admin/", StringComparison.Ordinal))
+        {
+            AdminCalls.Add(($"{request.Method} /{path}", request.Headers.Authorization?.Parameter));
+            if (request.Headers.Authorization?.Parameter != _adminToken || _adminToken is null)
+            {
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            }
+
+            if (path.EndsWith("/status", StringComparison.Ordinal))
+            {
+                Status = Enum.Parse<TenantStatus>(Read<ChangeTenantStatusRequest>(body!).Status);
+            }
+            else if (path.EndsWith("/line-quota", StringComparison.Ordinal))
+            {
+                MaxActiveLines = Read<SetLineQuotaRequest>(body!).MaxActiveLines!.Value;
+            }
+
+            return Json(HttpStatusCode.OK, new { });
+        }
+
+        OwnerTokensSeen.Add(request.Headers.Authorization?.Parameter);
         if (request.Headers.Authorization?.Parameter != _token || _token is null)
         {
             return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+        }
+
+        if (path == "api/tenant")
+        {
+            return Json(HttpStatusCode.OK, new TenantInfoResponse
+            {
+                Id = _tenantId, Name = "Fake", Status = Status, MaxActiveLines = MaxActiveLines,
+                ActiveLines = Channels.Count(c => c.IsActive), RegisteredLines = Channels.Count,
+            });
+        }
+
+        if (Status != TenantStatus.Active)
+        {
+            return new HttpResponseMessage(HttpStatusCode.Forbidden);
         }
 
         var segments = path.Split('/');
@@ -103,6 +170,7 @@ internal sealed class FakeConversiaApi : HttpMessageHandler
             ("GET", ["api", "channels"]) => Json(HttpStatusCode.OK, Channels),
             ("POST", ["api", "channels"]) => CreateChannel(Read<CreateChannelRequest>(body!)),
             ("POST", ["api", "channels", var id, "rotate-secret"]) => Rotate(Guid.Parse(id)),
+            ("POST", ["api", "channels", var id, "activate"]) => Activate(Guid.Parse(id)),
             ("GET", ["api", "conversations"]) => ListConversations(request.RequestUri.Query),
             ("PUT", ["api", "conversations", var id, "advisor"]) => AssignAdvisor(Guid.Parse(id), Read<AssignAdvisorRequest>(body!), path, body!),
             _ => new HttpResponseMessage(HttpStatusCode.NotFound),
@@ -127,13 +195,25 @@ internal sealed class FakeConversiaApi : HttpMessageHandler
     {
         var channel = new ChannelResponse
         {
-            Id = Guid.NewGuid(), BranchId = request.BranchId!.Value, DisplayPhoneNumber = request.DisplayPhoneNumber, IsActive = true, CreatedAt = DateTime.UtcNow,
+            Id = Guid.NewGuid(), BranchId = request.BranchId!.Value, DisplayPhoneNumber = request.DisplayPhoneNumber, IsActive = false, CreatedAt = DateTime.UtcNow,
             ChannelKey = "key-" + Guid.NewGuid().ToString("N"),
         };
         channel.WebhookPath = WebhookRoutes.Dialog360Path(channel.ChannelKey);
         Channels.Add(channel);
         _keys[channel.Id] = channel.ChannelKey;
         return Json(HttpStatusCode.Created, WithSecret(channel));
+    }
+
+    private HttpResponseMessage Activate(Guid id)
+    {
+        var channel = Channels.Single(c => c.Id == id);
+        if (!channel.IsActive && Channels.Count(c => c.IsActive) >= MaxActiveLines)
+        {
+            return Text(HttpStatusCode.Conflict, "quota full");
+        }
+
+        channel.IsActive = true;
+        return Json(HttpStatusCode.OK, channel);
     }
 
     private HttpResponseMessage Rotate(Guid id)

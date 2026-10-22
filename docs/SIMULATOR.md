@@ -28,9 +28,15 @@ docker compose -f docker-compose.yml -f docker-compose.simulator.yml up -d --bui
 
 # 2. A company (tenant) and its owner: open http://localhost:5112/register and create one (or POST /api/auth/register-tenant).
 
+#    A new company is PENDING (quota 0): nothing works until a platform administrator activates it. Either do that yourself
+#    (docs/PLATFORM_ADMIN.md) or let setup do it with SIM_ADMIN_EMAIL / SIM_ADMIN_PASSWORD (step 3).
+
 # 3. Tell the simulator who you are. Credentials come from the environment only; there is no --password option.
 export SIM_EMAIL='you@example.test'
 export SIM_PASSWORD='the password you registered with'
+#    Only if the company is not Active yet: a platform administrator (the one you bootstrapped with PLATFORM_ADMIN_EMAIL/PASSWORD).
+export SIM_ADMIN_EMAIL='admin@example.test'
+export SIM_ADMIN_PASSWORD='the administrator password'
 
 # 4. Create what the simulator needs. --print-secret shows the webhook secrets ONCE (the API never shows them again).
 dotnet run --project tools/Conversia.WebhookSimulator -- setup --api-url http://localhost:5030 --print-secret
@@ -63,10 +69,15 @@ own that never carries the owner's token, so neither the token nor a webhook sec
 Idempotent: it creates what is missing and leaves the rest alone (names are matched without regard to case; things that are not the simulator's are
 never touched). It makes the four branches of the pilot (Centro, Norte, Sur, Poblado), two advisors for each and **one WhatsApp number per
 branch** (`+57 300 555 0101` ...), because a conversation belongs to the branch of the number it arrived on, and the dashboard needs several
-branches to compare. It prints the webhook path of each number.
+branches to compare, and **switches the numbers on** (a new line starts inactive). It prints the webhook path of each number.
+
+If the company is not Active, setup logs in as the platform administrator (`SIM_ADMIN_EMAIL` / `SIM_ADMIN_PASSWORD`, environment only), activates it and
+sets the quota (`--line-quota`, default 4). The administrator's token is used for those calls only and never sent with the owner's. Without those
+variables and with a company that is not Active, setup stops before touching anything and says what to do. If the quota is full it says the number stays off.
 
 | Option | Effect |
 |---|---|
+| `--line-quota N` | The active-line quota the workspace needs (default 4, one per branch). With `SIM_ADMIN_*` set, setup activates a Pending or Suspended company and raises a quota below `N`. |
 | `--print-secret` | Prints the secret of a number it has just created (or rotated) as a line to paste: `export SIM_WEBHOOK_SECRETS='Centro=...;Norte=...'`. Without it the secret is discarded, and the command says so. |
 | `--rotate-secret` | Replaces the secret of every simulator number (the old one stops working at once). Use it when you lost them. |
 
@@ -125,6 +136,7 @@ on purpose.
 | Variable | Meaning |
 |---|---|
 | `SIM_EMAIL`, `SIM_PASSWORD` | The user to log in as: the owner of the company (the simulator needs to read the webhook paths and to create things, so it needs Organization management and Conversations access). |
+| `SIM_ADMIN_EMAIL`, `SIM_ADMIN_PASSWORD` | Optional, `setup` only: a platform administrator who activates a Pending workspace and sets its line quota. Both or neither. |
 | `SIM_WEBHOOK_SECRETS` | One secret per number: `Centro=<secret>;Norte=<secret>;Sur=<secret>;Poblado=<secret>`. `setup --print-secret` prints the line. |
 | `SIM_WEBHOOK_SECRET` | One secret to try for a branch that `SIM_WEBHOOK_SECRETS` does not list. |
 | `SIM_API_URL` | The API address when `--api-url` is not given. |

@@ -197,6 +197,9 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Jwt:SigningKey` | API | placeholder (rejected at startup) | HS256 signing secret, at least 32 bytes (UTF-8). Required. |
 | `Jwt:Issuer` | API | `Conversia` | Token issuer, validated on every request. |
 | `Jwt:Audience` | API | `Conversia` | Token audience, validated on every request. |
+| `PlatformAdmin:Email` | API | empty | With `PlatformAdmin:Password`, creates the first platform administrator at startup when none has that email (never overwrites one). Empty = no bootstrap. Compose: `PLATFORM_ADMIN_EMAIL`. `docs/PLATFORM_ADMIN.md`. |
+| `PlatformAdmin:Password` | API | empty | At least 12 characters, not a template placeholder, otherwise the API will not start (the error names the key only). Compose: `PLATFORM_ADMIN_PASSWORD`. |
+| `PlatformAdmin:TokenMinutes` | API | `60` | Lifetime of the administrator's token (1 to 720). |
 | `RateLimiting:Login:PermitLimit` | API | `10` | Login requests allowed per IP per window. Whole number >= 1, otherwise the API will not start. |
 | `RateLimiting:Login:WindowSeconds` | API | `60` | Length of the login rate-limit window in seconds. Whole number >= 1. |
 | `ErrorLogging:Enabled` | API | `true` | Store unexpected errors. `false`: the code is still generated, returned and logged, nothing is stored. `true`/`false` only, otherwise the API will not start. |
@@ -258,14 +261,19 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 
 Errors are `application/problem+json`; an unexpected `500` also carries
 `errorId` and the `X-Error-Id` header (`docs/ERRORS.md`). `401` means a missing/invalid
-token, `403` a missing permission. Owners satisfy every permission
+token, `403` a missing permission, or a company that is not Active (`"code": "tenant_not_active"`, `docs/PLATFORM_ADMIN.md`). Owners satisfy every permission
 policy in their own tenant.
 
 | Method | Path | Auth / permission | Success | Errors |
 |---|---|---|---|---|
 | POST | `/api/auth/register-tenant` | anonymous | `201` token | `400` invalid input / weak password, `409` email already registered |
 | POST | `/api/auth/login` | anonymous, rate limited | `200` token | `400` invalid input, `401` invalid credentials, `429` too many attempts (`Retry-After`) |
-| GET | `/api/users/me` | any authenticated user | `200` profile (id, tenant, owner flag, permissions) | `401`, `404` |
+| GET | `/api/tenant` | any signed-in user, in every status | `200` name, status (`Pending`/`Active`/`Suspended`), `maxActiveLines`, `activeLines`, `registeredLines` | `401` |
+| POST | `/api/admin/auth/login` | anonymous, rate limited | `200` platform administrator token (60 min, own audience) | `400`, `401`, `429` |
+| GET | `/api/admin/tenants`, `/api/admin/tenants/{id}`, `/api/admin/audit` | platform administrator only | `200` companies (filter by status and name), one company with its lines and recent audit, the audit trail | `400`, `401`, `403`, `404` |
+| PUT | `/api/admin/tenants/{id}/status`, `/line-quota` | platform administrator only | `200` the company | `400`, `401`, `404`, `409` invalid transition / quota below the active lines |
+| POST | `/api/admin/tenants/{id}/channels/{channelId}/deactivate` | platform administrator only | `200` the line, off | `401`, `404` |
+| GET | `/api/users/me` | any authenticated user, in every status | `200` profile (id, tenant, owner flag, permissions) | `401`, `404` |
 | GET | `/api/users` | `UsersView` | `200` users of the caller's tenant | `401`, `403` |
 | POST | `/api/users` | `UsersManage` | `201` created user | `400`, `401`, `403`, `409` email already registered |
 | POST | `/api/users/{userId}/permissions` | `UsersManage` | `204` (idempotent) | `400`, `401`, `403`, `404` unknown or other-tenant user |
@@ -275,9 +283,9 @@ policy in their own tenant.
 | GET | `/api/advisors`, `/api/advisors/{id}` | `OrganizationView` | `200` advisors / one advisor | `401`, `403`, `404` |
 | POST | `/api/advisors` | `OrganizationManage` | `201` advisor + `Location` | `400` (also unknown branch or user), `401`, `403` |
 | GET | `/api/channels`, `/api/channels/{id}` | `OrganizationView` | `200` WhatsApp channels; key and webhook path only with `OrganizationManage`, never the secret | `401`, `403`, `404` |
-| POST | `/api/channels/{id}/deactivate`, `/activate` | `OrganizationManage` | `200` channel (webhook answers 401 while inactive) | `401`, `403`, `404` |
+| POST | `/api/channels/{id}/deactivate`, `/activate` | `OrganizationManage` | `200` channel (webhook answers 401 while inactive); `activate` also needs an Active company and a free slot of the line quota | `401`, `403`, `404`, `409` quota full (`activate`) |
 | POST | `/api/channels/{id}/rotate-secret` | `OrganizationManage` | `200` channel + the NEW `webhookSecret` (once); the old one stops at once | `401`, `403`, `404` |
-| POST | `/api/channels` | `OrganizationManage` | `201` channel + `webhookSecret` (shown only once) | `400` (also unknown branch), `401`, `403` |
+| POST | `/api/channels` | `OrganizationManage` | `201` channel, **inactive**, + `webhookSecret` (shown only once) | `400` (also unknown branch), `401`, `403` |
 | GET | `/api/conversations` | `ConversationsView` | `200` page of conversations, newest first (filters `branchId`, `advisorId`, `unassigned`, `stage`, `source`, `status`, `from`, `to`, `unanswered` (open, no reply yet), `closedUnanswered` (closed, never replied); page size 1 to 100); no message text | `400`, `401`, `403` |
 | GET | `/api/conversations/{id}` | `ConversationsView` | `200` conversation + opportunity (stage, outcome source, service, reason, objection, loss reason, classifier confidence and rule codes, `stageChangedBy`) + `advisorAssignedBy`/`advisorAssignedAt` (user ids only; null when the system did it) + messages (text included) | `401`, `403`, `404` unknown or other-tenant conversation |
 | PUT | `/api/conversations/{id}/advisor` | `ConversationsManage` | `200` conversation (`{"advisorId": null}` unassigns); records who did it (`advisorAssignedBy`, `advisorAssignedAt`) | `400` unknown/other-tenant/inactive advisor or one from another branch, `401`, `403`, `404` |
@@ -311,6 +319,7 @@ same five projects run in CI (`.github/workflows/tests.yml`).
 
 ## Documentation
 
+- `docs/PLATFORM_ADMIN.md` — the platform administrator: company approval, per-line quota, admin API, bootstrap, security model, runbook.
 - `docs/WEBHOOKS.md` — the 360dialog webhook: endpoint, mapping, retries, closing of conversations.
 - `docs/METRICS.md` — the exact definition of every dashboard metric, the alerts and their settings.
 - `docs/CLASSIFICATION.md` — the rule-based classifier and how to plug in another one.

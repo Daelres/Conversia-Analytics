@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using Conversia.Application.Validation;
 using Conversia.Domain.Entities;
+using System.Text.Json.Serialization;
 using Conversia.Domain.Enums;
 using Conversia.Domain.ReadModels;
 
@@ -82,6 +83,7 @@ public class TenantSummaryResponse
 
     public string Name { get; set; } = string.Empty;
 
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public TenantStatus Status { get; set; }
 
     public int MaxActiveLines { get; set; }

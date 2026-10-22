@@ -102,6 +102,7 @@ README.md                    # README del proyecto (en inglés): qué es, arranq
 docs/
   decisiones.md              # registro de decisiones del proyecto
   ARCHITECTURE.md, EXTENDING.md, WORKFLOW.md, ERRORS.md, USERS_TENANTS_PERMISSIONS.md   # arquitectura y guías técnicas del proyecto
+  PLATFORM_ADMIN.md          # administrador de plataforma: aprobación de empresas, cupo de líneas activas, API /api/admin, arranque, modelo de seguridad y runbook
   WEBHOOKS.md                # ingesta del webhook de 360dialog (endpoint, mapeo, reintentos, cierre de conversaciones, formato no verificado)
   CLASSIFICATION.md          # clasificador de conversaciones (reglas en español; cómo conectar un LLM)
   METRICS.md                 # definición exacta de cada métrica del tablero, alertas y configuración
@@ -111,7 +112,7 @@ src/
   Conversia.Domain/          # sin dependencias
   Conversia.Application/     # referencia Domain
   Conversia.Infrastructure/  # referencia Application; EF Core + Npgsql, migraciones en Persistence/Migrations
-  Conversia.API/             # controllers; referencia Application e Infrastructure
+  Conversia.API/             # controllers (incluye /api/admin, solo para el administrador de plataforma); referencia Application e Infrastructure
   Conversia.Web/             # Blazor Web; referencia Application y habla con la API por HTTP. `/panel` es el tablero ejecutivo (aterrizaje tras iniciar sesión); sus piezas viven en Components/Dashboard y Dashboard/; `/conversaciones` y `/conversaciones/{id}` son el listado y el detalle de chats (Components/Conversations); `/organizacion` administra sucursales, asesores y números (el secreto del webhook se muestra una sola vez, Components/Organization)
 docker/healthcheck.sh        # sonda de salud de los contenedores (bash /dev/tcp; las imágenes no traen curl)
 scripts/                     # docker-build.sh (construye las tres imágenes) y docker-smoke-test.sh (prueba de aceptación de las imágenes; corre en CI)

@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Conversia.Domain.Enums;
 
 namespace Conversia.Application.DTOs.Tenants;
@@ -12,6 +13,7 @@ public class TenantInfoResponse
 
     public string Name { get; set; } = string.Empty;
 
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public TenantStatus Status { get; set; }
 
     /// <summary>How many lines may be active at once.</summary>

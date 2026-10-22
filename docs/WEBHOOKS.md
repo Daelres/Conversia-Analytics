@@ -30,7 +30,7 @@ worker's job, so a parsing bug can never lose a message.
 | Body | One JSON object, at most `Webhooks:MaxBodyBytes` (default 1 MiB). Any content type. |
 | `200` | Stored as a new pending event, **or** an event with the same body hash already existed for the channel (nothing stored). 360dialog must always see `200` for a delivery we have, otherwise it retries. Empty body. |
 | `400` | The body is empty, not a single JSON object, or JSON that PostgreSQL `jsonb` cannot hold (a `\u0000` escape, an unpaired surrogate). `application/problem+json`. |
-| `401` | Unknown key, malformed key, inactive channel, missing secret or wrong secret. **One identical answer** for all of them, so nothing tells an attacker which part failed. The body is not read. |
+| `401` | Unknown key, malformed key, inactive channel, **channel of a company that is not Active (pending or suspended)**, missing secret or wrong secret. **One identical answer** for all of them, so nothing tells an attacker which part failed. The body is not read. |
 | `413` | Body over the limit (checked on `Content-Length` and, for chunked bodies, while reading). |
 | `429` | The client IP failed to authenticate more than `Webhooks:FailedAuthRateLimitPerMinute` times (default 60) in a minute (it is then refused before being authenticated), or the channel received more than `Webhooks:ChannelRateLimitPerMinute` deliveries (default 6000). Has `Retry-After`. See [Rate limits](#rate-limits-and-proxies). |
 
@@ -57,12 +57,19 @@ budget. `X-Forwarded-For` is therefore supported but **off by default and never 
 honored only when the immediate sender is one of them, one hop (`ForwardLimit = 1`); otherwise it is ignored. Invalid entries stop
 the API at startup. It applies to the whole API (the login limiter too), as the rest of the API does.
 
+### Companies that are not Active
+
+Billing is per line, so a company operates only while a platform administrator has it **Active** (`docs/PLATFORM_ADMIN.md`). For a Pending or
+Suspended company the webhook answers the same uniform `401` as for a wrong secret and **stores nothing**; the background workers (event
+processing, classification, automatic closing) do not claim its work. Events stored before a suspension stay `Pending` and are processed once
+it is Active again. The queue health and the backlog counters ignore that waiting work on purpose.
+
 ### Managing a channel
 
 | Call | Permission | Effect |
 |---|---|---|
 | `POST /api/channels/{id}/deactivate` | `OrganizationManage` | The provider gets the same `401` as for a wrong secret. Idempotent. |
-| `POST /api/channels/{id}/activate` | `OrganizationManage` | Turns it back on. Idempotent. |
+| `POST /api/channels/{id}/activate` | `OrganizationManage` | Turns it on. Idempotent. A new channel starts **inactive**: it only works after this, and only while the company is Active and below its line quota (`409` "Tu cupo de líneas activas está completo (X de X)..." otherwise). |
 | `POST /api/channels/{id}/rotate-secret` | `OrganizationManage` | Returns the **new** `webhookSecret` once (`Cache-Control: no-store`); the old one stops working immediately. The URL (channel key) does not change: update the secret header at 360dialog right after. |
 
 `GET /api/channels` shows `channelKey` and `webhookPath` only to callers who hold `OrganizationManage` (the owner included); a caller with

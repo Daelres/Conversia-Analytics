@@ -42,6 +42,105 @@ public class CommandTests
         return (fake, api);
     }
 
+    // ---- a workspace that is not active yet ----
+
+    private static SimulatorEnvironment AdminEnv() => EnvironmentWith(
+        (SimulatorEnvironment.AdminEmailVariable, FakeConversiaApi.AdminEmail), (SimulatorEnvironment.AdminPasswordVariable, FakeConversiaApi.AdminPassword));
+
+    [Fact]
+    public async Task Setup_switches_on_the_numbers_it_creates_because_a_new_line_starts_off()
+    {
+        var (fake, _) = await SetUpWorkspaceAsync();
+
+        Assert.Equal(4, fake.Channels.Count);
+        Assert.All(fake.Channels, c => Assert.True(c.IsActive));
+    }
+
+    [Fact]
+    public async Task Setup_on_a_pending_workspace_without_admin_credentials_stops_and_says_what_to_do()
+    {
+        var fake = new FakeConversiaApi { Status = TenantStatus.Pending, MaxActiveLines = 0 };
+
+        var failure = await Assert.ThrowsAsync<UsageException>(() =>
+            new SetupCommand(LoggedInAsync(fake).Result, new StringWriter(), EnvironmentWith()).RunAsync(new SimulatorOptions { Command = SimulatorCommandName.Setup }, CancellationToken.None));
+
+        Assert.Contains("pending activation", failure.Message);
+        Assert.Contains("SIM_ADMIN_EMAIL", failure.Message);
+        Assert.Empty(fake.Branches); // it touched nothing
+        Assert.Empty(fake.AdminCalls);
+    }
+
+    [Fact]
+    public async Task Setup_on_a_pending_workspace_with_admin_credentials_activates_it_sets_the_quota_and_switches_the_numbers_on()
+    {
+        var fake = new FakeConversiaApi { Status = TenantStatus.Pending, MaxActiveLines = 0 };
+        var output = new StringWriter();
+
+        await new SetupCommand(await LoggedInAsync(fake), output, AdminEnv()).RunAsync(new SimulatorOptions { Command = SimulatorCommandName.Setup, LineQuota = 4 }, CancellationToken.None);
+
+        Assert.Equal((TenantStatus.Active, 4), (fake.Status, fake.MaxActiveLines));
+        Assert.Equal(4, fake.Channels.Count(c => c.IsActive));
+        Assert.Contains("Activated the workspace", output.ToString());
+        // The administrator's token went only to the admin API, and the owner's token only to the rest.
+        Assert.All(fake.AdminCalls, call => Assert.Equal(fake.IssuedAdminToken, call.Token));
+        Assert.DoesNotContain(fake.IssuedAdminToken, fake.OwnerTokensSeen);
+        Assert.DoesNotContain(FakeConversiaApi.AdminPassword, output.ToString());
+    }
+
+    [Fact]
+    public async Task Setup_raises_a_quota_that_is_too_small_and_honours_line_quota()
+    {
+        var fake = new FakeConversiaApi { Status = TenantStatus.Active, MaxActiveLines = 1 };
+
+        await new SetupCommand(await LoggedInAsync(fake), new StringWriter(), AdminEnv()).RunAsync(new SimulatorOptions { Command = SimulatorCommandName.Setup, LineQuota = 6 }, CancellationToken.None);
+
+        Assert.Equal(6, fake.MaxActiveLines);
+        Assert.Equal(4, fake.Channels.Count(c => c.IsActive));
+    }
+
+    [Fact]
+    public async Task Setup_with_a_full_quota_and_no_admin_says_the_number_stays_off()
+    {
+        var fake = new FakeConversiaApi { Status = TenantStatus.Active, MaxActiveLines = 2 };
+
+        var failure = await Assert.ThrowsAsync<UsageException>(() =>
+            new SetupCommand(LoggedInAsync(fake).Result, new StringWriter(), EnvironmentWith()).RunAsync(new SimulatorOptions { Command = SimulatorCommandName.Setup }, CancellationToken.None));
+
+        Assert.Contains("quota", failure.Message);
+        Assert.Equal(2, fake.Channels.Count(c => c.IsActive));
+    }
+
+    [Fact]
+    public async Task A_wrong_admin_login_is_refused_without_echoing_the_credentials()
+    {
+        var fake = new FakeConversiaApi { Status = TenantStatus.Pending, MaxActiveLines = 0 };
+        var env = EnvironmentWith((SimulatorEnvironment.AdminEmailVariable, FakeConversiaApi.AdminEmail), (SimulatorEnvironment.AdminPasswordVariable, "the-wrong-admin-password"));
+
+        var failure = await Assert.ThrowsAsync<ApiFailure>(() =>
+            new SetupCommand(LoggedInAsync(fake).Result, new StringWriter(), env).RunAsync(new SimulatorOptions { Command = SimulatorCommandName.Setup }, CancellationToken.None));
+
+        Assert.DoesNotContain("the-wrong-admin-password", failure.Message);
+        Assert.DoesNotContain(FakeConversiaApi.AdminEmail, failure.Message);
+    }
+
+    [Fact]
+    public void Admin_credentials_come_from_the_environment_both_or_neither()
+    {
+        Assert.Null(EnvironmentWith().AdminCredentials());
+        Assert.Equal((FakeConversiaApi.AdminEmail, FakeConversiaApi.AdminPassword), AdminEnv().AdminCredentials());
+        Assert.Throws<UsageException>(() => EnvironmentWith((SimulatorEnvironment.AdminEmailVariable, "a@b.test")).AdminCredentials());
+        Assert.Throws<UsageException>(() => EnvironmentWith((SimulatorEnvironment.AdminPasswordVariable, "x")).AdminCredentials());
+    }
+
+    [Fact]
+    public void Line_quota_is_a_flag_and_credentials_are_still_refused_on_the_command_line()
+    {
+        Assert.Equal(7, SimulatorOptions.Parse(["setup", "--line-quota", "7"]).LineQuota);
+        Assert.Equal(4, SimulatorOptions.Parse(["setup"]).LineQuota);
+        Assert.Throws<UsageException>(() => SimulatorOptions.Parse(["setup", "--line-quota", "1001"]));
+        Assert.Throws<UsageException>(() => SimulatorOptions.Parse(["setup", "--admin-password", "x"]));
+    }
+
     // ---- login ----
 
     [Fact]

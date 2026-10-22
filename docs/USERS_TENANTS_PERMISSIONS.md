@@ -25,6 +25,9 @@ All three inherit `BaseEntity` (`Id: Guid`, `CreatedAt`, `CreatedBy`,
 |---|---|---|
 | Id | Guid | PK (from `BaseEntity`) |
 | Name | string, required, max 200 | Display name of the tenant (the company) |
+| Status | `Pending` / `Active` / `Suspended`, stored by name | A company registers `Pending`; only a platform administrator makes it `Active` or `Suspended` (`docs/PLATFORM_ADMIN.md`) |
+| MaxActiveLines | int, 0 to 1000 (database check) | How many WhatsApp lines may be active at once; 0 at registration |
+| StatusChangedAt / StatusChangedBy / StatusReason | nullable | When, which platform administrator (id) and why (up to 500 characters) |
 
 ### `Users`
 
@@ -84,6 +87,17 @@ was granted once can exist in a database forever. `3` (`ProductsView`) and `4`
 2026-10-19; the `RemoveProducts` migration deletes the grants that carried them. Do not
 reuse `3` or `4` for a new permission, and never renumber the others
 (`PermissionCatalogTests` pins every value).
+
+## Platform administrators and the company status
+
+Outside every company there is the **platform administrator** (table `PlatformAdmins`, no `TenantId`), with its own login
+(`POST /api/admin/auth/login`), its own token (audience `<Jwt:Audience>.platform-admin`, key derived from `Jwt:SigningKey`, claim `role=platform_admin`,
+no `tenant_id`) and its own policy `PlatformAdmin`. See `docs/PLATFORM_ADMIN.md`. The two token kinds are rejected on each other's endpoints.
+
+A company that is not `Active` cannot operate: on every endpoint that needs a signed-in company user the API answers `403` with
+`"code": "tenant_not_active"` ("Tu empresa está pendiente de activación." / "Tu empresa está suspendida."), before permissions are evaluated.
+Exempt: login and registration, `GET /api/tenant` (name, status, quota and line usage) and `GET /api/users/me`. The status is read per request,
+so a suspension applies at once to tokens already issued.
 
 ## Login and tenant resolution
 
@@ -264,8 +278,8 @@ enforced with `[Authorize(Policy = "...")]` on controller actions.
 
 ## Multi-tenancy enforcement
 
-`ApplicationDbContext` applies a global query filter on `Users` and
-`UserPermissions`, scoped to `CurrentTenantService.TenantId` (resolved
+`ApplicationDbContext` applies a global query filter on every entity that carries a company (`Users`, `UserPermissions`, branches, advisors, channels,
+conversations, ...), scoped to `CurrentTenantService.TenantId` (resolved
 from the `tenant_id` claim via `IHttpContextAccessor`). `Tenants`
 itself is not filtered — it is the tenant root and is only ever
 queried by `Id` during registration/lookup, never listed cross-tenant

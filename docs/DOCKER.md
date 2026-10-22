@@ -74,6 +74,7 @@ Nothing secret is baked into an image; everything below is supplied at run time.
 | `Jwt__SigningKey` | api | yes | At least 32 bytes. The API refuses to start without it. The migrator gets a throwaway value (it boots the API host to find the `DbContext` and never signs a token). |
 | `ErrorLogging__ReportKey` | api | no | At least 32 characters. Unset: the error report endpoint is off. Must equal the Web's `ErrorReporting__ApiKey`. |
 | `Dialog360__ApiKey` | api | no | Passed through; nothing calls 360dialog yet. |
+| `PlatformAdmin__Email`, `PlatformAdmin__Password` | api | no | Both set: the API creates this platform administrator at startup when no one has the email (never overwrites). Empty = none. Password: at least 12 characters, not a placeholder, or the API will not start. Compose passes them from `PLATFORM_ADMIN_EMAIL` / `PLATFORM_ADMIN_PASSWORD`; add those two to your `.env` (they are not in `.env.example` yet). `docs/PLATFORM_ADMIN.md`. |
 | `Api__BaseUrl` | web | yes | Base URL of the API as seen from the Web container. |
 | `ErrorReporting__ApiKey` | web | no | See `ErrorLogging__ReportKey`. |
 | `DataProtection__KeysPath` | web | no | Directory where the Web persists its Data Protection keys. The image sets it to `/keys`. Must exist and be writable or the Web refuses to start. Unset: the framework default (not persisted in a container). |
@@ -81,7 +82,7 @@ Nothing secret is baked into an image; everything below is supplied at run time.
 | `ASPNETCORE_HTTP_PORTS` | api, web | no | Defaults to 8080 in the images. |
 | `--connection` (argument) | migrator | yes | Same connection string as the API. |
 
-Compose-level variables (`.env`, see `.env.example`): `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ERROR_REPORT_KEY`, `D360_API_KEY`, `API_PORT`, `WEB_PORT`, `POSTGRES_PORT`, `CONVERSIA_TAG`, `CONVERSIA_VERSION`, `CONVERSIA_GIT_SHA`, `CONVERSIA_BUILD_DATE`.
+Compose-level variables (`.env`, see `.env.example`): `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ERROR_REPORT_KEY`, `D360_API_KEY`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `API_PORT`, `WEB_PORT`, `POSTGRES_PORT`, `CONVERSIA_TAG`, `CONVERSIA_VERSION`, `CONVERSIA_GIT_SHA`, `CONVERSIA_BUILD_DATE`.
 
 ### Volumes
 
@@ -123,7 +124,7 @@ It builds the three images with a throwaway tag (`smoke-<random>`), starts its o
 - PostgreSQL healthy, migrator exit 0, and the number of applied migrations equal to the migration classes in the repository;
 - API and Web `/health`, container health `healthy`, `/` and `/login` render, every CSS and JavaScript asset the login page references (including `blazor.web.js`) answers 200 with the right content type and an immutable cache header;
 - non-root and read-only `/app` in the running containers, secrets present only as run-time environment;
-- end to end: register a tenant, log in, create a branch, an advisor and a channel, post an inbound message and an echo to the webhook with the secret returned once, a redelivery (idempotent), a wrong secret and an unknown key (401), wait for the conversation, all six metrics endpoints, and a sign-in and conversation list through the Web;
+- end to end: bootstrap a platform administrator with a random password, register a tenant (it is Pending: company endpoints answer `403 tenant_not_active`), check that an admin token is `401` on company endpoints and a company token `401` on the admin API, activate the company and set a quota of 1 through the admin API, create a branch, an advisor and a channel (inactive; its webhook answers 401), switch it on, check a second line is refused beyond the quota (409), suspend and reactivate the company (API `403`, webhook `401`, then `200`), and then post an inbound message and an echo to the webhook with the secret returned once, a redelivery (idempotent), a wrong secret and an unknown key (401), wait for the conversation, all six metrics endpoints, and a sign-in and conversation list through the Web;
 - logs: no Error-level entries or stack traces (the migrator's expected first read of a missing `__EFMigrationsHistory` aside), no phone number, contact name or message text, no secret;
 - Data Protection keys: a login form is fetched (cookie and antiforgery token), only the Web container is recreated (a plain `restart` keeps the container file system and would hide the problem), and the same form is submitted afterwards; an antiforgery rejection (400) fails the check, and a key file must exist in `/keys`;
 - failure mode: with PostgreSQL stopped the API `/health` answers 503 and Docker marks the container unhealthy without a crash loop; the Web stays healthy; everything recovers when PostgreSQL returns.

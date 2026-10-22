@@ -11,6 +11,8 @@ public sealed class SimulatorEnvironment
     public const string SecretVariable = "SIM_WEBHOOK_SECRET";
     public const string SecretsVariable = "SIM_WEBHOOK_SECRETS";
     public const string ApiUrlVariable = "SIM_API_URL";
+    public const string AdminEmailVariable = "SIM_ADMIN_EMAIL";
+    public const string AdminPasswordVariable = "SIM_ADMIN_PASSWORD";
 
     private readonly Func<string, string?> _read;
 
@@ -45,6 +47,27 @@ public sealed class SimulatorEnvironment
         }
 
         return (email!, password!);
+    }
+
+    /// <summary>
+    /// The login of a platform administrator, only for <c>setup</c> when the workspace is not active yet (it approves the company and sets
+    /// its line quota). Null when none is set; one of the two alone is a usage error. Environment only, like every credential.
+    /// </summary>
+    public (string Email, string Password)? AdminCredentials()
+    {
+        var email = Blank(_read(AdminEmailVariable));
+        var password = _read(AdminPasswordVariable);
+        if (email is null && string.IsNullOrEmpty(password))
+        {
+            return null;
+        }
+
+        if (email is null || string.IsNullOrEmpty(password))
+        {
+            throw new UsageException($"Set both {AdminEmailVariable} and {AdminPasswordVariable} in the environment, or neither.");
+        }
+
+        return (email, password);
     }
 
     /// <summary>
