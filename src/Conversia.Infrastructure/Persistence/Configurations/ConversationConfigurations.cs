@@ -178,6 +178,8 @@ public class WebhookEventConfiguration : IEntityTypeConfiguration<WebhookEvent>
         builder.Property(e => e.LastError).HasMaxLength(WebhookEvent.LastErrorMaxLength);
         builder.Property(e => e.SkippedMessageCount);
         builder.Property(e => e.StatusCount);
+        builder.Property(e => e.StoredMessageCount);
+        builder.Property(e => e.DuplicateMessageCount);
         builder.Property(e => e.CreatedAt).IsRequired();
         builder.Property(e => e.UpdatedAt);
 
@@ -188,7 +190,8 @@ public class WebhookEventConfiguration : IEntityTypeConfiguration<WebhookEvent>
         builder.HasIndex(e => new { e.NextAttemptAt, e.ReceivedAt })
             .HasFilter("\"Status\" = 'Pending'");
 
-        builder.HasIndex(e => e.TenantId);
+        // The deliveries page of a tenant, newest first (it also serves the foreign key to the tenant as its first column).
+        builder.HasIndex(e => new { e.TenantId, e.ReceivedAt });
 
         builder.HasOne<Tenant>().WithMany().HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<WhatsAppChannel>().WithMany().HasForeignKey(e => e.ChannelId).OnDelete(DeleteBehavior.Restrict);

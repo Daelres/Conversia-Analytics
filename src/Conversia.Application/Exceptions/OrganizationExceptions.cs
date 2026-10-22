@@ -65,3 +65,14 @@ public class TenantNotFoundException : Exception
     {
     }
 }
+
+/// <summary>A message that does not exist, or exists in another tenant (the reference point of a feed page). The API layer maps this to 404.</summary>
+public class MessageNotFoundException : Exception
+{
+    public const string DefaultMessage = "Mensaje no encontrado.";
+
+    public MessageNotFoundException()
+        : base(DefaultMessage)
+    {
+    }
+}

@@ -158,7 +158,7 @@ public sealed class WebhookEventRunner(
             return;
         }
 
-        webhookEvent.RecordParseCounts(result.Skipped, result.Statuses);
+        webhookEvent.RecordParseCounts(result.Skipped, result.Statuses, result.MessagesStored, result.MessagesAlreadyStored);
         webhookEvent.MarkProcessed(UtcNow());
         await db.SaveChangesAsync(budget.Token);
         await transaction.CommitAsync(budget.Token);

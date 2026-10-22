@@ -163,7 +163,7 @@ with `GET /api/conversations/{id}`, which needs its own permission.
 | `Metrics:MinSampleSize` | `20` | Minimum decided conversations for the rate alerts. 1 to 100000. |
 | `Metrics:ConversionDropAlertPoints` | `10` | Points of drop that raise `CONVERSION_DROP`. 1 to 100. |
 | `Metrics:BranchBelowAveragePoints` | `15` | Points below the tenant average that raise `BRANCH_BELOW_AVERAGE`. 1 to 100. |
-| `Metrics:RateLimitPerMinute` | `60` | Requests per minute and authenticated user for the metrics endpoints and `GET /api/conversations`. 1 to 100000. |
+| `Metrics:RateLimitPerMinute` | `60` | Requests per minute and authenticated user for the metrics endpoints, `GET /api/conversations`, `/api/messages/*` and `GET /api/webhook-events` (one shared budget). 1 to 100000. |
 | `Metrics:QueryTimeoutSeconds` | `15` | Time limit of each metrics SQL statement. 1 to 300. |
 
 ## How it is computed

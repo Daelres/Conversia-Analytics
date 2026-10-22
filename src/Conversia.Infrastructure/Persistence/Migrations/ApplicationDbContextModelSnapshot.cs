@@ -754,6 +754,9 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("DuplicateMessageCount")
+                        .HasColumnType("integer");
+
                     b.Property<string>("LastError")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
@@ -782,6 +785,9 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<int?>("StatusCount")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("StoredMessageCount")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 
@@ -793,13 +799,13 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId");
-
                     b.HasIndex("ChannelId", "BodyHash")
                         .IsUnique();
 
                     b.HasIndex("NextAttemptAt", "ReceivedAt")
                         .HasFilter("\"Status\" = 'Pending'");
+
+                    b.HasIndex("TenantId", "ReceivedAt");
 
                     b.ToTable("WebhookEvents", (string)null);
                 });

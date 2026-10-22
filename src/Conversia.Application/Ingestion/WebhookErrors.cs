@@ -29,6 +29,10 @@ public static partial class WebhookErrors
         return ErrorSanitizer.SanitizeText(LongNumber().Replace(text, "[num]"), WebhookEvent.LastErrorMaxLength) ?? string.Empty;
     }
 
+    /// <summary>The same sanitizing for a text that was already stored: applied again on the way out, it changes nothing that is already clean.</summary>
+    public static string SanitizeStored(string text)
+        => ErrorSanitizer.SanitizeText(LongNumber().Replace(text, "[num]"), WebhookEvent.LastErrorMaxLength) ?? string.Empty;
+
     [GeneratedRegex(@"\+?\d{7,}", RegexOptions.CultureInvariant)]
     private static partial Regex LongNumber();
 }

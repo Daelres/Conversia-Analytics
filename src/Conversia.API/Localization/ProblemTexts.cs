@@ -17,6 +17,7 @@ public static class ProblemTexts
     public const string LineQuotaFullTitle = "Cupo de líneas completo";
     public const string TenantNotActiveTitle = "Empresa no activa";
     public const string ConversationNotFoundTitle = "Conversación no encontrada";
+    public const string MessageNotFoundTitle = "Mensaje no encontrado";
     public const string DuplicateBranchNameTitle = "Sucursal duplicada";
     public const string InvalidRequestTitle = "Solicitud no válida";
     public const string QueryTimeoutTitle = "Consulta demasiado lenta";

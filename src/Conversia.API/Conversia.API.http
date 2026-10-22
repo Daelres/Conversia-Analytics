@@ -75,6 +75,18 @@ Authorization: Bearer {{token}}
 GET {{host}}/api/conversations?pageSize=20&stage=InFollowUp
 Authorization: Bearer {{token}}
 
+### The newest messages the service has read (ConversationsView), newest first. Filters: channelId, direction (Inbound/Outbound), since (ISO instant), afterId (only messages newer than that one); text and the customer's last four digits only
+GET {{host}}/api/messages/recent?pageSize=20
+Authorization: Bearer {{token}}
+
+### Is it arriving? Messages today, last inbound/outbound, last 24 hours and the last delivery on each line (ConversationsView)
+GET {{host}}/api/messages/summary
+Authorization: Bearer {{token}}
+
+### The webhook deliveries received, including those that stored nothing (ConversationsView). Filters: channelId, status (Pending/Processed/Failed). Never the raw body
+GET {{host}}/api/webhook-events?pageSize=25
+Authorization: Bearer {{token}}
+
 ### One conversation with its messages
 # GET {{host}}/api/conversations/<conversationId>
 # Authorization: Bearer {{token}}

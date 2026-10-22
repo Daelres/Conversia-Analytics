@@ -3,6 +3,7 @@ using Conversia.Application.Services;
 using Conversia.Application.Time;
 using Conversia.Infrastructure.Configuration;
 using Conversia.Infrastructure.Conversations;
+using Conversia.Infrastructure.Messages;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Conversia.API.Configuration;
@@ -25,6 +26,8 @@ public static class ConversationServiceCollectionExtensions
 
         services.AddScoped<IConversationQueries, ConversationQueries>();
         services.AddScoped<IConversationService, ConversationService>();
+        services.AddScoped<IMessageFeedQueries, MessageFeedQueries>();
+        services.AddScoped<IMessageFeedService, MessageFeedService>();
         services.AddScoped<ConversationAutoCloser>();
 
         if (lifecycle.Enabled)

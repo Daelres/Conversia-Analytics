@@ -46,6 +46,12 @@ public class WebhookEvent : BaseEntity
     /// <summary>Delivery receipts (<c>statuses</c>) in the delivery. Null until processed.</summary>
     public int? StatusCount { get; private set; }
 
+    /// <summary>Messages this delivery added to the database. Null until processed, and for deliveries processed before this was recorded.</summary>
+    public int? StoredMessageCount { get; private set; }
+
+    /// <summary>Messages of the delivery that were already stored by an earlier one (the provider re-sent them). Null like <see cref="StoredMessageCount"/>.</summary>
+    public int? DuplicateMessageCount { get; private set; }
+
     // Required by EF Core for materialization.
     private WebhookEvent()
     {
@@ -75,10 +81,12 @@ public class WebhookEvent : BaseEntity
         };
     }
 
-    public void RecordParseCounts(int skippedMessages, int statuses)
+    public void RecordParseCounts(int skippedMessages, int statuses, int? storedMessages = null, int? duplicateMessages = null)
     {
         SkippedMessageCount = skippedMessages;
         StatusCount = statuses;
+        StoredMessageCount = storedMessages;
+        DuplicateMessageCount = duplicateMessages;
     }
 
     public void MarkProcessed(DateTime now)
