@@ -406,6 +406,48 @@ for endpoint in summary conversion first-response loss-reasons volume alerts; do
 done
 [ "$(code_of "$api_url/api/metrics/summary")" = "401" ] && pass "metrics without a token -> 401" || fail "metrics without a token did not return 401"
 
+# The "did my message arrive?" endpoints: the messages the worker stored, the arrival counters and the deliveries (never their body).
+recent_json="$(json_get "$auth_headers" "$api_url/api/messages/recent" || true)"
+masked_customer="…${customer_number: -4}"
+if [ "$(printf '%s' "$recent_json" | jq '[.items[] | select(.direction == "Inbound" and .text == "'"$inbound_text"'")] | length' 2>/dev/null || echo 0)" = "1" ] \
+   && [ "$(printf '%s' "$recent_json" | jq '[.items[] | select(.direction == "Outbound" and .text == "'"$outbound_text"'")] | length' 2>/dev/null || echo 0)" = "1" ] \
+   && [ "$(printf '%s' "$recent_json" | jq -r '.totalCount' 2>/dev/null || echo 0)" = "2" ]; then
+  pass "GET /api/messages/recent lists the inbound and the outbound message once each"
+else
+  fail "GET /api/messages/recent does not list the two messages"
+fi
+if [ "$(printf '%s' "$recent_json" | jq -r '.items[0].contact.maskedWaId // empty' 2>/dev/null)" = "$masked_customer" ] && ! grep -q "$customer_number" <<<"$recent_json"; then
+  pass "the feed masks the customer's number (last four digits only)"
+else
+  fail "the feed does not mask the customer's number"
+fi
+summary_json="$(json_get "$auth_headers" "$api_url/api/messages/summary" || true)"
+if [ "$(printf '%s' "$summary_json" | jq -r '(.inboundLast24Hours >= 1) and (.outboundLast24Hours >= 1) and (.lastInboundAt != null) and (.lastOutboundAt != null)' 2>/dev/null)" = "true" ]; then
+  pass "GET /api/messages/summary counts the last 24 hours and the last message in each direction"
+else
+  fail "GET /api/messages/summary: $summary_json"
+fi
+if [ "$(printf '%s' "$summary_json" | jq -r '[.lines[] | select(.channelId == "'"$channel_id"'") | .lastDeliveryAt] | .[0] != null' 2>/dev/null)" = "true" ] \
+   && [ "$(printf '%s' "$summary_json" | jq -r '[.lines[] | select(.channelId == "'"$second_id"'") | .lastDeliveryAt] | .[0] == null' 2>/dev/null)" = "true" ]; then
+  pass "the summary shows the last delivery of the line that received one and none for the silent line"
+else
+  fail "the summary's per-line last delivery is wrong"
+fi
+events_json="$(json_get "$auth_headers" "$api_url/api/webhook-events" || true)"
+if [ "$(printf '%s' "$events_json" | jq -r '.totalCount == 2 and ([.items[] | .outcomeCode] | all(. == "stored")) and ([.items[] | .storedMessageCount] | all(. == 1))' 2>/dev/null)" = "true" ]; then
+  pass "GET /api/webhook-events shows both deliveries as stored (the redelivery is not a third event)"
+else
+  fail "GET /api/webhook-events: $events_json"
+fi
+if grep -qiE 'rawPayload|bodyHash' <<<"$events_json" || grep -q "$customer_number" <<<"$events_json" || grep -q "$webhook_secret" <<<"$events_json"; then
+  fail "the deliveries answer leaks a raw body, a hash, a number or the secret"
+else
+  pass "the deliveries answer carries no raw body, number or secret"
+fi
+for feed_endpoint in messages/recent messages/summary webhook-events; do
+  [ "$(code_of "$api_url/api/$feed_endpoint")" = "401" ] && pass "GET /api/$feed_endpoint without a token -> 401" || fail "GET /api/$feed_endpoint without a token did not return 401"
+done
+
 # ------------------------------------------------------------------ one request through the Web
 echo
 echo ">> Through the Web: sign in and read the conversation list (the Web calls the API)"
@@ -443,6 +485,27 @@ panel_code="$(code_of -b "$jar" "$web_url/panel")"
 conversations_html="$(curl -sS --max-time 20 -b "$jar" "$web_url/conversaciones" || true)"
 if grep -q 'Cliente Smoke' <<<"$conversations_html"; then pass "web: /conversaciones lists the conversation read from the API"; else fail "web: /conversaciones does not show the conversation"; fi
 [ "$(code_of "$web_url/panel")" != "200" ] && pass "web: /panel is not served without a session" || fail "web: /panel is served without a session"
+messages_html="$(curl -sS --max-time 20 -b "$jar" "$web_url/mensajes" || true)"
+if grep -q 'Mensajes recibidos' <<<"$messages_html" && grep -q "$inbound_text" <<<"$messages_html" && grep -q "$outbound_text" <<<"$messages_html" && grep -q 'Entrante' <<<"$messages_html"; then
+  pass "web: /mensajes shows what the service has read (inbound and outbound text)"
+else
+  fail "web: /mensajes does not show the messages"
+fi
+if grep -Eq "(…|&#x2026;)${customer_number: -4}" <<<"$messages_html" && ! grep -q "$customer_number" <<<"$messages_html"; then pass "web: /mensajes shows only the last four digits of the customer"; else fail "web: /mensajes does not mask the customer's number"; fi
+if ! grep -q 'http-equiv="refresh"' <<<"$messages_html" && curl -sS --max-time 20 -b "$jar" "$web_url/mensajes?auto=10" | grep -q 'http-equiv="refresh" content="10"'; then
+  pass "web: /mensajes reloads itself only when asked (?auto=10)"
+else
+  fail "web: the auto-refresh of /mensajes is wrong"
+fi
+deliveries_html="$(curl -sS --max-time 20 -b "$jar" "$web_url/mensajes/eventos" || true)"
+if grep -q 'Entregas del webhook' <<<"$deliveries_html" && grep -q 'Mensajes guardados' <<<"$deliveries_html" && ! grep -q "$customer_number" <<<"$deliveries_html"; then
+  pass "web: /mensajes/eventos shows the deliveries and their outcome without any content"
+else
+  fail "web: /mensajes/eventos does not show the deliveries"
+fi
+for feed_page in mensajes mensajes/eventos; do
+  [ "$(code_of "$web_url/$feed_page")" != "200" ] && pass "web: /$feed_page is not served without a session" || fail "web: /$feed_page is served without a session"
+done
 
 # The administrator has a session of its own: its own login page and cookie, and neither kind of session opens the other's pages.
 [ "$(code_of "$web_url/admin/login")" = "200" ] && pass "web: /admin/login renders (200)" || fail "web: /admin/login did not return 200"
