@@ -74,7 +74,7 @@ public class OrganizationEntitiesTests
         Assert.DoesNotContain(secret, channel.ChannelKey);
         Assert.Equal("+57 300 123 4567", channel.DisplayPhoneNumber);
         Assert.Equal("1234567890", channel.ProviderPhoneNumberId);
-        Assert.True(channel.IsActive);
+        Assert.False(channel.IsActive); // registered switched off: the company turns it on within its quota
     }
 
     [Fact]

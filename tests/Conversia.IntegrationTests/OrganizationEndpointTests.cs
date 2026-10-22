@@ -174,7 +174,7 @@ public class OrganizationEndpointTests
         Assert.True(created.ChannelKey!.Length >= 32);
         Assert.Equal($"/api/webhooks/360dialog/{created.ChannelKey}", created.WebhookPath);
         Assert.True(created.WebhookSecret.Length >= 32);
-        Assert.True(created.IsActive);
+        Assert.False(created.IsActive); // a new line starts switched off; the company turns it on within its quota
         Assert.Equal("1234567890", created.ProviderPhoneNumberId);
         Assert.DoesNotContain("hash", raw, StringComparison.OrdinalIgnoreCase);
 

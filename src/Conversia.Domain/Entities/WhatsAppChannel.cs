@@ -7,7 +7,7 @@ using Conversia.Domain.Exceptions;
 namespace Conversia.Domain.Entities;
 
 /// <summary>
-/// A WhatsApp number connected to a branch. <see cref="ChannelKey"/> is the public identifier in the webhook URL (globally
+/// A WhatsApp number connected to a branch (a "line": the unit the platform bills). <see cref="ChannelKey"/> is the public identifier in the webhook URL (globally
 /// unique, unguessable); the webhook secret is generated once, shown to the caller in plaintext at creation and stored only
 /// as a SHA-256 hash.
 /// </summary>
@@ -45,7 +45,11 @@ public class WhatsAppChannel : BaseEntity
     /// <summary>SHA-256 of the webhook secret. The secret itself is never stored.</summary>
     public byte[] WebhookSecretHash { get; private set; } = [];
 
-    public bool IsActive { get; private set; } = true;
+    /// <summary>
+    /// Whether the webhook works. A new channel is registered switched OFF: the company switches it on itself, as long as it is within the
+    /// line quota of its agreement (<see cref="Tenant.MaxActiveLines"/>).
+    /// </summary>
+    public bool IsActive { get; private set; }
 
     // Required by EF Core for materialization.
     private WhatsAppChannel()

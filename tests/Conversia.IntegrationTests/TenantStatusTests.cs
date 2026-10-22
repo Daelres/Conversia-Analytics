@@ -25,7 +25,7 @@ public class TenantStatusTests
     [Fact]
     public async Task ARegisteredTenant_StartsPendingWithQuotaZero()
     {
-        using var tenant = await StartTenantAsync(_factory, _client, "pending");
+        using var tenant = await StartTenantAsync(_factory, _client, "pending", pending: true);
 
         using var scope = _factory.Services.CreateScope();
         var stored = await scope.ServiceProvider.GetRequiredService<ApplicationDbContext>().Tenants.AsNoTracking().SingleAsync(t => t.Id == tenant.TenantId);
@@ -38,7 +38,7 @@ public class TenantStatusTests
     [Fact]
     public async Task GetTenant_ShowsTheStatusAndTheLineUsage_ToAnySignedInUserOfTheCompany()
     {
-        using var tenant = await StartTenantAsync(_factory, _client, "info");
+        using var tenant = await StartTenantAsync(_factory, _client, "info", pending: true);
         using var member = await tenant.AddMemberAsync("plain"); // no permission at all
 
         var asOwner = await tenant.Owner.Client.GetFromJsonAsync<TenantInfoResponse>("/api/tenant");

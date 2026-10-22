@@ -17,7 +17,7 @@ public class OrganizationServiceTests
     private readonly Mock<IUserRepository> _users = new();
     private readonly Guid _tenant = Guid.NewGuid();
 
-    private OrganizationService CreateSut() => new(_branches.Object, _advisors.Object, _channels.Object, _users.Object);
+    private OrganizationService CreateSut() => new(_branches.Object, _advisors.Object, _channels.Object, _users.Object, new Mock<ITenantUnitOfWork>().Object);
 
     private Branch StoredBranch()
     {

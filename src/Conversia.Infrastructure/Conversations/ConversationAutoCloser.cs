@@ -28,10 +28,13 @@ public sealed class ConversationAutoCloser(ApplicationDbContext db, Conversation
         await db.Database.ExecuteSqlAsync($"SELECT set_config('idle_in_transaction_session_timeout', {timeout}, true)", cancellationToken);
 
         // Across all tenants on purpose. LIMIT is inside the locking query, so only the conversations of the batch are locked.
+        // A pending or suspended company is left alone (closing decides an outcome; it resumes when the company is Active again).
+        var active = nameof(TenantStatus.Active);
         var batch = await db.Conversations
             .FromSql($"""
                 SELECT * FROM "Conversations"
                 WHERE "Status" = 'Open' AND "LastMessageAt" < {cutoff}
+                  AND EXISTS (SELECT 1 FROM "Tenants" WHERE "Tenants"."Id" = "Conversations"."TenantId" AND "Tenants"."Status" = {active})
                 ORDER BY "LastMessageAt"
                 LIMIT {options.BatchSize}
                 FOR UPDATE SKIP LOCKED

@@ -1,4 +1,5 @@
 using Conversia.Domain.Entities;
+using Conversia.Domain.Enums;
 using Conversia.Domain.Interfaces;
 using Conversia.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -31,7 +32,9 @@ public class WhatsAppChannelRepository : IWhatsAppChannelRepository
     }
 
     public Task<WhatsAppChannel?> GetByChannelKeyAsync(string channelKey, CancellationToken cancellationToken = default)
-        => _dbContext.WhatsAppChannels.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(c => c.ChannelKey == channelKey, cancellationToken);
+        => _dbContext.WhatsAppChannels.IgnoreQueryFilters().AsNoTracking()
+            .Where(c => c.ChannelKey == channelKey && _dbContext.Tenants.Any(t => t.Id == c.TenantId && t.Status == TenantStatus.Active))
+            .FirstOrDefaultAsync(cancellationToken);
 
     public Task<WhatsAppChannel?> GetForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
         => _dbContext.WhatsAppChannels.FirstOrDefaultAsync(c => c.Id == id, cancellationToken);

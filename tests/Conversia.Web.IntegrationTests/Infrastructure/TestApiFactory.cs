@@ -98,7 +98,7 @@ public sealed class TestApiFactory : WebApplicationFactory<ApiHost::Program>, IA
             }
 
             services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseNpgsql(_postgres.GetConnectionString()));
+                options.UseNpgsql(_postgres.GetConnectionString()).AddInterceptors(new Conversia.Tests.Shared.ActivateRegisteredTenantsInterceptor()));
         });
     }
 

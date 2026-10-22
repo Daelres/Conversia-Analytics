@@ -1,4 +1,5 @@
 using Conversia.Infrastructure.Persistence;
+using Conversia.Tests.Shared;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -109,7 +110,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
             }
 
             services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseNpgsql(_postgres.GetConnectionString()).AddInterceptors(DbCommands));
+                options.UseNpgsql(_postgres.GetConnectionString()).AddInterceptors(DbCommands, new ActivateRegisteredTenantsInterceptor()));
 
             services.AddSingleton<IStartupFilter, TestClientIp.Filter>();
         });

@@ -39,6 +39,8 @@
     <Compile Include="..\Shared\ErrorLimits.cs" Link="Shared\ErrorLimits.cs" />
     <!-- A clock the tests set, so no rule depends on the day the suite runs. -->
     <Compile Include="..\Shared\FixedTimeProvider.cs" Link="Shared\FixedTimeProvider.cs" />
+    <!-- Test hosts only: tenants a test registers operate (Active, quota 50) unless named PENDING. -->
+    <Compile Include="..\Shared\ActivateRegisteredTenantsInterceptor.cs" Link="Shared\ActivateRegisteredTenantsInterceptor.cs" />
   </ItemGroup>
 
 </Project>

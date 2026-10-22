@@ -21,6 +21,7 @@ public class WebhookIngestionServiceTests
     private (WhatsAppChannel Channel, string Secret) StoredChannel()
     {
         var (channel, secret) = WhatsAppChannel.Create(_tenant, Guid.NewGuid(), "3001234567");
+        channel.Activate(); // a new channel starts switched off
         _channels.Setup(r => r.GetByChannelKeyAsync(channel.ChannelKey, It.IsAny<CancellationToken>())).ReturnsAsync(channel);
         return (channel, secret);
     }

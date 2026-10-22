@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using Conversia.API.Middleware;
 using Conversia.API.ModelBinding;
 using Conversia.Application.DTOs.Users;
 using Conversia.Application.Interfaces;
@@ -23,6 +24,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet("me")]
+    [AllowInactiveTenant]
     public async Task<ActionResult<UserProfileResponse>> GetMe(CancellationToken cancellationToken)
     {
         var profile = await _permissionService.GetMyProfileAsync(GetCurrentUserId(), cancellationToken);

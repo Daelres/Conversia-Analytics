@@ -47,17 +47,17 @@ public class ChannelsController : ControllerBase
         return CreatedAtAction(nameof(GetChannel), new { id = channel.Id }, channel);
     }
 
-    /// <summary>Turns the webhook of the channel on. Idempotent.</summary>
+    /// <summary>Turns the line on if the company is Active and has quota left (409 otherwise). Idempotent.</summary>
     [HttpPost("{id:guid}/activate")]
     [Authorize(Policy = nameof(Permission.OrganizationManage))]
     public async Task<ActionResult<ChannelResponse>> ActivateChannel(Guid id, CancellationToken cancellationToken)
-        => Ok(await _organization.SetChannelActiveAsync(id, active: true, cancellationToken));
+        => Ok(await _organization.SetChannelActiveAsync(User.GetTenantId(), id, active: true, cancellationToken));
 
     /// <summary>Turns the webhook of the channel off: the provider gets the same 401 as for a wrong secret. Idempotent.</summary>
     [HttpPost("{id:guid}/deactivate")]
     [Authorize(Policy = nameof(Permission.OrganizationManage))]
     public async Task<ActionResult<ChannelResponse>> DeactivateChannel(Guid id, CancellationToken cancellationToken)
-        => Ok(await _organization.SetChannelActiveAsync(id, active: false, cancellationToken));
+        => Ok(await _organization.SetChannelActiveAsync(User.GetTenantId(), id, active: false, cancellationToken));
 
     /// <summary>Replaces the webhook secret. The body carries the NEW secret, shown only here; the old one stops working at once.</summary>
     [HttpPost("{id:guid}/rotate-secret")]

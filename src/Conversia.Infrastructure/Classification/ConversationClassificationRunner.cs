@@ -1,6 +1,7 @@
 using Conversia.Application.Classification;
 using Conversia.Application.Interfaces;
 using Conversia.Domain.Entities;
+using Conversia.Domain.Enums;
 using Conversia.Infrastructure.Configuration;
 using Conversia.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -96,10 +97,13 @@ public sealed class ConversationClassificationRunner(
         var retryFrom = now - options.RetryDelay;
 
         // Across all tenants on purpose: the backlog is shared. LIMIT is inside the locking query, so only the claimed row is locked.
+        // Conversations of a pending or suspended company wait, flagged, until it is Active again.
+        var active = nameof(TenantStatus.Active);
         var claimed = await db.Conversations
             .FromSql($"""
                 SELECT * FROM "Conversations"
                 WHERE "ClassificationDirty"
+                  AND EXISTS (SELECT 1 FROM "Tenants" WHERE "Tenants"."Id" = "Conversations"."TenantId" AND "Tenants"."Status" = {active})
                   AND "ClassificationFailures" < {options.MaxFailures}
                   AND COALESCE("ClassificationRequestedAt", "LastMessageAt") <= {quietSince}
                   AND ("ClassificationAttemptedAt" IS NULL OR "ClassificationAttemptedAt" <= {retryFrom})

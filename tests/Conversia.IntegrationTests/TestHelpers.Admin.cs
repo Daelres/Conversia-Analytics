@@ -17,7 +17,7 @@ internal static partial class TestHelpers
     /// Active with a generous quota by the test host (<c>ActivateRegisteredTenantsInterceptor</c>), so the many tests of other
     /// features keep working on a tenant that operates, without each repeating the approval.
     /// </summary>
-    public const string PendingTenantPrefix = "PENDING ";
+    public const string PendingTenantPrefix = Conversia.Tests.Shared.ActivateRegisteredTenantsInterceptor.PendingPrefix;
 
     public const string AdminPassword = "Adm1n-Passw0rd-Test!";
 

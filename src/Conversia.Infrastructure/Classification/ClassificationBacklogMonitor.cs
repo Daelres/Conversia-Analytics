@@ -1,4 +1,5 @@
 using Conversia.Application.Ingestion;
+using Conversia.Domain.Enums;
 using Conversia.Infrastructure.Configuration;
 using Conversia.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -21,7 +22,9 @@ public sealed class ClassificationBacklogMonitor(IServiceScopeFactory scopeFacto
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var now = timeProvider.GetUtcNow().UtcDateTime;
 
-        var flagged = db.Conversations.IgnoreQueryFilters().AsNoTracking().Where(c => c.ClassificationDirty);
+        // Only the work a worker will take: a pending or suspended company's conversations wait on purpose and are not a backlog.
+        var flagged = db.Conversations.IgnoreQueryFilters().AsNoTracking()
+            .Where(c => c.ClassificationDirty && db.Tenants.Any(t => t.Id == c.TenantId && t.Status == TenantStatus.Active));
         var waiting = flagged.Where(c => c.ClassificationFailures < options.MaxFailures);
         var count = await waiting.CountAsync(cancellationToken);
         var oldest = count == 0 ? null : await waiting.MinAsync(c => c.ClassificationRequestedAt, cancellationToken);

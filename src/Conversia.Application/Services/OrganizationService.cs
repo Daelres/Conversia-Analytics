@@ -2,6 +2,7 @@ using Conversia.Application.DTOs.Organization;
 using Conversia.Application.Exceptions;
 using Conversia.Application.Interfaces;
 using Conversia.Domain.Entities;
+using Conversia.Domain.Enums;
 using Conversia.Domain.Exceptions;
 using Conversia.Domain.Interfaces;
 
@@ -16,10 +17,13 @@ public class OrganizationService : IOrganizationService
     private readonly IAdvisorRepository _advisors;
     private readonly IWhatsAppChannelRepository _channels;
     private readonly IUserRepository _users;
+    private readonly ITenantUnitOfWork _unitOfWork;
 
     public OrganizationService(
-        IBranchRepository branches, IAdvisorRepository advisors, IWhatsAppChannelRepository channels, IUserRepository users)
+        IBranchRepository branches, IAdvisorRepository advisors, IWhatsAppChannelRepository channels, IUserRepository users,
+        ITenantUnitOfWork unitOfWork)
     {
+        _unitOfWork = unitOfWork;
         _branches = branches;
         _advisors = advisors;
         _channels = channels;
@@ -75,19 +79,44 @@ public class OrganizationService : IOrganizationService
         return CreateChannelResponse.From(channel, secret);
     }
 
-    public async Task<ChannelResponse> SetChannelActiveAsync(Guid id, bool active, CancellationToken cancellationToken = default)
+    public async Task<ChannelResponse> SetChannelActiveAsync(Guid callerTenantId, Guid id, bool active, CancellationToken cancellationToken = default)
     {
-        var channel = await _channels.GetForUpdateAsync(id, cancellationToken) ?? throw new ChannelNotFoundException();
         if (active)
         {
-            channel.Activate();
-        }
-        else
-        {
-            channel.Deactivate();
+            return await ActivateChannelAsync(callerTenantId, id, cancellationToken);
         }
 
+        // Switching off is free and cannot break the quota, so it needs no lock.
+        var channel = await _channels.GetForUpdateAsync(id, cancellationToken) ?? throw new ChannelNotFoundException();
+        channel.Deactivate();
         await _channels.UpdateAsync(channel, cancellationToken);
+        return ChannelResponse.From(channel);
+    }
+
+    // The count and the switch happen while the company's row is locked, so parallel activations take turns and the quota is never exceeded.
+    private async Task<ChannelResponse> ActivateChannelAsync(Guid callerTenantId, Guid id, CancellationToken cancellationToken)
+    {
+        await using var change = await _unitOfWork.BeginAsync(callerTenantId, cancellationToken) ?? throw new TenantNotFoundException();
+        var channel = await change.GetChannelAsync(id, cancellationToken) ?? throw new ChannelNotFoundException();
+        if (channel.IsActive)
+        {
+            return ChannelResponse.From(channel);
+        }
+
+        var tenant = change.Tenant;
+        if (tenant.Status != TenantStatus.Active)
+        {
+            throw new TenantNotActiveException(tenant.Status);
+        }
+
+        var activeLines = await change.CountActiveLinesAsync(cancellationToken);
+        if (activeLines >= tenant.MaxActiveLines)
+        {
+            throw new LineQuotaFullException(activeLines, tenant.MaxActiveLines);
+        }
+
+        channel.Activate();
+        await change.CommitAsync(cancellationToken);
         return ChannelResponse.From(channel);
     }
 

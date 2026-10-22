@@ -282,10 +282,10 @@ public class PlatformAdminTenantsTests
         var (admin, tenant) = await PendingAsync();
         using var _ = admin;
         using var __ = tenant;
-        var branch = await CreateBranchAsync(tenant.Owner.Client);
 
         Assert.Equal(HttpStatusCode.OK, (await admin.Client.PutAsJsonAsync(StatusUrl(tenant.TenantId), new { status = "Active", reason = "Signed" })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await admin.Client.PutAsJsonAsync(QuotaUrl(tenant.TenantId), new { maxActiveLines = 3 })).StatusCode);
+        var branch = await CreateBranchAsync(tenant.Owner.Client);
         Assert.Equal(HttpStatusCode.OK, (await admin.Client.PutAsJsonAsync(QuotaUrl(tenant.TenantId), new { maxActiveLines = 3 })).StatusCode); // same value: no change
         var line = await CreateChannelAsync(tenant.Owner.Client, branch.Id, "+57 300 444 0001");
         Assert.Equal(HttpStatusCode.OK, (await admin.Client.PostAsync($"{AdminTenantsUrl}/{tenant.TenantId}/channels/{line.Id}/deactivate", null)).StatusCode);

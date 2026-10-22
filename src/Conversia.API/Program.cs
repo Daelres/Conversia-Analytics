@@ -154,6 +154,7 @@ app.UseHttpsRedirection();
 // login still costs nothing, and it is still before authorization and model binding.
 app.UseAuthentication();
 app.UseRateLimiter();
+app.UseMiddleware<ActiveTenantMiddleware>();
 app.UseAuthorization();
 
 // Anonymous and minimal on purpose: the status word only (Healthy, Degraded or Unhealthy), nothing about tenants, events or errors.

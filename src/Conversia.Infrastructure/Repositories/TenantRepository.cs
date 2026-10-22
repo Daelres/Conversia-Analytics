@@ -1,4 +1,5 @@
 using Conversia.Domain.Entities;
+using Conversia.Domain.Enums;
 using Conversia.Domain.Interfaces;
 using Conversia.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +17,9 @@ public class TenantRepository : ITenantRepository
 
     public Task<Tenant?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
         => _dbContext.Tenants.FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+
+    public Task<TenantStatus?> GetStatusAsync(Guid id, CancellationToken cancellationToken = default)
+        => _dbContext.Tenants.AsNoTracking().Where(t => t.Id == id).Select(t => (TenantStatus?)t.Status).FirstOrDefaultAsync(cancellationToken);
 
     public async Task AddAsync(Tenant tenant, CancellationToken cancellationToken = default)
     {

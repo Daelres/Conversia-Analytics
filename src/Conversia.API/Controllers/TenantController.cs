@@ -1,3 +1,4 @@
+using Conversia.API.Middleware;
 using Conversia.Application.DTOs.Tenants;
 using Conversia.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -19,6 +20,7 @@ public class TenantController : ControllerBase
     }
 
     [HttpGet]
+    [AllowInactiveTenant]
     public async Task<ActionResult<TenantInfoResponse>> GetTenant(CancellationToken cancellationToken)
         => Ok(await _tenants.GetCurrentAsync(User.GetTenantId(), cancellationToken));
 }

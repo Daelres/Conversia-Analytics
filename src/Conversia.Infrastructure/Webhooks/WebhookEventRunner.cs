@@ -82,10 +82,14 @@ public sealed class WebhookEventRunner(
         var now = UtcNow();
 
         // Across all tenants on purpose: the queue is shared. LIMIT is inside the locking query, so only the claimed row is locked.
+        // Only the events of companies that are Active: those of a pending or suspended one stay pending, untouched, and are picked up
+        // again when the company is activated (the EXISTS is not in the FROM, so it locks nothing of Tenants).
+        var active = nameof(TenantStatus.Active);
         var claimed = await db.WebhookEvents
             .FromSql($"""
                 SELECT * FROM "WebhookEvents"
                 WHERE "Status" = 'Pending' AND "NextAttemptAt" <= {now}
+                  AND EXISTS (SELECT 1 FROM "Tenants" WHERE "Tenants"."Id" = "WebhookEvents"."TenantId" AND "Tenants"."Status" = {active})
                 ORDER BY "NextAttemptAt", "ReceivedAt"
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED

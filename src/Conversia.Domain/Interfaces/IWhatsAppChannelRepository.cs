@@ -24,6 +24,7 @@ public interface IWhatsAppChannelRepository
     /// <summary>
     /// Untracked lookup by the public key of the webhook URL, <b>across all tenants</b>: the anonymous webhook request has no tenant
     /// until the channel (and its secret) identifies it. The only repository method that ignores the tenant filter on purpose.
+    /// A channel whose company is not Active (pending or suspended) is not found: it is as unknown to the provider as a wrong key.
     /// </summary>
     Task<WhatsAppChannel?> GetByChannelKeyAsync(string channelKey, CancellationToken cancellationToken = default);
 }
