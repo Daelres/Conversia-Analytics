@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Conversia.Application.DTOs.Organization;
+using Conversia.Application.DTOs.Tenants;
 using Conversia.Application.DTOs.Users;
 using Conversia.Domain.Enums;
 
@@ -44,6 +45,9 @@ internal sealed class OrganizationStub
         new() { Id = Retired, BranchId = Norte, DisplayPhoneNumber = "+57 300 000 0002", IsActive = false, ChannelKey = ListedKey + "-2", WebhookPath = "/api/webhooks/360dialog/" + ListedKey + "-2", CreatedAt = new DateTime(2026, 9, 7, 15, 0, 0, DateTimeKind.Utc) },
     ];
 
+    /// <summary>What <c>GET /api/tenant</c> answers; null is a company that operates (<see cref="FakeBackend.ActiveTenant"/>).</summary>
+    public TenantInfoResponse? Tenant { get; set; }
+
     /// <summary>The caller's rights; null makes the caller an owner.</summary>
     public IReadOnlyList<Permission>? MemberPermissions { get; set; }
 
@@ -62,6 +66,7 @@ internal sealed class OrganizationStub
         HttpResponseMessage? answer = (request.Method.Method, path) switch
         {
             ("GET", "/api/users/me") when MemberPermissions is not null => FakeBackend.Answer(HttpStatusCode.OK, Member(request)),
+            ("GET", "/api/tenant") when Tenant is not null => FakeBackend.Answer(HttpStatusCode.OK, Tenant),
             ("GET", "/api/branches") => FakeBackend.Answer(HttpStatusCode.OK, Branches),
             ("GET", "/api/advisors") => FakeBackend.Answer(HttpStatusCode.OK, Advisors),
             ("GET", "/api/channels") => FakeBackend.Answer(HttpStatusCode.OK, canManage ? Channels : Channels.Select(c => c.WithoutWebhookAddress()).ToList()),

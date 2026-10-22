@@ -15,6 +15,12 @@ internal sealed class FormModel
         _fields = fields;
     }
 
+    /// <summary>A form that is not on any page: the fields a client would send to <paramref name="actionUri"/> (the forged-request case).</summary>
+    public FormModel(Uri actionUri, string field, string value, string antiforgeryToken)
+        : this(actionUri, [new KeyValuePair<string, string>(field, value), new KeyValuePair<string, string>(AntiforgeryField, antiforgeryToken)])
+    {
+    }
+
     public Uri ActionUri { get; private set; }
 
     public IReadOnlyList<KeyValuePair<string, string>> Fields => _fields;

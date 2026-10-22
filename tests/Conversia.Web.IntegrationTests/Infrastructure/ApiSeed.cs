@@ -24,13 +24,14 @@ internal static class ApiSeed
 
     public static string UniqueTenantName(string prefix) => $"{prefix} {Guid.NewGuid():N}";
 
-    public static async Task<Owner> RegisterOwnerAsync(TestApiFactory api, string prefix = "owner")
+    /// <param name="pending">Leave the company as it registers (Pending): the test host activates every other one (<see cref="Conversia.Tests.Shared.ActivateRegisteredTenantsInterceptor"/>).</param>
+    public static async Task<Owner> RegisterOwnerAsync(TestApiFactory api, string prefix = "owner", bool pending = false)
     {
         using var client = api.CreateClient();
         var email = UniqueEmail(prefix);
         var response = await client.PostAsJsonAsync("/api/auth/register-tenant", new
         {
-            tenantName = UniqueTenantName(prefix),
+            tenantName = (pending ? Conversia.Tests.Shared.ActivateRegisteredTenantsInterceptor.PendingPrefix : string.Empty) + UniqueTenantName(prefix),
             email,
             password = StrongPassword
         });
@@ -121,5 +122,72 @@ internal static class ApiSeed
         var user = Conversia.Domain.Entities.User.Create(tenantId, rawEmail, hasher.HashPassword(StrongPassword), isOwner: false);
         await scope.ServiceProvider.GetRequiredService<Conversia.Domain.Interfaces.IUserRepository>().AddAsync(user);
         return user.Id;
+    }
+
+    // ---- platform administration (straight at the API: the Web under test never sees these calls) ----
+
+    public const string AdminPassword = "Adm1n-Passw0rd-Test!";
+
+    public sealed record Admin(Guid Id, string Email, string Password);
+
+    /// <summary>Creates a platform administrator in the database (there is no endpoint that does) with a known password.</summary>
+    public static async Task<Admin> CreateAdminAsync(TestApiFactory api, string prefix = "admin")
+    {
+        var email = UniqueEmail(prefix);
+        using var scope = api.Services.CreateScope();
+        var hasher = scope.ServiceProvider.GetRequiredService<Conversia.Application.Interfaces.IPasswordHasherService>();
+        var admin = Conversia.Domain.Entities.PlatformAdmin.Create(email, hasher.HashPassword(AdminPassword));
+        Assert.True(await scope.ServiceProvider.GetRequiredService<Conversia.Domain.Interfaces.IPlatformAdminRepository>().TryAddAsync(admin));
+        return new Admin(admin.Id, email, AdminPassword);
+    }
+
+    /// <summary>An HTTP client to the API that carries the administrator's own token (signed in through the real endpoint).</summary>
+    public static async Task<HttpClient> AdminClientAsync(TestApiFactory api, Admin admin)
+    {
+        using var anonymous = api.CreateClient();
+        var response = await anonymous.PostAsJsonAsync("/api/admin/auth/login", new { email = admin.Email, password = admin.Password });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var auth = (await response.Content.ReadFromJsonAsync<Conversia.Application.DTOs.Admin.AdminAuthResponse>())!;
+        return AuthorizedClient(api, auth.Token);
+    }
+
+    /// <summary>Moves a company to a status through the administrator API.</summary>
+    public static async Task SetStatusAsync(TestApiFactory api, Admin admin, Guid tenantId, string status, string? reason = null)
+    {
+        using var client = await AdminClientAsync(api, admin);
+        var response = await client.PutAsJsonAsync($"/api/admin/tenants/{tenantId}/status", new { status, reason });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    public static async Task SetQuotaAsync(TestApiFactory api, Admin admin, Guid tenantId, int maxActiveLines)
+    {
+        using var client = await AdminClientAsync(api, admin);
+        var response = await client.PutAsJsonAsync($"/api/admin/tenants/{tenantId}/line-quota", new { maxActiveLines });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    /// <summary>Registers a branch and as many lines (inactive, as the API creates them) as numbers are given; returns the channel ids in order.</summary>
+    public static async Task<IReadOnlyList<Guid>> CreateLinesAsync(TestApiFactory api, Owner owner, params string[] numbers)
+    {
+        using var client = AuthorizedClient(api, owner.Token);
+        var branch = await client.PostAsJsonAsync("/api/branches", new { name = "Centro" });
+        Assert.Equal(HttpStatusCode.Created, branch.StatusCode);
+        var branchId = (await branch.Content.ReadFromJsonAsync<Conversia.Application.DTOs.Organization.BranchResponse>())!.Id;
+        var ids = new List<Guid>();
+        foreach (var number in numbers)
+        {
+            var channel = await client.PostAsJsonAsync("/api/channels", new { branchId, displayPhoneNumber = number });
+            Assert.Equal(HttpStatusCode.Created, channel.StatusCode);
+            ids.Add((await channel.Content.ReadFromJsonAsync<Conversia.Application.DTOs.Organization.ChannelResponse>())!.Id);
+        }
+
+        return ids;
+    }
+
+    public static async Task ActivateLineAsync(TestApiFactory api, Owner owner, Guid channelId)
+    {
+        using var client = AuthorizedClient(api, owner.Token);
+        var response = await client.PostAsync($"/api/channels/{channelId}/activate", content: null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 }

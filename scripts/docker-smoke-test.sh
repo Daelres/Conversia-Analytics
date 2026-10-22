@@ -444,6 +444,21 @@ conversations_html="$(curl -sS --max-time 20 -b "$jar" "$web_url/conversaciones"
 if grep -q 'Cliente Smoke' <<<"$conversations_html"; then pass "web: /conversaciones lists the conversation read from the API"; else fail "web: /conversaciones does not show the conversation"; fi
 [ "$(code_of "$web_url/panel")" != "200" ] && pass "web: /panel is not served without a session" || fail "web: /panel is served without a session"
 
+# The administrator has a session of its own: its own login page and cookie, and neither kind of session opens the other's pages.
+[ "$(code_of "$web_url/admin/login")" = "200" ] && pass "web: /admin/login renders (200)" || fail "web: /admin/login did not return 200"
+admin_anonymous="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 15 "$web_url/admin" || true)"
+if [[ "$admin_anonymous" == 30[23]*"/admin/login"* ]]; then pass "web: /admin is not served without a session (sent to /admin/login)"; else fail "web: /admin without a session -> $admin_anonymous"; fi
+admin_with_company="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 15 -b "$jar" "$web_url/admin" || true)"
+if [[ "$admin_with_company" == 30[23]*"/admin/login"* ]]; then pass "web: a company session does not open /admin"; else fail "web: /admin with a company session -> $admin_with_company"; fi
+admin_jar="$work/admin-web.cookies"
+curl -sS --max-time 15 -c "$admin_jar" "$web_url/admin/login" -o "$work/admin-login.html"
+login_form_from "$work/admin-login.html" "$admin_email" "$admin_password" >"$work/admin-login.form"
+admin_login_status="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 20 -b "$admin_jar" -c "$admin_jar" --data-binary "@$work/admin-login.form" "$web_url/admin/login" || true)"
+if [[ "$admin_login_status" == 30[23]*"/admin" ]]; then pass "web: the administrator signs in at /admin/login and lands on /admin"; else fail "web: POST /admin/login -> $admin_login_status"; fi
+[ "$(code_of -b "$admin_jar" "$web_url/admin")" = "200" ] && pass "web: /admin renders for the administrator (200)" || fail "web: /admin for the administrator did not return 200"
+admin_panel="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -b "$admin_jar" "$web_url/panel" || true)"
+[ "$admin_panel" != "200" ] && pass "web: an administrator session does not open /panel" || fail "web: /panel was served to an administrator session"
+
 # ------------------------------------------------------------------ Data Protection keys survive a restart of the Web
 echo
 echo ">> Recreating only the Web: a form opened before the restart must still be accepted"

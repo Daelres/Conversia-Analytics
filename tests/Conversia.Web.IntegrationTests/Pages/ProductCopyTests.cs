@@ -24,7 +24,7 @@ public class ProductCopyTests(TestApiFactory api)
 
     public static TheoryData<string> PublicPaths => new()
     {
-        "/", "/login", "/register", "/not-found", "/esta-pagina-no-existe", "/Error", "/status/400", "/status/500"
+        "/", "/login", "/register", "/admin/login", "/not-found", "/esta-pagina-no-existe", "/Error", "/status/400", "/status/500"
     };
 
     [Theory]
@@ -49,6 +49,36 @@ public class ProductCopyTests(TestApiFactory api)
         var page = (await session.GetAsync("/")).ShouldBe(HttpStatusCode.OK);
 
         AssertNoTemplateWording("/ (signed in)", page);
+    }
+
+    [Fact]
+    public async Task The_pending_and_suspended_pages_do_not_use_template_wording()
+    {
+        var admin = await ApiSeed.CreateAdminAsync(api);
+        var pending = await ApiSeed.RegisterOwnerAsync(api, "ferretería", pending: true);
+        var suspended = await ApiSeed.RegisterOwnerAsync(api, "droguería");
+        await ApiSeed.SetStatusAsync(api, admin, suspended.TenantId, "Suspended");
+        using var host = WebTestHost.Create(api);
+
+        foreach (var (label, email) in new[] { ("/cuenta-pendiente (pending)", pending.Email), ("/cuenta-pendiente (suspended)", suspended.Email) })
+        {
+            using var session = await WebFlows.SignedInAsync(host, email);
+            AssertNoTemplateWording(label, (await session.GetAsync("/cuenta-pendiente")).ShouldBe(HttpStatusCode.OK));
+        }
+    }
+
+    [Fact]
+    public async Task The_administration_pages_do_not_use_template_wording()
+    {
+        var admin = await ApiSeed.CreateAdminAsync(api);
+        var owner = await ApiSeed.RegisterOwnerAsync(api, "ferretería", pending: true);
+        using var host = WebTestHost.Create(api);
+        using var session = await WebFlows.SignedInAdminAsync(host, admin);
+
+        foreach (var path in new[] { "/admin", "/admin/auditoria", $"/admin/empresas/{owner.TenantId}", $"/admin/empresas/{owner.TenantId}/estado/activar" })
+        {
+            AssertNoTemplateWording(path, (await session.GetAsync(path)).ShouldBe(HttpStatusCode.OK));
+        }
     }
 
     [Fact]
@@ -85,6 +115,7 @@ public class ProductCopyTests(TestApiFactory api)
     [Theory]
     [InlineData("/login")]
     [InlineData("/register")]
+    [InlineData("/admin/login")]
     public async Task Auth_pages_explain_conversia_in_the_side_panel(string path)
     {
         using var host = WebTestHost.Create(api);

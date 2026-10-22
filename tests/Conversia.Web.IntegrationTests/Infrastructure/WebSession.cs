@@ -50,6 +50,18 @@ internal sealed class WebSession : IDisposable
         }
     }
 
+    /// <summary>The value of a cookie of the jar, by name; null when there is none.</summary>
+    public string? CookieValue(string name)
+        => _cookies.GetCookies(WebTestHost.BaseAddress).Cast<Cookie>().FirstOrDefault(c => c.Name == name)?.Value;
+
+    /// <summary>Puts a cookie in the jar as a browser would hold it (the forged-cookie case: one kind of session's value under the other's name).</summary>
+    public void SetCookie(string name, string value)
+        => _cookies.Add(WebTestHost.BaseAddress, new Cookie(name, value, "/", WebTestHost.BaseAddress.Host));
+
+    /// <summary>Removes a cookie from the jar.</summary>
+    public void RemoveCookie(string name)
+        => _cookies.Add(WebTestHost.BaseAddress, new Cookie(name, string.Empty, "/", WebTestHost.BaseAddress.Host) { Expires = DateTime.UtcNow.AddDays(-1) });
+
     public async Task<PageResponse> GetAsync(string url, params (string Name, string Value)[] headers)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);

@@ -32,6 +32,25 @@ internal static class WebFlows
         return session;
     }
 
+    /// <summary>The administrator's sign-in form (<c>/admin/login</c>), filled and submitted.</summary>
+    public static async Task<PageResponse> AdminLoginAsync(WebSession session, string email, string password, string? returnUrl = null)
+    {
+        var url = returnUrl is null ? "/admin/login" : "/admin/login?returnUrl=" + Uri.EscapeDataString(returnUrl);
+        var page = (await session.GetAsync(url)).ShouldBe(HttpStatusCode.OK);
+        var form = FormModel.From(page, page.FindPasswordForm()).Set("email", email).Set("password", password);
+        return await session.SubmitAsync(form);
+    }
+
+    /// <summary>A session that has signed in as a platform administrator through the Web (asserting the redirect and the cookie).</summary>
+    public static async Task<WebSession> SignedInAdminAsync(WebTestHost host, ApiSeed.Admin admin)
+    {
+        var session = host.NewSession();
+        var response = await AdminLoginAsync(session, admin.Email, admin.Password);
+        Assert.True(response.IsRedirect, $"Admin login should redirect, got {response.Status}. Page text: {response.Text}");
+        Assert.True(session.HasAuthCookie, "Admin login should leave an authentication cookie in the jar.");
+        return session;
+    }
+
     /// <summary>A valid antiforgery token for this session, taken from its logout form.</summary>
     public static async Task<string> AntiforgeryTokenAsync(WebSession session)
     {
