@@ -1,0 +1,13 @@
+@inherits LayoutComponentBase
+
+<InPageLink Fragment="main" class="skip-link">Saltar al contenido</InPageLink>
+<div class="shell" data-shell="app">
+    <AdminShellHeader SignedIn="true" />
+    <div class="shell-body">
+        <main id="main" tabindex="-1">
+            <ErrorCodeNotice />
+            @Body
+        </main>
+        <SiteFooter />
+    </div>
+</div>

@@ -18,7 +18,7 @@ public static class UiMessages
     public const string AntiforgeryRejected = "El formulario no es válido o ha caducado. Recarga la página e inténtalo de nuevo.";
 
     public const string QuotaFallback = "No se pudo activar la línea: tu cupo de líneas activas está completo.";
-    public const string ContactConversia = "Si necesitas más líneas, contacta al equipo de Conversia.";
+    public const string ContactConversia = "Para activar otra, desactiva una de las que tienes o pide al equipo de Conversia ampliar tu cupo.";
 
     public static string TooManyAttempts(int? retryAfterSeconds)
         => retryAfterSeconds is { } seconds

@@ -1,0 +1,255 @@
+@page "/admin/empresas/{Id:guid}"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Application.DTOs.Admin
+@using Conversia.Application.Time
+@using Conversia.Domain.Enums
+@using Conversia.Web.Authentication
+@using Conversia.Web.Time
+@inherits AdminPageBase
+@inject TenantTimeZone TimeZone
+
+<PageTitle>@(_company?.Name ?? "Empresa") - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+@if (CompanyMissing)
+{
+    <CompanyNotFoundView />
+}
+else if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="admin-company" data-company-id="@Id">
+        <PageHeader Eyebrow="Empresa" EyebrowIcon="building" Title="@(_company?.Name ?? "Empresa")"
+                    Description="@(_company is null ? null : $"Registrada el {MetricsFormat.Date(DateOnly.FromDateTime(TimeZone.ToLocal(_company.RegisteredAt)))}.")">
+            <a class="btn btn--secondary" href="/admin"><Icon Name="arrow-left" />Volver a empresas</a>
+        </PageHeader>
+
+        @if (Notice is not null && AdminNotice.Describe(Notice) is { } notice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">@notice</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_company is not null)
+        {
+            <Card Title="Estado" Subtitle="Si la empresa puede operar o no." IconName="shield-check" data-testid="status-card">
+                <div class="stack">
+                    <dl class="kv">
+                        <div>
+                            <dt>Estado ahora</dt>
+                            <dd><TenantStatusChip Status="_company.Status" data-testid="company-status" /></dd>
+                        </div>
+                        @if (_company.StatusChangedAt is { } changedAt)
+                        {
+                            <div>
+                                <dt>Último cambio</dt>
+                                <dd data-testid="status-changed-at">@AdminFormat.Moment(TimeZone.ToLocal(changedAt))</dd>
+                            </div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_company.StatusReason))
+                        {
+                            <div>
+                                <dt>Motivo</dt>
+                                <dd data-testid="status-reason">@_company.StatusReason</dd>
+                            </div>
+                        }
+                    </dl>
+                    <div class="cluster-md" data-testid="status-actions">
+                        @foreach (var action in TenantStatusLabels.ActionsFor(_company.Status))
+                        {
+                            <a class="@(action.Danger ? "btn btn--danger-ghost" : "btn btn--primary")" href="/admin/empresas/@Id/estado/@action.Route" data-action="@action.Route">
+                                <Icon Name="@(action.Danger ? "power" : "check-circle")" />@action.Button
+                            </a>
+                        }
+                    </div>
+                </div>
+            </Card>
+        }
+
+        @* Always rendered: a POST can only be dispatched to a form that exists in the render tree. *@
+        <Card Title="Cupo de líneas" Subtitle="Cuántas líneas de WhatsApp puede tener activas a la vez, según su acuerdo comercial." IconName="phone" data-testid="quota-card">
+            <div class="stack">
+                @if (_company is not null)
+                {
+                    <LineQuota Active="_company.ActiveLines" Max="_company.MaxActiveLines">
+                        <p class="muted">Tiene @_company.RegisteredLines @(_company.RegisteredLines == 1 ? "línea registrada" : "líneas registradas"). Bajar el cupo por debajo de las líneas activas no es posible: primero hay que desactivarlas.</p>
+                    </LineQuota>
+                }
+
+                @if (_quotaMessage is not null)
+                {
+                    <Alert Kind="AlertKind.Danger" data-testid="quota-error">@_quotaMessage</Alert>
+                }
+
+                <EditForm Model="Quota" FormName="set-quota" OnValidSubmit="SaveQuotaAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="quota-form">
+                    <DataAnnotationsValidator />
+                    <FormField TValue="string" For="() => Quota.MaxActiveLines" Id="quota" Label="Cupo de líneas activas" IconName="phone"
+                               Hint="Un número entero de 0 a 1000." ApiErrors="_quotaErrors" Context="field">
+                        <input id="quota" name="@($"{nameof(Quota)}.{nameof(QuotaInput.MaxActiveLines)}")" type="number" inputmode="numeric" min="0" max="@Conversia.Domain.Entities.Tenant.MaxLinesLimit" step="1"
+                               class="input input--num" autocomplete="off" value="@(Quota.MaxActiveLines ?? _company?.MaxActiveLines.ToString())" @attributes="field" />
+                    </FormField>
+                    <ApiFieldErrors Errors="_quotaErrors" KnownFields="@(["MaxActiveLines"])" />
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn--primary"><Icon Name="check" />Guardar cupo</button>
+                    </div>
+                </EditForm>
+            </div>
+        </Card>
+
+        @if (_company is not null)
+        {
+            <Card Title="Líneas" Subtitle="Los números de WhatsApp que la empresa ha registrado." IconName="phone" data-testid="lines-card">
+                @if (_company.Lines.Count == 0)
+                {
+                    <EmptyState Title="Aún no hay líneas" Art="chat" Text="La empresa todavía no ha registrado ningún número de WhatsApp." />
+                }
+                else
+                {
+                    <div class="table-wrap" role="region" aria-label="Líneas de la empresa" tabindex="0">
+                        <table class="table table--cards">
+                            <caption class="sr-only">Líneas de WhatsApp de la empresa</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Número</th>
+                                    <th scope="col">Sucursal</th>
+                                    <th scope="col">Estado</th>
+                                    <th scope="col"><span class="sr-only">Acciones</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in _company.Lines)
+                                {
+                                    <tr data-testid="line-row" data-channel-id="@line.ChannelId" data-active="@(line.IsActive ? "true" : "false")">
+                                        <th scope="row" data-label="Número" id="ln-@line.ChannelId">@line.DisplayPhoneNumber</th>
+                                        <td data-label="Sucursal">@(line.BranchName ?? MetricsFormat.NoData)</td>
+                                        <td data-label="Estado"><Chip Tone="@(line.IsActive ? ChipTone.Success : ChipTone.Neutral)" IconName="@(line.IsActive ? "check-circle" : "minus")">@(line.IsActive ? "Activa" : "Inactiva")</Chip></td>
+                                        <td class="table__cell-actions">
+                                            <div class="table__actions">
+                                                @if (line.IsActive)
+                                                {
+                                                    <a href="/admin/empresas/@Id/lineas/@line.ChannelId/desactivar" id="ld-@line.ChannelId" class="btn btn--danger-ghost btn--sm" aria-labelledby="ld-@line.ChannelId ln-@line.ChannelId"><Icon Name="power" Class="icon--sm" />Desactivar</a>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </Card>
+
+            <Card Title="Datos de la empresa" IconName="building" data-testid="facts-card">
+                <dl class="kv">
+                    <div>
+                        <dt>Propietario</dt>
+                        <dd data-testid="owner-email">@(_company.OwnerEmail ?? MetricsFormat.NoData)</dd>
+                    </div>
+                    <div>
+                        <dt>Última actividad</dt>
+                        <dd data-testid="last-activity">@(_company.LastActivityAt is { } last ? AdminFormat.Moment(TimeZone.ToLocal(last)) : AdminFormat.NoActivity)</dd>
+                    </div>
+                </dl>
+                <p class="muted">Aquí solo ves datos de negocio. Las conversaciones, los mensajes y las métricas de la empresa no se muestran a la administración.</p>
+            </Card>
+
+            <Card Title="Cambios recientes" Subtitle="Lo último que se hizo con esta empresa." IconName="activity" data-testid="audit-card">
+                <div class="stack">
+                    @if (_company.RecentAudit.Count == 0)
+                    {
+                        <EmptyState Title="Sin cambios todavía" Art="chat" Text="Cuando actives, suspendas o cambies el cupo de la empresa, quedará aquí." />
+                    }
+                    else
+                    {
+                        <AuditList Entries="_company.RecentAudit" Label="Cambios recientes de la empresa" />
+                        <div class="cluster-md">
+                            <a class="btn btn--secondary" href="/admin/auditoria?empresa=@Id"><Icon Name="activity" />Ver todo el registro</a>
+                        </div>
+                    }
+                </div>
+            </Card>
+        }
+    </div>
+}
+
+@code {
+    private TenantDetailResponse? _company;
+    private string? _quotaMessage;
+    private IReadOnlyDictionary<string, string[]>? _quotaErrors;
+    private QuotaInput? _quota;
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [SupplyParameterFromQuery(Name = "aviso")]
+    public string? Notice { get; set; }
+
+    [SupplyParameterFromForm(FormName = "set-quota")]
+    private QuotaInput Quota
+    {
+        get => _quota ??= new();
+        set => _quota = value;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Api.GetAdminTenantAsync(Token!, Id);
+        if (await TryFailAsync(result))
+        {
+            return;
+        }
+
+        _company = result.Value;
+    }
+
+    private async Task SaveQuotaAsync()
+    {
+        var result = await Api.SetTenantLineQuotaAsync(Token!, Id, Quota.ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo(AdminNotice.Url(Id, AdminNotice.QuotaSaved));
+            return;
+        }
+
+        switch (result.Status)
+        {
+            case ApiResultStatus.ValidationFailed:
+                _quotaErrors = result.ValidationErrors;
+                SetStatusCode(StatusCodes.Status400BadRequest);
+                break;
+            case ApiResultStatus.Conflict:
+                // The API says how many lines are active; that is the message the administrator needs.
+                _quotaMessage = result.Detail ?? "No se puede guardar ese cupo.";
+                SetStatusCode(StatusCodes.Status409Conflict);
+                break;
+            default:
+                await TryFailAsync(result);
+                break;
+        }
+
+        if (!Redirected && !Denied && !CompanyMissing)
+        {
+            await LoadAsync();
+        }
+    }
+}

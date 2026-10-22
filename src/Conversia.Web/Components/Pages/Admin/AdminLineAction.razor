@@ -1,0 +1,125 @@
+@page "/admin/empresas/{Id:guid}/lineas/{ChannelId:guid}/desactivar"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Application.DTOs.Admin
+@using Conversia.Web.Authentication
+@inherits AdminPageBase
+
+<PageTitle>Desactivar línea - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+@if (CompanyMissing)
+{
+    <CompanyNotFoundView />
+}
+else if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="admin-line-action" data-company-id="@Id" data-channel-id="@ChannelId">
+        <PageHeader Eyebrow="Empresa" EyebrowIcon="building" Title="Desactivar línea" Description="@(_company?.Name)">
+            <a class="btn btn--secondary" href="/admin/empresas/@Id"><Icon Name="arrow-left" />Volver a la empresa</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_company is not null && _line is null)
+        {
+            <Alert Kind="AlertKind.Warning" data-testid="line-missing">Esa línea no está entre las de la empresa.</Alert>
+        }
+
+        @* Always rendered (hidden when it does not apply); see the status confirmation page. *@
+        <div hidden="@(!ShowForm)">
+            <Card Title="¿Desactivar esta línea?" IconName="power" data-testid="line-confirm">
+                <div class="stack">
+                    <dl class="kv">
+                        <div>
+                            <dt>Número</dt>
+                            <dd data-testid="confirm-number">@_line?.DisplayPhoneNumber</dd>
+                        </div>
+                        <div>
+                            <dt>Estado ahora</dt>
+                            <dd>@(_line?.IsActive == true ? "Activa" : "Inactiva")</dd>
+                        </div>
+                    </dl>
+                    <p class="muted" data-testid="confirm-effect">La línea deja de recibir mensajes en el acto (el proveedor recibe un rechazo) y libera su lugar en el cupo de la empresa. La empresa puede volver a activarla mientras tenga cupo.</p>
+                    <EditForm Model="Input" FormName="line-action" OnValidSubmit="RunAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="line-action-form">
+                        <div class="form-actions">
+                            @if (ShowForm)
+                            {
+                                <button type="submit" class="btn btn--danger"><Icon Name="power" />Sí, desactivar la línea</button>
+                            }
+                            <a class="btn btn--ghost" href="/admin/empresas/@Id">Cancelar</a>
+                        </div>
+                    </EditForm>
+                </div>
+            </Card>
+        </div>
+    </div>
+}
+
+@code {
+    private TenantDetailResponse? _company;
+    private LineActionInput? _input;
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [Parameter]
+    public Guid ChannelId { get; set; }
+
+    [SupplyParameterFromForm(FormName = "line-action")]
+    private LineActionInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    private TenantLineResponse? _line => _company?.Lines.FirstOrDefault(l => l.ChannelId == ChannelId);
+
+    private bool ShowForm => _line is { IsActive: true } && !Redirected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Api.GetAdminTenantAsync(Token!, Id);
+        if (await TryFailAsync(result))
+        {
+            return;
+        }
+
+        _company = result.Value;
+    }
+
+    private async Task RunAsync()
+    {
+        var result = await Api.DeactivateTenantLineAsync(Token!, Id, ChannelId);
+        if (result.IsSuccess)
+        {
+            RedirectTo(AdminNotice.Url(Id, AdminNotice.LineOff));
+            return;
+        }
+
+        await TryFailAsync(result);
+        if (!Redirected && !Denied && !CompanyMissing)
+        {
+            await LoadAsync();
+        }
+    }
+}

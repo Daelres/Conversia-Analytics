@@ -1,0 +1,145 @@
+@page "/admin"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Application.DTOs
+@using Conversia.Application.DTOs.Admin
+@using Conversia.Application.Time
+@using Conversia.Domain.Enums
+@using Conversia.Web.Authentication
+@using Conversia.Web.Time
+@inherits AdminPageBase
+@inject TenantTimeZone TimeZone
+
+<PageTitle>Empresas - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+<div class="page" data-page="admin-companies">
+    <PageHeader Eyebrow="Administración" EyebrowIcon="shield-check" Title="Empresas"
+                Description="Las empresas registradas, su estado y cuántas líneas de WhatsApp puede usar cada una." />
+
+    <ErrorAlert Message="@Message" />
+
+    @if (_pending > 0 && Filters.Status != TenantStatus.Pending)
+    {
+        <Alert Kind="AlertKind.Info" data-testid="pending-banner">
+            <span>@(_pending == 1 ? "1 empresa espera activación." : $"{MetricsFormat.Whole(_pending)} empresas esperan activación.")</span>
+            <a class="btn btn--secondary btn--sm" href="@PendingUrl">Verlas</a>
+        </Alert>
+    }
+
+    <form method="get" action="/admin" class="filters" role="search" aria-label="Filtros de empresas" data-testid="company-filters">
+        <div class="field">
+            <label for="f-search" class="field__label">Nombre de la empresa</label>
+            <input id="f-search" name="buscar" type="search" class="input" maxlength="@AdminListFilters.SearchMaxLength" autocomplete="off" value="@Filters.Search" />
+        </div>
+        <div class="field">
+            <label for="f-status" class="field__label">Estado</label>
+            <select id="f-status" name="estado" class="input">
+                <option value="">Todos</option>
+                @foreach (var status in AdminListFilters.Statuses)
+                {
+                    <option value="@AdminListFilters.WordFor(status)" selected="@(status == Filters.Status)">@TenantStatusLabels.Label(status)</option>
+                }
+            </select>
+        </div>
+        <div class="filters__actions">
+            <button type="submit" class="btn btn--secondary"><Icon Name="filter" />Filtrar</button>
+            @if (Filters.IsFiltered)
+            {
+                <a class="btn btn--ghost" href="/admin" data-testid="clear-filters"><Icon Name="x" />Borrar filtros</a>
+            }
+        </div>
+    </form>
+
+    @if (_page is not null)
+    {
+        @if (_page.TotalCount == 0)
+        {
+            @if (Filters.IsFiltered)
+            {
+                <EmptyState Title="Ninguna empresa coincide" Art="search" Text="Prueba con otro nombre o con otro estado.">
+                    <Actions><a class="btn btn--secondary" href="/admin"><Icon Name="x" />Borrar filtros</a></Actions>
+                </EmptyState>
+            }
+            else
+            {
+                <EmptyState Title="Aún no hay empresas" Art="chat" Text="Cuando una empresa se registre, aparecerá aquí para que la actives." />
+            }
+        }
+        else
+        {
+            <div class="table-wrap" role="region" aria-label="Empresas" tabindex="0">
+                <table class="table table--cards">
+                    <caption class="sr-only">Empresas registradas</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Empresa</th>
+                            <th scope="col">Estado</th>
+                            <th scope="col">Líneas activas</th>
+                            <th scope="col">Propietario</th>
+                            <th scope="col">Registro</th>
+                            <th scope="col">Última actividad</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var company in _page.Items)
+                        {
+                            <tr data-testid="company-row" data-company-id="@company.Id" data-status="@company.Status">
+                                <th scope="row" data-label="Empresa"><a href="/admin/empresas/@company.Id">@company.Name</a></th>
+                                <td data-label="Estado"><TenantStatusChip Status="company.Status" /></td>
+                                <td data-label="Líneas activas" data-testid="company-lines" data-active="@company.ActiveLines" data-max="@company.MaxActiveLines">@AdminFormat.LinesOfQuota(company.ActiveLines, company.MaxActiveLines)</td>
+                                <td data-label="Propietario">@(company.OwnerEmail ?? MetricsFormat.NoData)</td>
+                                <td data-label="Registro">@MetricsFormat.Date(DateOnly.FromDateTime(TimeZone.ToLocal(company.RegisteredAt)))</td>
+                                <td data-label="Última actividad" data-testid="company-activity">@(company.LastActivityAt is { } last ? AdminFormat.Moment(TimeZone.ToLocal(last)) : AdminFormat.NoActivity)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <Pager Page="_page.Page" PageSize="_page.PageSize" Total="_page.TotalCount" TotalText="@AdminFormat.Companies(_page.TotalCount)" UrlFor="Filters.ToUrl" />
+        }
+    }
+</div>
+
+@code {
+    private PagedResponse<TenantSummaryResponse>? _page;
+    private int _pending;
+
+    [SupplyParameterFromQuery(Name = "estado")]
+    public string? Estado { get; set; }
+
+    [SupplyParameterFromQuery(Name = "buscar")]
+    public string? Buscar { get; set; }
+
+    [SupplyParameterFromQuery(Name = "pagina")]
+    public string? Pagina { get; set; }
+
+    private static string PendingUrl => AdminListFilters.From(AdminListFilters.WordFor(TenantStatus.Pending), null, null).ToUrl(1);
+
+    private AdminListFilters Filters => AdminListFilters.From(Estado, Buscar, Pagina);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        var filters = Filters;
+        var listTask = Api.GetAdminTenantsAsync(Token!, filters.ToQuery());
+        // A one-row query is enough to count the companies waiting for the administrator.
+        var pendingTask = Api.GetAdminTenantsAsync(Token!, new AdminTenantsQuery { Status = nameof(TenantStatus.Pending), Page = 1, PageSize = 1 });
+        await Task.WhenAll(listTask, pendingTask);
+
+        if (await TryFailAsync(listTask.Result))
+        {
+            return;
+        }
+
+        _page = listTask.Result.Value;
+        _pending = pendingTask.Result.IsSuccess ? pendingTask.Result.Value!.TotalCount : 0;
+    }
+}

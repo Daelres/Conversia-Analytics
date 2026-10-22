@@ -1,0 +1,29 @@
+@inherits LayoutComponentBase
+
+<InPageLink Fragment="main" class="skip-link">Saltar al contenido</InPageLink>
+<div class="auth">
+    <aside class="auth-brand">
+        <a class="brand brand--light" href="/admin/login">
+            <BrandMark Class="brandmark--on-dark brandmark--lg" />
+            <span class="brand-name">Conversia</span>
+        </a>
+        <div class="auth-brand__copy">
+            <p class="auth-brand__title">Administración de Conversia</p>
+            <ul class="benefits">
+                <li><Icon Name="building" /><span>Activa o suspende empresas y define cuántas líneas de WhatsApp puede usar cada una.</span></li>
+                <li><Icon Name="shield-check" /><span>Solo ves datos de negocio: nunca conversaciones, mensajes ni métricas de una empresa.</span></li>
+                <li><Icon Name="activity" /><span>Cada cambio queda en el registro de auditoría.</span></li>
+            </ul>
+        </div>
+        <p class="auth-brand__foot">Versión de prueba: el piloto aún se está construyendo.</p>
+    </aside>
+    <div class="shell auth-shell" data-shell="site">
+        <AdminShellHeader SignedIn="false" />
+        <div class="shell-body">
+            <main id="main" tabindex="-1">
+                <ErrorCodeNotice />
+                @Body
+            </main>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,45 @@
+@* The pager of the administrator's lists: previous, "Página X de Y", next, and the total in words. The links keep the filters (UrlFor). *@
+@if (PageCount > 1 || Total > 0)
+{
+    <nav aria-label="Paginación" class="pager" data-testid="pager">
+        <div class="pager__group">
+            @if (Page > 1)
+            {
+                <a class="btn btn--ghost btn--sm" data-testid="pager-prev" href="@UrlFor(Math.Min(Page - 1, PageCount))"><Icon Name="chevron-left" Class="icon--sm" />Anterior</a>
+            }
+            else
+            {
+                <span class="btn btn--ghost btn--sm" data-testid="pager-prev" aria-disabled="true"><Icon Name="chevron-left" Class="icon--sm" />Anterior</span>
+            }
+            <span class="pager__status">Página @Page de @PageCount</span>
+            @if (Page < PageCount)
+            {
+                <a class="btn btn--ghost btn--sm" data-testid="pager-next" href="@UrlFor(Page + 1)">Siguiente<Icon Name="chevron-right" Class="icon--sm" /></a>
+            }
+            else
+            {
+                <span class="btn btn--ghost btn--sm" data-testid="pager-next" aria-disabled="true">Siguiente<Icon Name="chevron-right" Class="icon--sm" /></span>
+            }
+        </div>
+        <span class="pager__total">@TotalText</span>
+    </nav>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public int Page { get; set; }
+
+    [Parameter, EditorRequired]
+    public int PageSize { get; set; }
+
+    [Parameter, EditorRequired]
+    public int Total { get; set; }
+
+    [Parameter, EditorRequired]
+    public string TotalText { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public Func<int, string> UrlFor { get; set; } = _ => "#";
+
+    private int PageCount => Math.Max(1, (int)Math.Ceiling(Total / (double)Math.Max(PageSize, 1)));
+}

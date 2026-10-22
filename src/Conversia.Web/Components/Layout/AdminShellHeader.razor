@@ -1,0 +1,58 @@
+<header class="shell-header">
+    @* The checkbox + label pair opens the menu on small screens without JavaScript. *@
+    <input type="checkbox" id="menu-toggle" class="menu-check" />
+    <div class="shell-bar">
+        <a class="brand" href="@(SignedIn ? "/admin" : "/admin/login")">
+            <BrandMark />
+            <span class="brand-name">Conversia</span>
+        </a>
+        <label for="menu-toggle" class="menu-button">
+            <Icon Name="menu" Class="icon-open" />
+            <Icon Name="x" Class="icon-close" />
+            <span>Menú</span>
+        </label>
+    </div>
+    <div class="shell-panel">
+        @if (SignedIn)
+        {
+            <nav aria-label="Navegación de administración">
+                <p class="nav-heading">Administración</p>
+                <ul class="nav-list">
+                    <NavItem Href="/admin" Label="Empresas" IconName="building" Exact="true" AlsoUnder="/admin/empresas" />
+                    <NavItem Href="/admin/auditoria" Label="Auditoría" IconName="activity" />
+                </ul>
+            </nav>
+        }
+        <div class="shell-foot">
+            @if (SignedIn)
+            {
+                <div class="user-card">
+                    <Avatar Text="Admin" />
+                    <div class="user-card__text">
+                        <span class="user-card__role">Administrador</span>
+                        <span class="user-card__meta">Administración de Conversia</span>
+                    </div>
+                </div>
+                <div class="shell-foot__row">
+                    <ThemeToggle />
+                    <form method="post" action="/admin/logout">
+                        <AntiforgeryToken />
+                        <button type="submit" class="btn btn--secondary btn--block">
+                            <Icon Name="log-out" />
+                            Cerrar sesión
+                        </button>
+                    </form>
+                </div>
+            }
+            else
+            {
+                <ThemeToggle />
+            }
+        </div>
+    </div>
+</header>
+
+@code {
+    [Parameter]
+    public bool SignedIn { get; set; }
+}

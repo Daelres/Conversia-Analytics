@@ -19,10 +19,13 @@ public abstract class AuthenticatedPageBase : ApiPageBase
 
     protected bool IsPost => HttpMethods.IsPost(HttpContext.Request.Method);
 
+    /// <summary>The token of the session this page belongs to. The administrator's pages read the administrator's cookie instead.</summary>
+    protected virtual Task<string?> ReadStoredTokenAsync() => HttpContext.GetApiTokenAsync();
+
     /// <summary>False when there is no token to call the API with; the session has then been ended.</summary>
     protected async Task<bool> TryReadTokenAsync()
     {
-        Token = await HttpContext.GetApiTokenAsync();
+        Token = await ReadStoredTokenAsync();
         if (Token is not null)
         {
             return true;

@@ -48,7 +48,7 @@ public abstract class ApiPageBase : ComponentBase
     }
 
     /// <summary>The API refused the stored token (expired or revoked): drop the cookie and start over at the login page.</summary>
-    protected async Task EndSessionAsync()
+    protected virtual async Task EndSessionAsync()
     {
         await HttpContext.SignOutApiUserAsync();
         RedirectTo(AuthenticationExtensions.LoginPath);

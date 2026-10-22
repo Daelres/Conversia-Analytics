@@ -1,0 +1,74 @@
+@page "/admin/login"
+@using Conversia.Application.DTOs.Auth
+@using Conversia.Web.Authentication
+@layout AdminAuthLayout
+@inherits ApiPageBase
+
+<PageTitle>Administración: iniciar sesión - Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+<div class="page auth-page" data-page="admin-login">
+    <PageHeader Eyebrow="Administración de Conversia" EyebrowIcon="shield-check" Title="Iniciar sesión"
+                Description="Acceso solo para el equipo de Conversia. Las personas de las empresas entran por la página de inicio de sesión de su cuenta." />
+
+    @if (_message is not null)
+    {
+        <Alert Kind="AlertKind.Danger">@_message</Alert>
+    }
+
+    <Card>
+        <EditForm Model="Input" FormName="admin-login" OnValidSubmit="SignInAsync" method="post" class="form">
+            <DataAnnotationsValidator />
+
+            <FormField TValue="string" For="() => Input.Email" Id="email" Label="Correo electrónico" IconName="mail" Context="field">
+                <TextInput id="email" type="email" class="input" autocomplete="username" @bind-Value="Input.Email" @attributes="field" Invalid="field.Invalid" />
+            </FormField>
+
+            <FormField TValue="string" For="() => Input.Password" Id="password" Label="Contraseña" IconName="lock" Context="field">
+                @* A plain input: it has no value attribute, so a submitted password can never be echoed back. *@
+                <input id="password" name="Input.Password" type="password" class="input" autocomplete="current-password" @attributes="field" />
+            </FormField>
+
+            <button type="submit" class="btn btn--primary btn--block">
+                Iniciar sesión
+                <Icon Name="arrow-right" />
+            </button>
+        </EditForm>
+    </Card>
+</div>
+
+@code {
+    private string? _message;
+    private LoginRequest? _input;
+
+    [SupplyParameterFromForm(FormName = "admin-login")]
+    private LoginRequest Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    private async Task SignInAsync()
+    {
+        var result = await Api.AdminLoginAsync(Input);
+        Input.Password = string.Empty;
+
+        if (result.IsSuccess && await HttpContext.SignInPlatformAdminAsync(result.Value!))
+        {
+            RedirectTo(LocalReturnUrl.OrAdminHome(ReturnUrl));
+            return;
+        }
+
+        // One message for a wrong email, a wrong password and a deactivated account: the page must not tell them apart (the API does not).
+        _message = result.Status switch
+        {
+            ApiResultStatus.Unauthorized or ApiResultStatus.ValidationFailed => UiMessages.InvalidCredentials,
+            _ => UiMessages.ForCommonFailure(result) ?? UiMessages.Unavailable
+        };
+    }
+}

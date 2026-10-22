@@ -1,0 +1,94 @@
+@page "/admin/auditoria"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Application.DTOs
+@using Conversia.Application.DTOs.Admin
+@using Conversia.Web.Authentication
+@inherits AdminPageBase
+
+<PageTitle>Auditoría - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+<div class="page" data-page="admin-audit">
+    <PageHeader Eyebrow="Administración" EyebrowIcon="shield-check" Title="Auditoría"
+                Description="Cada cambio que hace un administrador: quién, cuándo y sobre qué empresa. No incluye datos de clientes ni mensajes." />
+
+    <ErrorAlert Message="@Message" />
+
+    <form method="get" action="/admin/auditoria" class="filters" role="search" aria-label="Filtro de auditoría" data-testid="audit-filters">
+        <div class="field">
+            <label for="f-company" class="field__label">Empresa</label>
+            <select id="f-company" name="empresa" class="input">
+                <option value="">Todas</option>
+                @if (Filters.TenantId is { } selected && !_names.ContainsKey(selected))
+                {
+                    <option value="@selected" selected="selected">Empresa @selected.ToString()[..8]</option>
+                }
+                @foreach (var company in _names.OrderBy(n => n.Value, StringComparer.CurrentCultureIgnoreCase))
+                {
+                    <option value="@company.Key" selected="@(company.Key == Filters.TenantId)">@company.Value</option>
+                }
+            </select>
+        </div>
+        <div class="filters__actions">
+            <button type="submit" class="btn btn--secondary"><Icon Name="filter" />Filtrar</button>
+            @if (Filters.TenantId is not null)
+            {
+                <a class="btn btn--ghost" href="/admin/auditoria" data-testid="clear-filters"><Icon Name="x" />Borrar filtro</a>
+            }
+        </div>
+    </form>
+
+    @if (_page is not null)
+    {
+        @if (_page.TotalCount == 0)
+        {
+            <EmptyState Title="Sin cambios registrados" Art="chat"
+                        Text="@(Filters.TenantId is null ? "Cuando actives, suspendas o cambies el cupo de una empresa, quedará aquí." : "Esta empresa todavía no tiene cambios registrados.")" />
+        }
+        else
+        {
+            <AuditList Entries="_page.Items" Label="Registro de auditoría" ShowCompany="true" Names="_names" />
+            <Pager Page="_page.Page" PageSize="_page.PageSize" Total="_page.TotalCount" TotalText="@AdminFormat.Changes(_page.TotalCount)" UrlFor="Filters.ToUrl" />
+        }
+    }
+</div>
+
+@code {
+    private PagedResponse<AuditEntryResponse>? _page;
+    private Dictionary<Guid, string> _names = new();
+
+    [SupplyParameterFromQuery(Name = "empresa")]
+    public string? Empresa { get; set; }
+
+    [SupplyParameterFromQuery(Name = "pagina")]
+    public string? Pagina { get; set; }
+
+    private AdminAuditFilters Filters => AdminAuditFilters.From(Empresa, Pagina);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        var auditTask = Api.GetAdminAuditAsync(Token!, Filters.ToQuery());
+        // The names of the companies are a courtesy for reading the trail (the entries carry ids): when they cannot be had, ids are shown.
+        var namesTask = Api.GetAdminTenantsAsync(Token!, new AdminTenantsQuery { Page = 1, PageSize = AdminTenantsQuery.MaxPageSize });
+        await Task.WhenAll(auditTask, namesTask);
+
+        if (await TryFailAsync(auditTask.Result))
+        {
+            return;
+        }
+
+        _page = auditTask.Result.Value;
+        if (namesTask.Result.IsSuccess)
+        {
+            _names = namesTask.Result.Value!.Items.ToDictionary(c => c.Id, c => c.Name);
+        }
+    }
+}

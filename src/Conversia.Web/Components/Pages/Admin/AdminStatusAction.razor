@@ -1,0 +1,158 @@
+@page "/admin/empresas/{Id:guid}/estado/{Action}"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Application.DTOs.Admin
+@using Conversia.Domain.Enums
+@using Conversia.Web.Authentication
+@inherits AdminPageBase
+
+<PageTitle>@(_action?.Title ?? "Cambiar estado") - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+@if (_action is null || CompanyMissing)
+{
+    <CompanyNotFoundView />
+}
+else if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="admin-status-action" data-action="@Action" data-company-id="@Id">
+        <PageHeader Eyebrow="Empresa" EyebrowIcon="building" Title="@_action.Title" Description="@(_company?.Name)">
+            <a class="btn btn--secondary" href="/admin/empresas/@Id"><Icon Name="arrow-left" />Volver a la empresa</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_company is not null && !Allowed)
+        {
+            <Alert Kind="AlertKind.Warning" data-testid="not-allowed">Esta acción no aplica ahora: la empresa está «@TenantStatusLabels.Label(_company.Status).ToLowerInvariant()». Vuelve a la empresa para ver lo que puedes hacer.</Alert>
+        }
+
+        @* Always rendered (hidden when it does not apply): a POST can only be dispatched to a form that exists in the render tree,
+           and a forged one must still reach the API and be refused there. *@
+        <div hidden="@(!ShowForm)">
+            <Card Title="@_action.Question" IconName="@(_action.Danger ? "power" : "check-circle")" data-testid="status-confirm">
+                <div class="stack">
+                    <dl class="kv">
+                        <div>
+                            <dt>Estado ahora</dt>
+                            <dd>@(_company is null ? MetricsFormat.NoData : TenantStatusLabels.Label(_company.Status))</dd>
+                        </div>
+                        <div>
+                            <dt>Quedará</dt>
+                            <dd>@TenantStatusLabels.Label(_action.Target)</dd>
+                        </div>
+                    </dl>
+                    <p class="muted" data-testid="confirm-effect">@_action.Effect</p>
+                    <EditForm Model="Input" FormName="status-action" OnValidSubmit="RunAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="status-action-form">
+                        <DataAnnotationsValidator />
+                        <FormField TValue="string" For="() => Input.Reason" Id="reason" Label="Motivo (opcional)"
+                                   Hint="Queda en el registro de auditoría. Hasta 500 caracteres." ApiErrors="_errors" Context="field">
+                            <textarea id="reason" name="@($"{nameof(Input)}.{nameof(StatusReasonInput.Reason)}")" class="input" rows="3" maxlength="500" @attributes="field">@Input.Reason</textarea>
+                        </FormField>
+                        <ApiFieldErrors Errors="_errors" KnownFields="@(["Reason"])" />
+                        <div class="form-actions">
+                            @if (ShowForm)
+                            {
+                                <button type="submit" class="@(_action.Danger ? "btn btn--danger" : "btn btn--primary")"><Icon Name="@(_action.Danger ? "power" : "check-circle")" />Sí, @_action.Button.ToLowerInvariant()</button>
+                            }
+                            <a class="btn btn--ghost" href="/admin/empresas/@Id">Cancelar</a>
+                        </div>
+                    </EditForm>
+                </div>
+            </Card>
+        </div>
+    </div>
+}
+
+@code {
+    private TenantDetailResponse? _company;
+    private IReadOnlyDictionary<string, string[]>? _errors;
+    private StatusReasonInput? _input;
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [Parameter]
+    public string Action { get; set; } = string.Empty;
+
+    [SupplyParameterFromForm(FormName = "status-action")]
+    private StatusReasonInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    private StatusAction? _action => TenantStatusLabels.Find(Action);
+
+    // The page offers the form only for a move the company's current status allows; the API stays the authority either way.
+    private bool Allowed => _company is not null && TenantStatusLabels.ActionsFor(_company.Status).Any(a => a.Route == Action);
+
+    private bool ShowForm => _company is not null && Allowed && !Redirected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (_action is null)
+        {
+            SetStatusCode(StatusCodes.Status404NotFound);
+            return;
+        }
+
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Api.GetAdminTenantAsync(Token!, Id);
+        if (await TryFailAsync(result))
+        {
+            return;
+        }
+
+        _company = result.Value;
+    }
+
+    private async Task RunAsync()
+    {
+        var result = await Api.ChangeTenantStatusAsync(Token!, Id, Input.ToRequest(_action!.Target.ToString()));
+        if (result.IsSuccess)
+        {
+            RedirectTo(AdminNotice.Url(Id, AdminNotice.StatusChanged));
+            return;
+        }
+
+        switch (result.Status)
+        {
+            case ApiResultStatus.ValidationFailed:
+                _errors = result.ValidationErrors;
+                SetStatusCode(StatusCodes.Status400BadRequest);
+                break;
+            case ApiResultStatus.Conflict:
+                // An invalid move (the company changed under the administrator's feet): the API's own message says which.
+                Message = result.Detail ?? "Ese cambio de estado no está permitido.";
+                SetStatusCode(StatusCodes.Status409Conflict);
+                break;
+            default:
+                await TryFailAsync(result);
+                break;
+        }
+
+        if (!Redirected && !Denied && !CompanyMissing)
+        {
+            await LoadAsync();
+        }
+    }
+}

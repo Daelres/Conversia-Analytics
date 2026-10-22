@@ -38,6 +38,10 @@
     [Parameter]
     public bool Exact { get; set; }
 
+    /// <summary>A prefix that also makes this entry current (the pages below the list it opens), for a list whose own path is a prefix of its sibling's.</summary>
+    [Parameter]
+    public string? AlsoUnder { get; set; }
+
     /// <summary>Styled as the call to action of the bar.</summary>
     [Parameter]
     public bool Cta { get; set; }
@@ -49,6 +53,11 @@
         get
         {
             var path = "/" + Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Trim('/');
+            if (AlsoUnder is not null && path.StartsWith(AlsoUnder + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
             return Exact
                 ? string.Equals(path, Href, StringComparison.OrdinalIgnoreCase)
                 : string.Equals(path, Href, StringComparison.OrdinalIgnoreCase) || path.StartsWith(Href + "/", StringComparison.OrdinalIgnoreCase);

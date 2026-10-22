@@ -1,0 +1,47 @@
+@using Conversia.Application.DTOs.Admin
+@using Conversia.Application.Time
+@using Conversia.Web.Time
+@inject TenantTimeZone TimeZone
+@* The audit trail as a list a person reads: when, who, what changed and (on the general page) for which company. Never prints the raw details. *@
+<ol class="audit" data-testid="audit-list" aria-label="@Label">
+    @foreach (var entry in Entries)
+    {
+        var text = AuditFormat.Describe(entry);
+        <li class="audit__item" data-testid="audit-entry" data-action="@entry.Action">
+            <div class="audit__head">
+                <strong class="audit__title">@text.Title</strong>
+                <time class="audit__time muted" datetime="@entry.OccurredAt.ToString("o")">@AdminFormat.Moment(TimeZone.ToLocal(entry.OccurredAt))</time>
+            </div>
+            @if (text.Detail is not null)
+            {
+                <p class="audit__detail">@text.Detail</p>
+            }
+            <p class="audit__meta muted">
+                Por @(entry.AdminEmail ?? "un administrador")
+                @if (ShowCompany && entry.TenantId is { } tenantId)
+                {
+                    <text> · Empresa: </text><a href="/admin/empresas/@tenantId">@CompanyName(tenantId)</a>
+                }
+            </p>
+        </li>
+    }
+</ol>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<AuditEntryResponse> Entries { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>Show which company each change belongs to (the general page); the company's own page leaves it out.</summary>
+    [Parameter]
+    public bool ShowCompany { get; set; }
+
+    /// <summary>Company names by id, for the entries of the page; an id that is not in it is shown as a short id.</summary>
+    [Parameter]
+    public IReadOnlyDictionary<Guid, string>? Names { get; set; }
+
+    private string CompanyName(Guid id)
+        => Names is not null && Names.TryGetValue(id, out var name) ? name : "Empresa " + id.ToString()[..8];
+}

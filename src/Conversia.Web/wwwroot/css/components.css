@@ -1339,6 +1339,10 @@ a.card--link:hover {
   }
 
   .table--cards [data-align="end"] { text-align: left; }
+
+  /* The row actions get the whole width of the card (two columns are too narrow for two buttons) and wrap instead of spilling left. */
+  .table--cards td.table__cell-actions { grid-column: 1 / -1; }
+  .table--cards .table__actions { flex-wrap: wrap; justify-content: flex-start; }
 }
 
 /* ---- Organization: the one-time webhook secret ---- */

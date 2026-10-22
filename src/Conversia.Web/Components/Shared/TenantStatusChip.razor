@@ -1,0 +1,25 @@
+@using Conversia.Domain.Enums
+@* A company's status as a chip: the word and an icon carry the meaning, the tone only echoes it. *@
+<Chip Tone="Tone" IconName="@Icon" data-chip="tenant-status" data-status="@Status" @attributes="Attributes">@TenantStatusLabels.Label(Status)</Chip>
+
+@code {
+    [Parameter, EditorRequired]
+    public TenantStatus Status { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public Dictionary<string, object>? Attributes { get; set; }
+
+    private ChipTone Tone => Status switch
+    {
+        TenantStatus.Active => ChipTone.Success,
+        TenantStatus.Suspended => ChipTone.Danger,
+        _ => ChipTone.Warning,
+    };
+
+    private string Icon => Status switch
+    {
+        TenantStatus.Active => "check-circle",
+        TenantStatus.Suspended => "alert-circle",
+        _ => "clock",
+    };
+}

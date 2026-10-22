@@ -35,27 +35,29 @@ else if (!Redirected)
            without OrganizationManage who forges one must still reach the API and be refused there, not crash here. *@
         <div hidden="@(!ShowForm)">
             <Card Title="@Question" IconName="@(Kind == ChannelActionKind.Rotate ? "key" : "power")" data-testid="channel-confirm">
-                <dl class="kv">
-                    <div>
-                        <dt>Número</dt>
-                        <dd data-testid="confirm-number">@_channel?.DisplayPhoneNumber</dd>
-                    </div>
-                    <div>
-                        <dt>Estado ahora</dt>
-                        <dd>@(_channel?.IsActive == true ? "Activa" : "Inactiva")</dd>
-                    </div>
-                </dl>
-                <p class="muted" data-testid="confirm-effect">@Effect</p>
-                <EditForm Model="Input" FormName="channel-action" OnValidSubmit="RunAsync" OnInvalidSubmit="ReloadAsync" method="post" class="form" data-testid="channel-action-form">
-                    <input type="hidden" name="@($"{nameof(Input)}.{nameof(ChannelActionInput.SubmissionId)}")" value="@_submissionId" />
-                    <div class="form-actions">
-                        @if (ShowForm)
-                        {
-                            <button type="submit" class="@(Kind == ChannelActionKind.Activate ? "btn btn--primary" : "btn btn--danger")"><Icon Name="@(Kind == ChannelActionKind.Rotate ? "key" : "power")" />@Confirm</button>
-                        }
-                        <a class="btn btn--ghost" href="/organizacion">Cancelar</a>
-                    </div>
-                </EditForm>
+                <div class="stack">
+                    <dl class="kv">
+                        <div>
+                            <dt>Número</dt>
+                            <dd data-testid="confirm-number">@_channel?.DisplayPhoneNumber</dd>
+                        </div>
+                        <div>
+                            <dt>Estado ahora</dt>
+                            <dd>@(_channel?.IsActive == true ? "Activa" : "Inactiva")</dd>
+                        </div>
+                    </dl>
+                    <p class="muted" data-testid="confirm-effect">@Effect</p>
+                    <EditForm Model="Input" FormName="channel-action" OnValidSubmit="RunAsync" OnInvalidSubmit="ReloadAsync" method="post" class="form" data-testid="channel-action-form">
+                        <input type="hidden" name="@($"{nameof(Input)}.{nameof(ChannelActionInput.SubmissionId)}")" value="@_submissionId" />
+                        <div class="form-actions">
+                            @if (ShowForm)
+                            {
+                                <button type="submit" class="@(Kind == ChannelActionKind.Activate ? "btn btn--primary" : "btn btn--danger")"><Icon Name="@(Kind == ChannelActionKind.Rotate ? "key" : "power")" />@Confirm</button>
+                            }
+                            <a class="btn btn--ghost" href="/organizacion">Cancelar</a>
+                        </div>
+                    </EditForm>
+                </div>
             </Card>
         </div>
     </div>

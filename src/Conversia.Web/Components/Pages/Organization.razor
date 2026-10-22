@@ -233,7 +233,7 @@ else if (!Redirected)
                         </div>
                     }
 
-                    <div hidden="@(!_canManage)" data-testid="channel-form-panel">
+                    <div class="stack" hidden="@(!_canManage)" data-testid="channel-form-panel">
                         <p class="muted" data-testid="channel-form-intro">Registra el número de WhatsApp de una sucursal para obtener su dirección y su secreto. Para recibir mensajes, la línea debe estar activa; el número de líneas activas lo define tu acuerdo con Conversia.</p>
                         <EditForm Model="NewChannel" FormName="create-channel" OnValidSubmit="CreateChannelAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="channel-form">
                             <DataAnnotationsValidator />
