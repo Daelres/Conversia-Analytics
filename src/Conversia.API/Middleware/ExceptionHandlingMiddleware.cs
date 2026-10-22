@@ -48,6 +48,11 @@ public class ExceptionHandlingMiddleware
         {
             await WriteProblemAsync(context, StatusCodes.Status401Unauthorized, ProblemTexts.InvalidCredentialsTitle, ex.Message);
         }
+        catch (LoginThrottledException ex)
+        {
+            context.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(ex.RetryAfter.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            await WriteProblemAsync(context, StatusCodes.Status429TooManyRequests, ProblemTexts.TooManyRequestsTitle, ProblemTexts.TooManyLoginsDetail);
+        }
         catch (UserNotFoundException ex)
         {
             await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.UserNotFoundTitle, ex.Message);

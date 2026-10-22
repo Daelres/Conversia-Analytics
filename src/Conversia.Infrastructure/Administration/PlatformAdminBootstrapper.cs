@@ -34,6 +34,19 @@ public sealed class PlatformAdminBootstrapper : IHostedService
             return;
         }
 
+        try
+        {
+            await BootstrapAsync(cancellationToken);
+        }
+        finally
+        {
+            // Done with it, whatever happened: the options object lives as long as the process and must not keep the password.
+            _options.ClearPassword();
+        }
+    }
+
+    private async Task BootstrapAsync(CancellationToken cancellationToken)
+    {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var admins = scope.ServiceProvider.GetRequiredService<IPlatformAdminRepository>();
         var email = _options.Email!.Trim();

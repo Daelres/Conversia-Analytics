@@ -62,11 +62,16 @@ builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler
 
 // The platform administrator: global, outside every company (docs/PLATFORM_ADMIN.md).
 var platformAdminOptions = PlatformAdminOptionsValidator.GetValidatedOptions(builder.Configuration);
+// The bootstrap password lives in the options object until the bootstrapper has used it; the configuration must not keep a second copy.
+builder.Configuration[PlatformAdminOptions.PasswordKey] = null;
 builder.Services.AddSingleton(Options.Create(platformAdminOptions));
 builder.Services.AddScoped<IPlatformAdminRepository, PlatformAdminRepository>();
 builder.Services.AddScoped<IPlatformAdminQueries, PlatformAdminQueries>();
 builder.Services.AddScoped<ITenantUnitOfWork, TenantUnitOfWork>();
 builder.Services.AddScoped<IPlatformAdminTokenService, PlatformAdminTokenService>();
+// Built now, not on the first unknown email: every failed administrator sign-in must cost the same (see AdminLoginDecoy).
+builder.Services.AddSingleton(AdminLoginDecoy.Create(new PasswordHasherService()));
+builder.Services.AddSingleton<IAdminLoginThrottle, AdminLoginThrottle>();
 builder.Services.AddScoped<IPlatformAdminAuthService, PlatformAdminAuthService>();
 builder.Services.AddScoped<IPlatformAdminService, PlatformAdminService>();
 builder.Services.AddScoped<IAuthorizationHandler, PlatformAdminAuthorizationHandler>();

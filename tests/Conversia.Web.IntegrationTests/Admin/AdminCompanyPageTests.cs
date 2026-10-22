@@ -128,6 +128,7 @@ public class AdminCompanyPageTests
         Assert.Contains("Pendiente", confirm.Plain());
         Assert.Contains("podrá operar", confirm.QuerySelector("[data-testid=confirm-effect]")!.Plain());
         Assert.Equal("500", page.Document.QuerySelector("#reason")!.GetAttribute("maxlength"));
+        Assert.Contains("No incluyas datos personales de clientes", page.Document.QuerySelector("#reason-hint")!.Plain());
         Assert.Contains(page.Select("a"), a => a.GetAttribute("href") == Detail(AdminStub.Norte) && a.Plain().Contains("Cancelar"));
         Assert.Empty(harness.Writes);
     }

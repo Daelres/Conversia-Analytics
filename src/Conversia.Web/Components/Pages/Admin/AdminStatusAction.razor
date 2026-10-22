@@ -52,7 +52,7 @@ else if (!Redirected)
                     <EditForm Model="Input" FormName="status-action" OnValidSubmit="RunAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="status-action-form">
                         <DataAnnotationsValidator />
                         <FormField TValue="string" For="() => Input.Reason" Id="reason" Label="Motivo (opcional)"
-                                   Hint="Queda en el registro de auditoría. Hasta 500 caracteres." ApiErrors="_errors" Context="field">
+                                   Hint="Queda en el registro de auditoría. No incluyas datos personales de clientes. Hasta 500 caracteres." ApiErrors="_errors" Context="field">
                             <textarea id="reason" name="@($"{nameof(Input)}.{nameof(StatusReasonInput.Reason)}")" class="input" rows="3" maxlength="500" @attributes="field">@Input.Reason</textarea>
                         </FormField>
                         <ApiFieldErrors Errors="_errors" KnownFields="@(["Reason"])" />

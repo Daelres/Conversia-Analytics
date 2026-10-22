@@ -203,7 +203,8 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Jwt:Issuer` | API | `Conversia` | Token issuer, validated on every request. |
 | `Jwt:Audience` | API | `Conversia` | Token audience, validated on every request. |
 | `PlatformAdmin:Email` | API | empty | With `PlatformAdmin:Password`, creates the first platform administrator at startup when none has that email (never overwrites one). Empty = no bootstrap. Compose: `PLATFORM_ADMIN_EMAIL`. `docs/PLATFORM_ADMIN.md`. |
-| `PlatformAdmin:Password` | API | empty | At least 12 characters, not a template placeholder, otherwise the API will not start (the error names the key only). Compose: `PLATFORM_ADMIN_PASSWORD`. |
+| `PlatformAdmin:Password` | API | empty | At least 12 characters, not a template placeholder, otherwise the API will not start (the error names the key only). Compose: `PLATFORM_ADMIN_PASSWORD`. It is only needed until the account exists: **remove it from your `.env` after the first start** (the API forgets it in memory right after the bootstrap, but the container's environment keeps it as long as the variable is set). |
+| `PlatformAdmin:PasswordFile` | API | empty | Instead of `PlatformAdmin:Password`: the path of a file that holds the password (for example a Docker secret mounted at `/run/secrets/...`); a trailing newline is dropped. Setting both is a startup error, and so is a file that is unreadable or empty (the error names the key, never the path). Compose: `PLATFORM_ADMIN_PASSWORD_FILE`. |
 | `PlatformAdmin:TokenMinutes` | API | `60` | Lifetime of the administrator's token (1 to 720). |
 | `RateLimiting:Login:PermitLimit` | API | `10` | Login requests allowed per IP per window. Whole number >= 1, otherwise the API will not start. |
 | `RateLimiting:Login:WindowSeconds` | API | `60` | Length of the login rate-limit window in seconds. Whole number >= 1. |

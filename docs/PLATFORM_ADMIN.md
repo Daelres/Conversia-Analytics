@@ -81,6 +81,12 @@ the time. Actions: `tenant.status_changed` (`from`, `to`, `reason`), `tenant.quo
 (`channelId`, `displayPhoneNumber`). Refused changes and no-ops (same quota, line already off) write nothing. Rows hold ids, statuses, numbers and
 the reason the administrator typed: never a secret, a message or customer data. There is no foreign key on the company, so the trail survives it.
 
+**Personal data and retention.** The reason is free text, so it is the one place a person could type something personal. The status form says so
+("No incluyas datos personales de clientes"); the rule for administrators is to write the business reason only ("pago pendiente", "solicitud de la
+empresa"), never a customer's name, number or message. The trail has no purge: `PlatformAuditLogs` rows are kept for as long as the platform keeps its
+own records, because they are the evidence of who approved or stopped a company. If a reason ever holds personal data, it is corrected in the database
+by hand (the column is the only field of the row a person writes). The schema is unchanged.
+
 ## Bootstrap of the first administrator
 
 There is no endpoint to create administrators. At startup, if **both** are configured and no administrator with that email exists, the API creates it:
@@ -89,11 +95,17 @@ There is no endpoint to create administrators. At startup, if **both** are confi
 |---|---|
 | `PlatformAdmin__Email` (compose: `PLATFORM_ADMIN_EMAIL`) | Email of the administrator to create. |
 | `PlatformAdmin__Password` (compose: `PLATFORM_ADMIN_PASSWORD`) | At least 12 characters and not a template placeholder (`change_me`, `replace...`, `placeholder`, ...). A weak value stops the API at startup with an error that names the key, never the value. |
+| `PlatformAdmin__PasswordFile` (compose: `PLATFORM_ADMIN_PASSWORD_FILE`) | Instead of the variable above: the path of a file that holds the password (for example a Docker secret mounted by you). A trailing newline is dropped. Giving both is a startup error, and so is a file that cannot be read or is empty; the errors name the key, never the path or the value. |
 | `PlatformAdmin__TokenMinutes` | Lifetime of the administrator's token (default 60, 1 to 720). |
 
 Both empty (the compose default) means no bootstrap. One without the other is a startup error. An existing administrator is **never** overwritten
 by configuration (the password in the variable is ignored once the account exists). The log says "Platform administrator created." and nothing
 else: no email, no password.
+
+**Remove the password after the first start.** The API forgets it right after the bootstrap (the options object is cleared and the configuration
+key is blanked), and a process that is started again with it set ignores it once the account exists, but the container's environment keeps the
+variable for as long as it is set: delete `PLATFORM_ADMIN_PASSWORD` from your `.env` (or use `PLATFORM_ADMIN_PASSWORD_FILE` with a mounted secret, so
+the value never sits in the environment) and recreate the `api` service. To rotate the password follow the runbook below.
 
 `.env.example` does not list these two variables yet (it could not be edited with this change); add `PLATFORM_ADMIN_EMAIL=` and
 `PLATFORM_ADMIN_PASSWORD=` to your `.env` by hand.
@@ -112,8 +124,15 @@ else: no email, no password.
   (and the pre-existing webhook lookup, login and workers); they project scalars (counts, the owner's email, the latest message time, a branch name).
   `TenantFilterGuardTests` pins the exact list of source files that call `IgnoreQueryFilters()` and the only two unfiltered tables with a `TenantId`
   (`ErrorLogs`, `PlatformAuditLogs`).
-* **Login.** Uniform `401`; one password verification on every failure path (a decoy hash for unknown/deactivated accounts); its own per-IP rate limit
-  with the same numbers as the companies' (`RateLimiting:Login`); `Cache-Control: no-store`.
+* **Login.** Uniform `401`; one password verification on every failure path (a decoy hash for unknown/deactivated accounts, built at startup so even
+  the first unknown email costs the same); its own per-IP rate limit with the same numbers as the companies' (`RateLimiting:Login`); a per-account
+  brake besides (below); `Cache-Control: no-store`.
+* **Per-account brake.** The per-IP limit does not stop a guesser who changes address, so every email typed (known or not, normalized, cut to 256
+  characters) has a failure counter in memory: after 5 failures the next attempts are refused with `429` and `Retry-After` **before the password is
+  looked at**, with the same Spanish text for every email; the wait starts at 30 seconds and doubles with each further failure up to 15 minutes. The
+  counter is forgotten after 15 minutes without a failure and after a successful sign-in. Memory is bounded (10,000 accounts; expired ones go first,
+  then the one that failed longest ago). It is per API process and lost on restart. Cost of the choice: someone who knows the administrator's email can
+  keep that account waiting (the same is true of any lockout); the legitimate administrator waits at most 15 minutes, and a restart clears it.
 * **Status check cost and consistency.** Every authenticated company request does one primary-key lookup of the company's status (a single column).
   It is not cached, so a suspension applies on the next request on every API instance, with nothing to invalidate. The permission check already hits
   the database per request, so this is the same order of cost.

@@ -77,6 +77,8 @@ services:
       # one). Empty = no bootstrap. The password needs at least 12 characters and must not be a placeholder. See docs/PLATFORM_ADMIN.md.
       PlatformAdmin__Email: ${PLATFORM_ADMIN_EMAIL:-}
       PlatformAdmin__Password: ${PLATFORM_ADMIN_PASSWORD:-}
+      # Alternative to the password above: the path, inside the container, of a file that holds it (a Docker secret mounted by you). Use one or the other.
+      PlatformAdmin__PasswordFile: ${PLATFORM_ADMIN_PASSWORD_FILE:-}
     ports:
       - "${API_PORT:-5030}:8080"
     depends_on:

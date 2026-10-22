@@ -15,7 +15,7 @@ public static class PlatformAdminOptionsValidator
     public static PlatformAdminOptions GetValidatedOptions(IConfiguration configuration)
     {
         var email = configuration[PlatformAdminOptions.EmailKey];
-        var password = configuration[PlatformAdminOptions.PasswordKey];
+        var password = ReadPassword(configuration);
         var tokenMinutes = ConfigurationReader.ReadInt(
             configuration, PlatformAdminOptions.TokenMinutesKey, PlatformAdminOptions.DefaultTokenMinutes, 1, PlatformAdminOptions.MaxTokenMinutes);
 
@@ -42,6 +42,44 @@ public static class PlatformAdminOptionsValidator
         }
 
         return new PlatformAdminOptions { Email = hasEmail ? email!.Trim() : null, Password = hasEmail ? password : null, TokenMinutes = tokenMinutes };
+    }
+
+    /// <summary>
+    /// The password from <c>PlatformAdmin:Password</c>, or from the file <c>PlatformAdmin:PasswordFile</c> names (a Docker or Kubernetes secret):
+    /// the trailing newline of the file is dropped. Giving both is a mistake, and a file that cannot be read or is empty stops the start. The errors
+    /// name the key, never the path or the value.
+    /// </summary>
+    private static string? ReadPassword(IConfiguration configuration)
+    {
+        var password = configuration[PlatformAdminOptions.PasswordKey];
+        var file = configuration[PlatformAdminOptions.PasswordFileKey];
+        if (string.IsNullOrWhiteSpace(file))
+        {
+            return password;
+        }
+
+        if (!string.IsNullOrEmpty(password))
+        {
+            throw new InvalidOperationException($"{PlatformAdminOptions.PasswordKey} and {PlatformAdminOptions.PasswordFileKey} are both set: use only one of them.");
+        }
+
+        string content;
+        try
+        {
+            content = File.ReadAllText(file.Trim());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            throw new InvalidOperationException($"{PlatformAdminOptions.PasswordFileKey} points to a file that cannot be read.");
+        }
+
+        var fromFile = content.TrimEnd('\r', '\n');
+        if (fromFile.Length == 0)
+        {
+            throw new InvalidOperationException($"{PlatformAdminOptions.PasswordFileKey} points to an empty file.");
+        }
+
+        return fromFile;
     }
 
     public static bool IsWeak(string password)

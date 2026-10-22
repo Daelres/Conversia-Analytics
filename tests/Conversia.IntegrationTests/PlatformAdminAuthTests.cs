@@ -142,4 +142,66 @@ public class PlatformAdminAuthTests
         using var tenantLogin = await client.PostAsJsonAsync("/api/auth/login", new { email = UniqueEmail("nobody"), password = "x" });
         Assert.Equal(HttpStatusCode.Unauthorized, tenantLogin.StatusCode);
     }
+
+    // ---- the brake on one account ----
+
+    private async Task<HttpResponseMessage> TryLoginAsync(string email, string password)
+        => await _client.PostAsJsonAsync(AdminLoginUrl, new { email, password });
+
+    [Fact]
+    public async Task FiveFailuresOnOneAccount_AnswerA429WithRetryAfter_EvenForTheRightPassword_AndSuccessBeforeThatResets()
+    {
+        using var admin = await StartAdminAsync(_factory, _client);
+        for (var i = 0; i < 4; i++)
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, (await TryLoginAsync(admin.Email, "wrong-password")).StatusCode);
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await TryLoginAsync(admin.Email, AdminPassword)).StatusCode); // the fifth try is the right one: it resets
+        for (var i = 0; i < 5; i++)
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, (await TryLoginAsync(admin.Email, "wrong-password")).StatusCode);
+        }
+
+        var refused = await TryLoginAsync(admin.Email, AdminPassword);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+        Assert.Equal("30", refused.Headers.GetValues("Retry-After").Single());
+        Assert.Equal("application/problem+json", refused.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("Demasiados intentos de inicio de sesión", await refused.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task AnUnknownEmailIsThrottledTheSameWay_SoTheBrakeNeverSaysWhichEmailsExist()
+    {
+        using var admin = await StartAdminAsync(_factory, _client);
+        var ghost = UniqueEmail("ghost");
+        for (var i = 0; i < 5; i++)
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, (await TryLoginAsync(ghost, "wrong-password")).StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await TryLoginAsync(admin.Email, "wrong-password")).StatusCode);
+        }
+
+        var unknown = await TryLoginAsync(ghost, "wrong-password");
+        var known = await TryLoginAsync(admin.Email, "wrong-password");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, unknown.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, known.StatusCode);
+        Assert.Equal(await unknown.Content.ReadAsStringAsync(), await known.Content.ReadAsStringAsync());
+        Assert.Equal(unknown.Headers.GetValues("Retry-After").Single(), known.Headers.GetValues("Retry-After").Single());
+    }
+
+    [Fact]
+    public async Task TheBrakeIsPerAccount_AnotherEmailIsUnaffected()
+    {
+        using var locked = await StartAdminAsync(_factory, _client);
+        using var other = await StartAdminAsync(_factory, _client);
+        for (var i = 0; i < 6; i++)
+        {
+            await TryLoginAsync(locked.Email, "wrong-password");
+        }
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await TryLoginAsync(locked.Email, AdminPassword)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await TryLoginAsync(other.Email, AdminPassword)).StatusCode);
+    }
 }

@@ -92,7 +92,147 @@ public class PlatformAdminBootstrapTests
         => Assert.Contains("PlatformAdmin:TokenMinutes", Assert.Throws<InvalidOperationException>(() =>
             PlatformAdminOptionsValidator.GetValidatedOptions(Config(("PlatformAdmin:TokenMinutes", minutes)))).Message);
 
+    // ---- the password from a file (a Docker secret) ----
+
+    private static string TempFile(string content)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"conversia-test-{Guid.NewGuid():N}.secret");
+        File.WriteAllText(path, content);
+        return path;
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void ThePasswordCanComeFromAFile_WithItsTrailingNewlineDropped(string ending)
+    {
+        var file = TempFile(GoodPassword + ending);
+        try
+        {
+            var options = PlatformAdminOptionsValidator.GetValidatedOptions(Config(("PlatformAdmin:Email", "boss@example.test"), ("PlatformAdmin:PasswordFile", file)));
+
+            Assert.True(options.BootstrapRequested);
+            Assert.Equal(GoodPassword, options.Password);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
+    public void AnUnreadableOrEmptyFile_FailsNamingTheKeyAndNeverThePath()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), $"conversia-missing-{Guid.NewGuid():N}.secret");
+        var empty = TempFile("\n");
+        try
+        {
+            var unreadable = Assert.Throws<InvalidOperationException>(() =>
+                PlatformAdminOptionsValidator.GetValidatedOptions(Config(("PlatformAdmin:Email", "boss@example.test"), ("PlatformAdmin:PasswordFile", missing))));
+            var blank = Assert.Throws<InvalidOperationException>(() =>
+                PlatformAdminOptionsValidator.GetValidatedOptions(Config(("PlatformAdmin:Email", "boss@example.test"), ("PlatformAdmin:PasswordFile", empty))));
+
+            Assert.Contains("PlatformAdmin:PasswordFile", unreadable.Message);
+            Assert.DoesNotContain(missing, unreadable.Message);
+            Assert.Contains("PlatformAdmin:PasswordFile", blank.Message);
+            Assert.DoesNotContain(empty, blank.Message);
+        }
+        finally
+        {
+            File.Delete(empty);
+        }
+    }
+
+    [Fact]
+    public void AFileAndAPasswordTogether_AreAMistake_AndAWeakPasswordInAFileIsRefusedLikeAnyOther()
+    {
+        var file = TempFile("change_me\n");
+        try
+        {
+            var both = Assert.Throws<InvalidOperationException>(() =>
+                PlatformAdminOptionsValidator.GetValidatedOptions(Config(("PlatformAdmin:Email", "boss@example.test"), ("PlatformAdmin:Password", GoodPassword), ("PlatformAdmin:PasswordFile", file))));
+            var weak = Assert.Throws<InvalidOperationException>(() =>
+                PlatformAdminOptionsValidator.GetValidatedOptions(Config(("PlatformAdmin:Email", "boss@example.test"), ("PlatformAdmin:PasswordFile", file))));
+
+            Assert.Contains("PlatformAdmin:PasswordFile", both.Message);
+            Assert.DoesNotContain(GoodPassword, both.Message);
+            Assert.Contains("PlatformAdmin:Password", weak.Message);
+            Assert.DoesNotContain("change_me", weak.Message);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
+    public void AFileAloneWithoutAnEmail_IsHalfAPair()
+    {
+        var file = TempFile(GoodPassword);
+        try
+        {
+            var failure = Assert.Throws<InvalidOperationException>(() => PlatformAdminOptionsValidator.GetValidatedOptions(Config(("PlatformAdmin:PasswordFile", file))));
+
+            Assert.Contains("PlatformAdmin:Email", failure.Message);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
     // ---- the host ----
+
+    [Fact]
+    public async Task AfterTheBootstrapTheOptionsAndTheConfigurationNoLongerHoldThePassword()
+    {
+        await using var database = TestDatabase.Create(_factory);
+        await database.MigrateAsync();
+        var email = UniqueEmail("boss");
+        var file = TempFile(GoodPassword + "\n");
+        try
+        {
+            using var host = _factory.WithWebHostBuilder(builder =>
+            {
+                builder.UseSetting("PlatformAdmin:Email", email);
+                builder.UseSetting("PlatformAdmin:PasswordFile", file);
+                builder.ConfigureServices(services =>
+                {
+                    services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
+                    services.AddDbContext<ApplicationDbContext>(o => o.UseNpgsql(database.ConnectionString));
+                });
+            });
+            using var client = host.CreateClient();
+
+            Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync(AdminLoginUrl, new { email, password = GoodPassword })).StatusCode); // created from the file
+            var options = host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Conversia.Infrastructure.Configuration.PlatformAdminOptions>>().Value;
+            Assert.Null(options.Password);
+            Assert.Null(host.Services.GetRequiredService<IConfiguration>()["PlatformAdmin:Password"]);
+            Assert.Equal(email, options.Email);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
+    public async Task AnExistingAccountAlsoClearsThePasswordTheBootstrapDidNotUse()
+    {
+        await using var database = TestDatabase.Create(_factory);
+        await database.MigrateAsync();
+        var email = UniqueEmail("boss");
+        using (var first = Host(database, email, GoodPassword, new CapturingLoggerProvider()))
+        {
+            first.CreateClient();
+        }
+
+        using var second = Host(database, email, "Another-Passw0rd-abc", new CapturingLoggerProvider());
+        second.CreateClient();
+
+        Assert.Null(second.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Conversia.Infrastructure.Configuration.PlatformAdminOptions>>().Value.Password);
+    }
 
     [Fact]
     public void TheApiRefusesToStartWithAWeakBootstrapPassword()
