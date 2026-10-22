@@ -27,8 +27,13 @@ adapted to PostgreSQL and rewritten around this product.
   alerts ([`docs/METRICS.md`](docs/METRICS.md)).
 - **Executive dashboard** — `/panel` shows six headline numbers, alerts and the breakdowns.
   `/conversaciones` lists the chats and shows each thread with its classification;
-  `/organizacion` manages branches, advisors and WhatsApp numbers; `/users` manages users
-  and their permissions.
+  `/organizacion` manages branches, advisors and WhatsApp numbers (and shows the lines
+  used out of the company's quota); `/users` manages users and their permissions.
+  A company that is still pending or suspended sees `/cuenta-pendiente` instead.
+- **Platform administration** — `/admin/login` is the administrator's own sign-in;
+  `/admin` lists the companies, `/admin/empresas/{id}` approves, suspends and sets the line
+  quota of one, and `/admin/auditoria` shows every change
+  ([`docs/PLATFORM_ADMIN.md`](docs/PLATFORM_ADMIN.md)).
 - **Data separation** — every record belongs to a company (tenant); access is controlled
   per company and per permission. The design takes the Colombian data-protection law
   (Ley 1581 de 2012) into account; the project makes no certification claim.
@@ -295,9 +300,11 @@ policy in their own tenant.
 | GET | `/health` | anonymous | `200` `Healthy` / `Degraded`, `503` `Unhealthy` (webhook queue; status word only) | |
 | POST | `/api/diagnostics/errors` | header `X-Error-Report-Key`, rate limited; off without `ErrorLogging:ReportKey` | `201` `{code,persisted}` | `400`, `401`, `404` (off), `413` over 64 KB, `429` (`Retry-After`) |
 
-The Web exposes `/`, `/login`, `/register`, `/users`, `/panel`, `/conversaciones`,
-`/conversaciones/{id}`, `/organizacion`, `POST /logout` and the form endpoints
-`POST /users/permissions/grant` and `POST /users/permissions/revoke`.
+The Web exposes `/`, `/login`, `/register`, `/cuenta-pendiente`, `/users`, `/panel`, `/conversaciones`,
+`/conversaciones/{id}`, `/organizacion` (and `/organizacion/canales/{id}/{activar|desactivar|rotar-secreto}`), `POST /logout` and the form endpoints
+`POST /users/permissions/grant` and `POST /users/permissions/revoke`. The platform administrator has its own pages: `/admin/login`, `/admin`,
+`/admin/empresas/{id}` (with `/estado/{accion}` and `/lineas/{id}/desactivar`), `/admin/auditoria` and `POST /admin/logout`, with a session of its own
+(`docs/PLATFORM_ADMIN.md`).
 Details and the full error contract: `docs/USERS_TENANTS_PERMISSIONS.md`.
 
 ## Testing
@@ -319,7 +326,7 @@ same five projects run in CI (`.github/workflows/tests.yml`).
 
 ## Documentation
 
-- `docs/PLATFORM_ADMIN.md` — the platform administrator: company approval, per-line quota, admin API, bootstrap, security model, runbook.
+- `docs/PLATFORM_ADMIN.md` — the platform administrator: company approval, per-line quota, admin API and Web area, sessions, bootstrap, security model, runbook.
 - `docs/WEBHOOKS.md` — the 360dialog webhook: endpoint, mapping, retries, closing of conversations.
 - `docs/METRICS.md` — the exact definition of every dashboard metric, the alerts and their settings.
 - `docs/CLASSIFICATION.md` — the rule-based classifier and how to plug in another one.

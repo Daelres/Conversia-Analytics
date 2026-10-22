@@ -113,7 +113,7 @@ src/
   Conversia.Application/     # referencia Domain
   Conversia.Infrastructure/  # referencia Application; EF Core + Npgsql, migraciones en Persistence/Migrations
   Conversia.API/             # controllers (incluye /api/admin, solo para el administrador de plataforma); referencia Application e Infrastructure
-  Conversia.Web/             # Blazor Web; referencia Application y habla con la API por HTTP. `/panel` es el tablero ejecutivo (aterrizaje tras iniciar sesión); sus piezas viven en Components/Dashboard y Dashboard/; `/conversaciones` y `/conversaciones/{id}` son el listado y el detalle de chats (Components/Conversations); `/organizacion` administra sucursales, asesores y números (el secreto del webhook se muestra una sola vez, Components/Organization)
+  Conversia.Web/             # Blazor Web; referencia Application y habla con la API por HTTP. `/panel` es el tablero ejecutivo (aterrizaje tras iniciar sesión); sus piezas viven en Components/Dashboard y Dashboard/; `/conversaciones` y `/conversaciones/{id}` son el listado y el detalle de chats (Components/Conversations); `/organizacion` administra sucursales, asesores y números (el secreto del webhook se muestra una sola vez, Components/Organization); `/cuenta-pendiente` es el aterrizaje de una empresa pendiente o suspendida; `/admin` es el área del administrador de plataforma (login, empresas, cupo de líneas, auditoría) con sesión y cookie propias, Components/Pages/Admin, docs/PLATFORM_ADMIN.md
 docker/healthcheck.sh        # sonda de salud de los contenedores (bash /dev/tcp; las imágenes no traen curl)
 scripts/                     # docker-build.sh (construye las tres imágenes) y docker-smoke-test.sh (prueba de aceptación de las imágenes; corre en CI)
 tools/

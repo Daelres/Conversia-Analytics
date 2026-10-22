@@ -118,6 +118,52 @@ else: no email, no password.
   It is not cached, so a suspension applies on the next request on every API instance, with nothing to invalidate. The permission check already hits
   the database per request, so this is the same order of cost.
 
+## Web
+
+The Web (`src/Conversia.Web`) has two separate areas. Everything is static server-side rendering in Spanish; the pages call the API above, never the database.
+
+| Route | Who | What it is |
+|---|---|---|
+| `/cuenta-pendiente` | company user, any status | Where a company that is **Pending** or **Suspended** lands: "Tu empresa está pendiente de activación" (what happens next: the Conversia team activates it and sets the number of WhatsApp lines of the commercial agreement) or "Tu empresa está suspendida" (data is kept; contact the team). Reads `GET /api/tenant`. A company that is Active is sent on to `/panel`. After registering it shows "Tu empresa quedó registrada y está pendiente de activación" (`?registrado=1`). |
+| `/organizacion` | company user | Shows "Líneas activas X de Y" (chip, bar and words), the state of each line (Activa / Inactiva), "Activar línea" / "Desactivar" (each on a confirmation page) and, when the quota refuses (409), the API's message plus who can help. |
+| `/admin/login` | anyone | The administrator's own sign-in ("Administración de Conversia"): `POST /api/admin/auth/login`. One message for every failure; the API's rate limit is shown in words. |
+| `/admin` | administrator | Companies: filters (`estado`, `buscar`), 20 per page (`pagina`), status chip, "Líneas activas X de Y", owner email, registration date, last activity ("Sin actividad" when none) and a banner with the companies waiting for activation. |
+| `/admin/empresas/{id}` | administrator | One company: status and the moves that make sense (Activar and Suspender when Pending, Suspender when Active, Reactivar when Suspended), the quota form (0 to 1000), its lines (number, branch, state, "Desactivar") and the latest changes. |
+| `/admin/empresas/{id}/estado/{activar\|suspender\|reactivar}` | administrator | The confirmation of a status change, with an optional reason (up to 500 characters). |
+| `/admin/empresas/{id}/lineas/{channelId}/desactivar` | administrator | The confirmation of switching a line off. |
+| `/admin/auditoria` | administrator | The audit trail in words, newest first, 20 per page, optionally for one company (`empresa`). |
+| `POST /admin/logout` | administrator | Ends only the administrator's session. |
+
+Every operating page of the company side (`/panel`, `/conversaciones`, `/organizacion`, `/users`, `/`, the permission forms) sends the person to
+`/cuenta-pendiente` when the API answers `403` `tenant_not_active`. That is decided in one place (`AuthenticatedPageBase.TryFailAsync`, the users page and the
+permission endpoints), not page by page, and it is shown as an expected state: no error code. While the company cannot operate, the navigation shows Panel,
+Conversaciones, Organización and Usuarios locked (a lock icon and hidden text, not a link) and keeps "Estado de la empresa" and "Cerrar sesión".
+
+### Sessions
+
+The administrator has **its own session**, never shared with a company's:
+
+| | Company user | Administrator |
+|---|---|---|
+| Cookie scheme | `Cookies` (default) | `ConversiaAdmin` |
+| Cookie | `.Conversia.Auth` (persistent, SameSite Lax) | `.Conversia.Admin` (browser-session cookie, SameSite Strict) |
+| Holds | the company API token | the administrator API token |
+| Lifetime | the token's (no sliding) | the token's: 60 minutes by default (no sliding) |
+| Policy of its pages | `[Authorize]` | `PlatformAdmin` (the `ConversiaAdmin` scheme, the `platform_admin` role) |
+| Signs out at | `POST /logout` | `POST /admin/logout` |
+
+Each scheme has its own data-protection purpose, so a value copied from one cookie to the other's name is not a session. A company user who opens `/admin` is
+simply anonymous for the administrator scheme and goes to `/admin/login`; an administrator who opens `/panel` goes to `/login`. Neither token is ever sent to the
+other API: the pages of one area call only the endpoints of that area. Tests pin it both ways (`AdminSessionTests`). The token stays inside the encrypted cookie
+and is never rendered, logged or sent to the browser. The antiforgery token of an administrator page is bound to the administrator's identity, so every POST
+(login, quota, status, line, logout) needs one of its own; the logout endpoint runs under the administrator policy for the same reason.
+
+### What each role sees
+
+* **Company user**: its own company only, and only while it is Active (otherwise the page above). The line quota on `/organizacion`.
+* **Administrator**: companies and business facts (status, quota, lines, owner email, registration, last activity, the audit trail). The Web has no page, link or call
+  for conversations, messages, contacts, metrics or users of a company, and the API has no endpoint for them.
+
 ## Runbook
 
 * **Create the first administrator**: set `PLATFORM_ADMIN_EMAIL` / `PLATFORM_ADMIN_PASSWORD` for the `api` service and (re)start it; check the log
@@ -134,7 +180,8 @@ else: no email, no password.
 ## Limits
 
 * No endpoint to create, list or deactivate administrators, or to change their password: the bootstrap and the database are the only ways.
-* The dashboard of the administrator in the Web is a separate piece of work; this document covers the API.
+* The administrator's Web area is deliberately small (companies, one company, audit). There is no page to create administrators or change their password (see above).
+* The Web shows the audit trail with the company names of the first 100 companies; beyond that a company is shown by a short id.
 * While a company is suspended, its provider (360dialog) keeps getting `401` for its webhooks and may retry or disable the callback by its own rules;
   messages sent in that period are not captured.
 * A suspended company with a very large backlog of pending webhook events makes each worker claim scan past them (the claim filters by status);
