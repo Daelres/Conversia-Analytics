@@ -12,12 +12,13 @@ public static class Program
 
         Usage:
           simulator setup    [--api-url URL] [--print-secret] [--rotate-secret] [--line-quota 4]
-          simulator play     [--api-url URL] [--scenario booking|price-objection|unanswered|ad-origin|bsuid|duplicate|out-of-order|all] [--branch NAME] [--seed N]
-          simulator populate [--api-url URL] [--conversations 300] [--days 30] [--seed 42] [--previous-share 0.3] [--rate 15] [--wait-seconds 180] [--no-assign]
+          simulator play     [--api-url URL] [--scenario booking|price-objection|unanswered|ad-origin|bsuid|duplicate|out-of-order|all] [--branch NAME] [--seed N] [--auth header|basic]
+          simulator populate [--api-url URL] [--conversations 300] [--days 30] [--seed 42] [--previous-share 0.3] [--rate 15] [--wait-seconds 180] [--no-assign] [--auth header|basic]
 
         Common options:
           --api-url URL     The API (default $SIM_API_URL or http://localhost:5030). Only local addresses unless --allow-remote.
           --allow-remote    Accept a non-local API address.
+          --auth MODE       play/populate: how the channel secret is presented, 'header' (X-Webhook-Secret, default) or 'basic' (Authorization: Basic).
 
         Environment (never the command line):
           SIM_EMAIL, SIM_PASSWORD   Login of a user of the workspace (the owner).
@@ -64,8 +65,8 @@ public static class Program
             return options.Command switch
             {
                 SimulatorCommandName.Setup => await new SetupCommand(api, Console.Out, environment).RunAsync(options, cancellation.Token),
-                SimulatorCommandName.Play => await new PlayCommand(api, new WebhookSender(webhookHttp, options.Rate), environment, TimeProvider.System, Console.Out).RunAsync(options, cancellation.Token),
-                _ => await new PopulateCommand(api, new WebhookSender(webhookHttp, options.Rate), environment, TimeProvider.System, Console.Out).RunAsync(options, cancellation.Token),
+                SimulatorCommandName.Play => await new PlayCommand(api, new WebhookSender(webhookHttp, options.Rate, basicAuth: options.BasicAuth), environment, TimeProvider.System, Console.Out).RunAsync(options, cancellation.Token),
+                _ => await new PopulateCommand(api, new WebhookSender(webhookHttp, options.Rate, basicAuth: options.BasicAuth), environment, TimeProvider.System, Console.Out).RunAsync(options, cancellation.Token),
             };
         }
         catch (UsageException exception)

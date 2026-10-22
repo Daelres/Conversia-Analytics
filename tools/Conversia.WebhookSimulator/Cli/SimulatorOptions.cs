@@ -51,10 +51,13 @@ public sealed record SimulatorOptions
     /// <summary>Requests per second to the webhook.</summary>
     public int Rate { get; init; } = 15;
 
+    /// <summary>How the channel secret is presented: false = <c>X-Webhook-Secret</c> (default), true = <c>Authorization: Basic</c>.</summary>
+    public bool BasicAuth { get; init; }
+
     private static readonly HashSet<string> Flags = ["allow-remote", "print-secret", "rotate-secret", "no-assign", "help"];
 
     private static readonly HashSet<string> Valued =
-        ["api-url", "scenario", "branch", "conversations", "days", "seed", "previous-share", "wait-seconds", "rate", "line-quota"];
+        ["api-url", "scenario", "branch", "conversations", "days", "seed", "previous-share", "wait-seconds", "rate", "line-quota", "auth"];
 
     private static readonly HashSet<string> CredentialLike = ["email", "password", "secret", "token", "api-key", "webhook-secret", "user", "username", "admin-email", "admin-password"];
 
@@ -121,9 +124,16 @@ public sealed record SimulatorOptions
             throw new UsageException($"Unknown scenario '{scenario}'. Use one of: {string.Join(", ", Scenarios.Names)}, {Scenarios.All}.");
         }
 
+        var auth = (values.GetValueOrDefault("auth") ?? "header").ToLowerInvariant();
+        if (auth is not ("header" or "basic"))
+        {
+            throw new UsageException("--auth must be 'header' (X-Webhook-Secret, the default) or 'basic' (Authorization: Basic).");
+        }
+
         return new SimulatorOptions
         {
             Command = command,
+            BasicAuth = auth == "basic",
             ApiUrl = values.GetValueOrDefault("api-url") ?? apiUrlFromEnvironment ?? DefaultApiUrl,
             AllowRemote = Flag(values, "allow-remote"),
             PrintSecret = Flag(values, "print-secret"),

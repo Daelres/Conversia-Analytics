@@ -3,6 +3,7 @@ using Conversia.API.Localization;
 using Conversia.API.RateLimiting;
 using Conversia.Application.DTOs.Organization;
 using Conversia.Application.Exceptions;
+using Conversia.Application.Ingestion;
 using Conversia.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -10,7 +11,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Conversia.API.Controllers;
 
 /// <summary>
-/// The anonymous webhook the provider calls (no JWT: the per-channel secret in <c>X-Webhook-Secret</c> authenticates it). It validates,
+/// The anonymous webhook the provider calls (no JWT: the per-channel secret authenticates it, in <c>X-Webhook-Secret</c> or as the password of <c>Authorization: Basic</c>). It validates,
 /// stores the delivery and answers 200 at once; every bit of business work happens later in the background worker.
 /// </summary>
 [ApiController]
@@ -32,7 +33,6 @@ public class WebhooksController : ControllerBase
     [HttpPost("{channelKey}")]
     public async Task<IActionResult> Receive360Dialog(string channelKey, CancellationToken cancellationToken)
     {
-        var secret = Request.Headers[WebhookRoutes.SecretHeader].ToString();
         var clientIp = ClientPartition.Of(HttpContext);
 
         // An address that already failed too often is refused before anything else is spent on it.
@@ -43,7 +43,7 @@ public class WebhooksController : ControllerBase
 
         // Authenticate before reading the body: a caller without the secret never gets us to read (or store) anything. An unknown
         // key, an inactive channel and a wrong secret are the same answer.
-        var channel = await _ingestion.AuthenticateAsync(channelKey, secret, cancellationToken);
+        var channel = await AuthenticateAsync(channelKey, cancellationToken);
         if (channel is null)
         {
             _rateLimiter.RegisterFailedAuthentication(clientIp);
@@ -76,6 +76,40 @@ public class WebhooksController : ControllerBase
                 title: ProblemTexts.InvalidRequestTitle,
                 detail: InvalidWebhookPayloadException.DefaultMessage),
         };
+    }
+
+    // Two ways to present the same channel secret. X-Webhook-Secret is tried first; only when it does not authenticate (absent or wrong) is
+    // the Basic password tried. Either one failing alone is a failed authentication, and a request counts once whatever it presented. Nothing
+    // is ever read from the URL or the query string.
+    private async Task<WebhookChannelAccess?> AuthenticateAsync(string channelKey, CancellationToken cancellationToken)
+    {
+        var presented = new List<string>(2);
+        var headerSecret = Request.Headers[WebhookRoutes.SecretHeader].ToString();
+        if (headerSecret.Length > 0)
+        {
+            presented.Add(headerSecret);
+        }
+
+        if (WebhookBasicAuth.TryReadPassword(Request.Headers.Authorization.ToString()) is { } basicSecret)
+        {
+            presented.Add(basicSecret);
+        }
+
+        // Nothing usable presented: still one lookup, so a bare request costs what a wrong secret costs.
+        if (presented.Count == 0)
+        {
+            return await _ingestion.AuthenticateAsync(channelKey, null, cancellationToken);
+        }
+
+        foreach (var secret in presented)
+        {
+            if (await _ingestion.AuthenticateAsync(channelKey, secret, cancellationToken) is { } access)
+            {
+                return access;
+            }
+        }
+
+        return null;
     }
 
     private ObjectResult TooManyRequests(int retryAfterSeconds)

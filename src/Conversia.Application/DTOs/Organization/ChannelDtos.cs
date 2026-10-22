@@ -73,7 +73,7 @@ public class ChannelResponse
 /// <summary>The answer to creating a channel, or to rotating its secret: the only time a webhook secret is ever shown.</summary>
 public class CreateChannelResponse : ChannelResponse
 {
-    /// <summary>Plaintext secret for the <c>X-Webhook-Secret</c> header. Store it now: only its hash is kept.</summary>
+    /// <summary>Plaintext secret for the <c>X-Webhook-Secret</c> header (or the password of <c>Authorization: Basic</c>). Store it now: only its hash is kept.</summary>
     public string WebhookSecret { get; set; } = string.Empty;
 
     public static CreateChannelResponse From(WhatsAppChannel channel, string webhookSecret) => new()

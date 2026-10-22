@@ -109,6 +109,8 @@ Authorization: Bearer {{token}}
 # Use the webhookPath and webhookSecret returned by POST /api/channels. Always answers 200 for a JSON object; the worker processes it a moment later.
 # POST {{host}}/api/webhooks/360dialog/<channelKey>
 # X-Webhook-Secret: <webhookSecret>
+# (or, instead of that header: Authorization: Basic <base64 of conversia:<webhookSecret>>. The secret is the password; the user name is ignored.
+#  Never put the secret in the URL or the query string: it is not read from there.)
 # Content-Type: application/json
 #
 # { "entry": [ { "changes": [ { "field": "messages", "value": {

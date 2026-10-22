@@ -163,6 +163,15 @@ public class CliTests
     }
 
     [Fact]
+    public void The_secret_is_presented_in_the_header_unless_basic_auth_is_asked_for()
+    {
+        Assert.False(SimulatorOptions.Parse(["play"]).BasicAuth);
+        Assert.False(SimulatorOptions.Parse(["populate", "--auth", "header"]).BasicAuth);
+        Assert.True(SimulatorOptions.Parse(["populate", "--auth=BASIC"]).BasicAuth);
+        Assert.Throws<UsageException>(() => SimulatorOptions.Parse(["play", "--auth", "bearer"]));
+    }
+
+    [Fact]
     public void Play_defaults_to_all_and_knows_every_scenario()
     {
         Assert.Equal("all", SimulatorOptions.Parse(["play"]).Scenario);

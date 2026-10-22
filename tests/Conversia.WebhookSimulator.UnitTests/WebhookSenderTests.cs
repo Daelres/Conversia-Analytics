@@ -218,4 +218,24 @@ public class WebhookSenderTests
 
         Assert.Throws<ArgumentException>(() => new WebhookSender(http, 10));
     }
+
+    [Fact]
+    public async Task With_basic_auth_the_secret_travels_as_the_basic_password_and_not_in_the_secret_header()
+    {
+        string? authorization = null;
+        bool hasSecretHeader = true;
+        var handler = new ScriptedHandler(request =>
+        {
+            authorization = request.Headers.TryGetValues("Authorization", out var values) ? values.Single() : null;
+            hasSecretHeader = request.Headers.Contains("X-Webhook-Secret");
+            return Status(HttpStatusCode.OK);
+        });
+        var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5030/") };
+        var sender = new WebhookSender(http, 1000, (_, _) => Task.CompletedTask, basicAuth: true);
+
+        await sender.SendAsync("/api/webhooks/360dialog/some-key", Secret, "{}", CancellationToken.None);
+
+        Assert.Equal("Basic " + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("conversia:" + Secret)), authorization);
+        Assert.False(hasSecretHeader);
+    }
 }

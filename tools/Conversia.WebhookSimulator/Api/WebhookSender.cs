@@ -1,11 +1,12 @@
 using System.Net;
 using System.Text;
 using Conversia.Application.DTOs.Organization;
+using Conversia.Application.Ingestion;
 
 namespace Conversia.WebhookSimulator.Api;
 
 /// <summary>
-/// POSTs deliveries to a channel's webhook the way 360dialog does: the JSON body and the secret in <c>X-Webhook-Secret</c>. It paces itself
+/// POSTs deliveries to a channel's webhook the way 360dialog does: the JSON body and the secret in <c>X-Webhook-Secret</c> (or, with <c>--auth basic</c>, as the password of <c>Authorization: Basic</c>). It paces itself
 /// (a constant number of requests per second, well under the limits of docs/WEBHOOKS.md), waits out a <c>429</c> for as long as
 /// <c>Retry-After</c> says and retries a failing server a few times. A <c>401</c> stops everything: sending more would only spend the
 /// failed-authentication budget of the address.
@@ -15,11 +16,13 @@ public sealed class WebhookSender
     private readonly HttpClient _http;
     private readonly TimeSpan _interval;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+    private readonly bool _basicAuth;
     private long _nextSlotTicks;
 
     /// <param name="http">A client of its own: same base address as the API, no redirects and NO default <c>Authorization</c> header. The owner's
     /// token belongs to <see cref="ConversiaApi"/> only; a webhook delivery carries just the channel secret.</param>
-    public WebhookSender(HttpClient http, int requestsPerSecond, Func<TimeSpan, CancellationToken, Task>? delay = null)
+    /// <param name="basicAuth">Present the secret as <c>Authorization: Basic base64(conversia:secret)</c> instead of <c>X-Webhook-Secret</c>.</param>
+    public WebhookSender(HttpClient http, int requestsPerSecond, Func<TimeSpan, CancellationToken, Task>? delay = null, bool basicAuth = false)
     {
         if (http.DefaultRequestHeaders.Authorization is not null)
         {
@@ -29,6 +32,7 @@ public sealed class WebhookSender
         _http = http;
         _interval = TimeSpan.FromSeconds(1.0 / Math.Max(1, requestsPerSecond));
         _delay = delay ?? ((span, token) => Task.Delay(span, token));
+        _basicAuth = basicAuth;
     }
 
     /// <summary>How many requests were sent, and how many times the API said to slow down.</summary>
@@ -70,7 +74,15 @@ public sealed class WebhookSender
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json"),
                 };
-                request.Headers.TryAddWithoutValidation(WebhookRoutes.SecretHeader, secret);
+                if (_basicAuth)
+                {
+                    request.Headers.TryAddWithoutValidation("Authorization", WebhookBasicAuth.Header(secret));
+                }
+                else
+                {
+                    request.Headers.TryAddWithoutValidation(WebhookRoutes.SecretHeader, secret);
+                }
+
                 using var response = await _http.SendAsync(request, cancellationToken);
                 Sent++;
 
