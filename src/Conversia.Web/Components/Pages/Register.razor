@@ -13,6 +13,8 @@
     <PageHeader Eyebrow="Empieza en un minuto" EyebrowIcon="sparkles" Title="Crea la cuenta de tu empresa"
                 Description="Serás la persona propietaria: podrás invitar a tu equipo y decidir qué puede hacer cada quien." />
 
+    <Alert Kind="AlertKind.Info" data-testid="activation-note">Después de registrarte, el equipo de Conversia activa tu empresa y define cuántas líneas de WhatsApp puedes usar. Mientras tanto podrás iniciar sesión.</Alert>
+
     @if (_message is not null)
     {
         <Alert Kind="AlertKind.Danger">@_message</Alert>
@@ -67,7 +69,7 @@
 
         if (result.IsSuccess && await HttpContext.SignInApiUserAsync(result.Value!))
         {
-            RedirectTo(LocalReturnUrl.Landing);
+            RedirectTo(await LandingAsync(result.Value!.Token, returnUrl: null, justRegistered: true));
             return;
         }
 

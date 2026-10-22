@@ -46,6 +46,11 @@ public static class PermissionEndpoints
             ? await api.AssignPermissionAsync(token, change.UserId, change.Permission, cancellationToken)
             : await api.RevokePermissionAsync(token, change.UserId, change.Permission, cancellationToken);
 
+        if (result.Status == ApiResultStatus.TenantNotActive)
+        {
+            return Results.LocalRedirect(LocalReturnUrl.PendingAccount);
+        }
+
         return result.Status == ApiResultStatus.Unauthorized
             ? await EndSessionAsync(context)
             : Redirect(UsersNotice.ForPermissionChange(grant, result.Status), result.ErrorCode);

@@ -1,4 +1,5 @@
 using Conversia.Web.Authentication;
+using Conversia.Domain.Enums;
 using Conversia.Web.Services;
 using Microsoft.AspNetCore.Components;
 
@@ -29,6 +30,21 @@ public abstract class ApiPageBase : ComponentBase
     {
         Redirected = true;
         Navigation.NavigateTo(uri);
+    }
+
+    /// <summary>
+    /// Where a person lands once signed in: the page they were sent from or the dashboard, unless the company cannot operate yet, in which case
+    /// the page that explains it. Asking is best effort: if the API does not answer, the usual landing stands and the page itself redirects.
+    /// </summary>
+    protected async Task<string> LandingAsync(string token, string? returnUrl, bool justRegistered)
+    {
+        var tenant = await Api.GetTenantAsync(token);
+        if (tenant.IsSuccess && tenant.Value!.Status != TenantStatus.Active)
+        {
+            return justRegistered ? LocalReturnUrl.JustRegistered : LocalReturnUrl.PendingAccount;
+        }
+
+        return justRegistered ? LocalReturnUrl.Landing : LocalReturnUrl.OrHome(returnUrl);
     }
 
     /// <summary>The API refused the stored token (expired or revoked): drop the cookie and start over at the login page.</summary>

@@ -4,7 +4,7 @@
 
 <InPageLink Fragment="main" class="skip-link">Saltar al contenido</InPageLink>
 <div class="shell" data-shell="@(_signedIn ? "app" : "site")">
-    <ShellHeader SignedIn="_signedIn" Profile="Shell.User" />
+    <ShellHeader SignedIn="_signedIn" Profile="Shell.User" Tenant="Shell.Tenant" />
     <div class="shell-body">
         <main id="main" tabindex="-1">
             <ErrorCodeNotice />

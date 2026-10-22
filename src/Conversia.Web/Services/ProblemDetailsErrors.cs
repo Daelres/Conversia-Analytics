@@ -7,6 +7,53 @@ internal static class ProblemDetailsErrors
 {
     public const string GeneralKey = "";
 
+    /// <summary>The stable machine code of the API's 403 for a company that is pending or suspended.</summary>
+    public const string TenantNotActiveCode = "tenant_not_active";
+
+    private const int MaxDetailLength = 300;
+
+    /// <summary>The <c>detail</c> of a problem document (the API's Spanish message), trimmed and capped; null when there is none.</summary>
+    public static string? TryReadDetail(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return document.RootElement.ValueKind == JsonValueKind.Object && ReadDetail(document.RootElement) is { } detail && !string.IsNullOrWhiteSpace(detail)
+                ? detail.Trim().Length <= MaxDetailLength ? detail.Trim() : detail.Trim()[..MaxDetailLength]
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The machine <c>code</c> of a problem document and the <c>tenantStatus</c> beside it; null when the body has no code.</summary>
+    public static (string Code, string? TenantStatus)? TryReadCode(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("code", out var code)
+                || code.ValueKind != JsonValueKind.String
+                || code.GetString() is not { Length: > 0 } text)
+            {
+                return null;
+            }
+
+            var status = root.TryGetProperty("tenantStatus", out var tenantStatus) && tenantStatus.ValueKind == JsonValueKind.String
+                ? tenantStatus.GetString()
+                : null;
+            return (text, status);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Null when the body is not a recognisable problem document.</summary>
     public static IReadOnlyDictionary<string, string[]>? TryParse(string body)
     {

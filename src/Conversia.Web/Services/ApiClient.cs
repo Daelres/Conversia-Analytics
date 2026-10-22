@@ -2,10 +2,12 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Conversia.Application.DTOs;
+using Conversia.Application.DTOs.Admin;
 using Conversia.Application.DTOs.Auth;
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Metrics;
 using Conversia.Application.DTOs.Organization;
+using Conversia.Application.DTOs.Tenants;
 using Conversia.Application.DTOs.Users;
 using System.Net.Sockets;
 using Conversia.Domain.Common;
@@ -111,6 +113,30 @@ public sealed class ApiClient : IApiClient
 
     public Task<ApiResult<CreateChannelResponse>> RotateChannelSecretAsync(string token, Guid id, CancellationToken cancellationToken = default)
         => SendAsync<CreateChannelResponse>(HttpMethod.Post, $"api/channels/{id}/rotate-secret", token, body: null, response => !string.IsNullOrEmpty(response.WebhookSecret), cancellationToken);
+
+    public Task<ApiResult<TenantInfoResponse>> GetTenantAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<TenantInfoResponse>(HttpMethod.Get, "api/tenant", token, body: null, response => !string.IsNullOrEmpty(response.Name), cancellationToken);
+
+    public Task<ApiResult<AdminAuthResponse>> AdminLoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<AdminAuthResponse>(HttpMethod.Post, "api/admin/auth/login", token: null, request, response => !string.IsNullOrWhiteSpace(response.Token), cancellationToken);
+
+    public Task<ApiResult<PagedResponse<TenantSummaryResponse>>> GetAdminTenantsAsync(string token, AdminTenantsQuery query, CancellationToken cancellationToken = default)
+        => SendAsync<PagedResponse<TenantSummaryResponse>>(HttpMethod.Get, "api/admin/tenants" + AdminQueryString.Build(query), token, body: null, response => response.Items is not null, cancellationToken);
+
+    public Task<ApiResult<TenantDetailResponse>> GetAdminTenantAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<TenantDetailResponse>(HttpMethod.Get, $"api/admin/tenants/{id}", token, body: null, response => response.Lines is not null && response.RecentAudit is not null, cancellationToken);
+
+    public Task<ApiResult<TenantSummaryResponse>> ChangeTenantStatusAsync(string token, Guid id, ChangeTenantStatusRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<TenantSummaryResponse>(HttpMethod.Put, $"api/admin/tenants/{id}/status", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<TenantSummaryResponse>> SetTenantLineQuotaAsync(string token, Guid id, SetLineQuotaRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<TenantSummaryResponse>(HttpMethod.Put, $"api/admin/tenants/{id}/line-quota", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<TenantLineResponse>> DeactivateTenantLineAsync(string token, Guid id, Guid channelId, CancellationToken cancellationToken = default)
+        => SendAsync<TenantLineResponse>(HttpMethod.Post, $"api/admin/tenants/{id}/channels/{channelId}/deactivate", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<PagedResponse<AuditEntryResponse>>> GetAdminAuditAsync(string token, AdminAuditQuery query, CancellationToken cancellationToken = default)
+        => SendAsync<PagedResponse<AuditEntryResponse>>(HttpMethod.Get, "api/admin/audit" + AdminQueryString.Build(query), token, body: null, response => response.Items is not null, cancellationToken);
 
     private static bool HasToken(AuthResponse response) => !string.IsNullOrWhiteSpace(response.Token);
 

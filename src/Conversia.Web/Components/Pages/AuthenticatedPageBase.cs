@@ -39,6 +39,7 @@ public abstract class AuthenticatedPageBase : ApiPageBase
     protected async Task<bool> TryFailAsync(params IApiOutcome[] outcomes)
     {
         var failed = outcomes.FirstOrDefault(o => o.Status == ApiResultStatus.Unauthorized)
+                     ?? outcomes.FirstOrDefault(o => o.Status == ApiResultStatus.TenantNotActive)
                      ?? outcomes.FirstOrDefault(o => o.Status != ApiResultStatus.Success);
         if (failed is null)
         {
@@ -49,6 +50,10 @@ public abstract class AuthenticatedPageBase : ApiPageBase
         {
             case ApiResultStatus.Unauthorized:
                 await EndSessionAsync();
+                break;
+            case ApiResultStatus.TenantNotActive:
+                // An expected state, not an error: every page of a company that cannot operate yet ends up here, in one place.
+                RedirectTo(LocalReturnUrl.PendingAccount);
                 break;
             case ApiResultStatus.Forbidden:
                 Deny();

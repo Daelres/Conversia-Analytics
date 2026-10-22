@@ -1,0 +1,44 @@
+@* "Líneas activas X de Y": the numbers in words, a chip and a bar. The text carries the data; the bar and the chip only echo it. *@
+<div class="quota" data-testid="line-quota" data-active="@Active" data-max="@Max" data-state="@State">
+    <div class="quota__head">
+        <p class="quota__title"><strong>Líneas activas @Active de @Max</strong></p>
+        @if (Max == 0)
+        {
+            <Chip Tone="ChipTone.Warning" IconName="clock" data-testid="quota-chip">Sin cupo asignado</Chip>
+        }
+        else if (Active >= Max)
+        {
+            <Chip Tone="ChipTone.Brand" IconName="check-circle" data-testid="quota-chip">Cupo completo</Chip>
+        }
+        else
+        {
+            <Chip Tone="ChipTone.Success" IconName="check-circle" data-testid="quota-chip">@Free @(Free == 1 ? "disponible" : "disponibles")</Chip>
+        }
+    </div>
+    <svg class="barlist__bar" viewBox="0 0 100 6" preserveAspectRatio="none" role="img" aria-label="@Active de @Max líneas activas" focusable="false">
+        <rect class="barlist__track" x="0" y="0" width="100" height="6" />
+        <rect class="barlist__fill" x="0" y="0" width="@Fill" height="6" />
+    </svg>
+    @if (ChildContent is not null)
+    {
+        <div class="quota__note">@ChildContent</div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public int Active { get; set; }
+
+    [Parameter, EditorRequired]
+    public int Max { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    private int Free => Math.Max(Max - Active, 0);
+
+    private string State => Max == 0 ? "none" : Active >= Max ? "full" : "open";
+
+    private string Fill
+        => (Max <= 0 ? 0 : Math.Clamp(Active * 100.0 / Max, 0, 100)).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+}

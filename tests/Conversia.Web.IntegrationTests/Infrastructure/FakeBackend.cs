@@ -6,6 +6,8 @@ using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Auth;
 using Conversia.Application.DTOs.Diagnostics;
 using Conversia.Application.DTOs.Organization;
+using Conversia.Application.DTOs.Tenants;
+using Conversia.Domain.Enums;
 using Conversia.Application.DTOs.Users;
 using Conversia.Domain.Common;
 
@@ -93,6 +95,7 @@ internal sealed class FakeBackend : HttpMessageHandler
             ("POST", "/api/auth/login") => Answer(HttpStatusCode.OK, Auth(EmailOf(request))),
             ("POST", "/api/auth/register-tenant") => Answer(HttpStatusCode.Created, Auth(EmailOf(request))),
             ("GET", "/api/users/me") => Answer(HttpStatusCode.OK, Profile(request)),
+            ("GET", "/api/tenant") => Answer(HttpStatusCode.OK, ActiveTenant(request)),
             ("GET", "/api/users") => Answer(HttpStatusCode.OK, new[] { new UserSummaryResponse { UserId = UserId, Email = "owner@example.test", IsOwner = true } }),
             ("POST", "/api/users") => Answer(HttpStatusCode.Created, new UserSummaryResponse { UserId = Guid.NewGuid(), Email = "new@example.test" }),
             ("GET", "/api/channels") => Answer(HttpStatusCode.OK, Array.Empty<ChannelResponse>()),
@@ -130,6 +133,18 @@ internal sealed class FakeBackend : HttpMessageHandler
             return null;
         }
     }
+
+    /// <summary>A company that operates: what a healthy API answers to <c>GET /api/tenant</c>.</summary>
+    public static TenantInfoResponse ActiveTenant(BackendRequest request)
+        => new()
+        {
+            Id = FakeJwt.IdentityOf(request.Header("Authorization")?["Bearer ".Length..]).TenantId,
+            Name = "Empresa de prueba",
+            Status = TenantStatus.Active,
+            MaxActiveLines = 4,
+            ActiveLines = 1,
+            RegisteredLines = 2,
+        };
 
     private static UserProfileResponse Profile(BackendRequest request)
     {

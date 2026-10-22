@@ -15,8 +15,8 @@ public class ChannelActionPageTests
     // ---- the confirmation pages ----
 
     [Theory]
-    [InlineData("desactivar", "Desactivar número", "¿Desactivar este número?", "rechazo (401)")]
-    [InlineData("activar", "Activar número", "¿Activar este número?", "vuelve a aceptar")]
+    [InlineData("desactivar", "Desactivar línea", "¿Desactivar esta línea?", "rechazo (401)")]
+    [InlineData("activar", "Activar línea", "¿Activar esta línea?", "acepta los mensajes")]
     [InlineData("rotar-secreto", "Rotar secreto", "¿Rotar el secreto de este número?", "deja de funcionar al instante")]
     public async Task Each_action_asks_for_confirmation_and_says_what_it_will_do(string action, string title, string question, string effect)
     {

@@ -248,10 +248,19 @@ else
             return;
         }
 
-        var result = await Api.GetMyProfileAsync(token);
-        if (result.Status == ApiResultStatus.Unauthorized)
+        var profileTask = Api.GetMyProfileAsync(token);
+        var tenantTask = Api.GetTenantAsync(token);
+        await Task.WhenAll(profileTask, tenantTask);
+        var result = profileTask.Result;
+        var tenant = tenantTask.Result;
+        if (result.Status == ApiResultStatus.Unauthorized || tenant.Status == ApiResultStatus.Unauthorized)
         {
             await EndSessionAsync();
+        }
+        else if (tenant.IsSuccess && tenant.Value!.Status != TenantStatus.Active)
+        {
+            // A company that cannot operate yet has nothing to open from here: the page that explains it is its home.
+            RedirectTo(LocalReturnUrl.PendingAccount);
         }
         else if (result.IsSuccess)
         {

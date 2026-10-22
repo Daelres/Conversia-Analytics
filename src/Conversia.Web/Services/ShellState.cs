@@ -1,4 +1,5 @@
 using Conversia.Application.DTOs.Users;
+using Conversia.Domain.Enums;
 
 namespace Conversia.Web.Services;
 
@@ -13,7 +14,16 @@ public sealed class ShellState
 {
     public ShellUser? User { get; private set; }
 
+    /// <summary>Where the company stands, when the page has asked. Only a company that is not Active locks the navigation, so a page that never asked leaves it open.</summary>
+    public TenantStatus? Tenant { get; private set; }
+
     public event Action? Changed;
+
+    public void RememberTenant(TenantStatus status)
+    {
+        Tenant = status;
+        Changed?.Invoke();
+    }
 
     public void Remember(UserProfileResponse profile)
     {

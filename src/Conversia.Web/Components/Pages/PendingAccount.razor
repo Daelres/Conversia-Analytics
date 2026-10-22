@@ -1,0 +1,114 @@
+@page "/cuenta-pendiente"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Tenants
+@using Conversia.Domain.Enums
+@using Conversia.Web.Authentication
+@inherits AuthenticatedPageBase
+
+<PageTitle>@TitleText - Conversia</PageTitle>
+
+@if (!Redirected && _tenant is not null)
+{
+    <div class="page page--narrow" data-page="account-state" data-status="@_tenant.Status">
+        <PageHeader Eyebrow="Tu empresa" EyebrowIcon="building" Title="@TitleText" Description="@Lead" />
+
+        @if (JustRegistered && _tenant.Status == TenantStatus.Pending)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="just-registered">Tu empresa quedó registrada y está pendiente de activación.</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        <Card Title="Dónde está tu empresa" IconName="building" data-testid="account-state-card">
+            <dl class="kv">
+                <div>
+                    <dt>Empresa</dt>
+                    <dd data-testid="tenant-name">@_tenant.Name</dd>
+                </div>
+                <div>
+                    <dt>Estado</dt>
+                    <dd>
+                        @if (_tenant.Status == TenantStatus.Suspended)
+                        {
+                            <Chip Tone="ChipTone.Danger" IconName="alert-circle" data-testid="tenant-status">Suspendida</Chip>
+                        }
+                        else
+                        {
+                            <Chip Tone="ChipTone.Warning" IconName="clock" data-testid="tenant-status">Pendiente de activación</Chip>
+                        }
+                    </dd>
+                </div>
+            </dl>
+        </Card>
+
+        @if (_tenant.Status == TenantStatus.Suspended)
+        {
+            <Card Title="Qué significa" IconName="info" data-testid="suspended-help">
+                <ul class="stack-sm bullets">
+                    <li>Mientras tu empresa esté suspendida no se reciben ni se procesan mensajes nuevos de tus números, y el panel y las conversaciones no están disponibles.</li>
+                    <li>Tus datos se conservan: cuando el equipo de Conversia reactive tu empresa, podrás volver a trabajar con ellos.</li>
+                    <li>Para saber el motivo o pedir la reactivación, contacta al equipo de Conversia.</li>
+                </ul>
+            </Card>
+        }
+        else
+        {
+            <Card Title="Qué pasa ahora" IconName="info" data-testid="pending-help">
+                <ol class="stack-sm steps">
+                    <li>El equipo de Conversia revisa tu registro y activa tu empresa.</li>
+                    <li>Según tu acuerdo comercial, el equipo define cuántas líneas de WhatsApp puedes tener activas.</li>
+                    <li>Cuando tu empresa esté activa, podrás registrar y activar tus números, y ver el panel con tus conversaciones.</li>
+                </ol>
+                <p class="muted">Mientras tanto puedes dejar esta sesión abierta o volver más tarde. Si tienes dudas, contacta al equipo de Conversia.</p>
+            </Card>
+        }
+
+        <div class="cluster-md" data-testid="account-state-refresh">
+            <a class="btn btn--secondary" href="@LocalReturnUrl.PendingAccount"><Icon Name="refresh" />Revisar de nuevo</a>
+        </div>
+    </div>
+}
+
+@code {
+    private TenantInfoResponse? _tenant;
+
+    [SupplyParameterFromQuery(Name = "registrado")]
+    public string? Registered { get; set; }
+
+    private bool JustRegistered => Registered == "1";
+
+    private string TitleText => _tenant?.Status == TenantStatus.Suspended
+        ? "Tu empresa está suspendida"
+        : "Tu empresa está pendiente de activación";
+
+    private string Lead => _tenant?.Status == TenantStatus.Suspended
+        ? "Por ahora no puedes usar el panel ni las conversaciones. Tu cuenta sigue aquí."
+        : "Todavía no puedes usar el panel ni las conversaciones. Es un paso normal, no un error.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        var tenantTask = Api.GetTenantAsync(Token!);
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        await Task.WhenAll(tenantTask, profileTask);
+
+        if (await TryFailAsync(tenantTask.Result, profileTask.Result))
+        {
+            return;
+        }
+
+        _tenant = tenantTask.Result.Value!;
+        Shell.Remember(profileTask.Result.Value!);
+        Shell.RememberTenant(_tenant.Status);
+
+        // A company that is already operating has nothing to wait for.
+        if (_tenant.Status == TenantStatus.Active)
+        {
+            RedirectTo(LocalReturnUrl.Landing);
+        }
+    }
+}

@@ -35,7 +35,7 @@ public class OrganizationPageTests
         var channels = page.Select("[data-testid=channel-row]").ToList();
         Assert.Equal(["+57 300 000 0001", "+57 300 000 0002"], channels.Select(c => c.QuerySelector("th")!.Plain().Trim()));
         Assert.Equal(["true", "false"], channels.Select(c => c.GetAttribute("data-active")));
-        Assert.Equal(["Activo", "Desactivado"], channels.Select(c => c.QuerySelector(".chip")!.Plain().Trim()));
+        Assert.Equal(["Activa", "Inactiva"], channels.Select(c => c.QuerySelector(".chip")!.Plain().Trim()));
     }
 
     [Fact]

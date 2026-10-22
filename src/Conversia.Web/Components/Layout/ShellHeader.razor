@@ -1,3 +1,4 @@
+@using Conversia.Domain.Enums
 <header class="shell-header">
     @* The checkbox + label pair opens the menu on small screens without JavaScript. *@
     <input type="checkbox" id="menu-toggle" class="menu-check" />
@@ -15,19 +16,26 @@
     <div class="shell-panel">
         <nav aria-label="Navegación principal">
             <ul class="nav-list">
-                @if (SignedIn)
+                @if (SignedIn && Locked)
+                {
+                    @* A company that cannot operate yet: the pages that need it are shown as locked, not hidden, so it is clear what is coming. *@
+                    <NavItem Href="/cuenta-pendiente" Label="Estado de la empresa" IconName="building" />
+                    <NavItem Label="Panel" IconName="bar-chart" Locked="true" />
+                    <NavItem Label="Conversaciones" IconName="message" Locked="true" />
+                    <NavItem Label="Organización" IconName="building" Locked="true" />
+                    <NavItem Label="Usuarios" IconName="users" Locked="true" />
+                }
+                else if (SignedIn)
                 {
                     <NavItem Href="/panel" Label="Panel" IconName="bar-chart" />
                     <NavItem Href="/conversaciones" Label="Conversaciones" IconName="message" />
                     <NavItem Href="/organizacion" Label="Organización" IconName="building" />
-                }
-                <NavItem Href="/" Label="Inicio" IconName="home" Exact="true" />
-                @if (SignedIn)
-                {
+                    <NavItem Href="/" Label="Inicio" IconName="home" Exact="true" />
                     <NavItem Href="/users" Label="Usuarios" IconName="users" />
                 }
                 else
                 {
+                    <NavItem Href="/" Label="Inicio" IconName="home" Exact="true" />
                     <NavItem Href="/login" Label="Iniciar sesión" IconName="log-in" />
                     <NavItem Href="/register" Label="Registrarse" IconName="sparkles" Cta="true" />
                 }
@@ -73,6 +81,12 @@
     /// <summary>Role and workspace, once a page has loaded the profile.</summary>
     [Parameter]
     public ShellUser? Profile { get; set; }
+
+    /// <summary>Where the company stands, when a page has asked; a company that is not Active locks the pages that need one.</summary>
+    [Parameter]
+    public TenantStatus? Tenant { get; set; }
+
+    private bool Locked => Tenant is { } status && status != TenantStatus.Active;
 
     private string RoleLabel => Profile is null ? "Tu cuenta" : Profile.IsOwner ? "Propietario" : "Miembro";
 

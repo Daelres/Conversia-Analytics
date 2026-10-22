@@ -68,7 +68,7 @@
 
         if (result.IsSuccess && await HttpContext.SignInApiUserAsync(result.Value!))
         {
-            RedirectTo(LocalReturnUrl.OrHome(ReturnUrl));
+            RedirectTo(await LandingAsync(result.Value!.Token, ReturnUrl, justRegistered: false));
             return;
         }
 

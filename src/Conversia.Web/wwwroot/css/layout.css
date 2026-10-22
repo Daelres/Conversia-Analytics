@@ -211,6 +211,25 @@
   background: var(--grad-brand-hover);
 }
 
+/* A page the company cannot open yet: shown, not linked. The lock icon and the hidden text say it; the dimming only echoes it. */
+.nav-link--locked {
+  color: var(--text-subtle);
+  cursor: not-allowed;
+}
+
+.nav-link--locked:hover {
+  color: var(--text-subtle);
+  background: transparent;
+}
+
+.nav-link--locked:hover .icon {
+  color: var(--text-subtle);
+}
+
+.nav-link__lock {
+  margin-left: auto;
+}
+
 /* ---- Foot of the panel: account, theme, logout ---- */
 .shell-foot {
   display: flex;

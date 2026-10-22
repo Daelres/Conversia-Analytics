@@ -6,6 +6,9 @@ public enum ApiResultStatus
     ValidationFailed,
     Unauthorized,
     Forbidden,
+
+    /// <summary>403 with the code <c>tenant_not_active</c>: the company is pending or suspended, so it cannot operate yet. Not an error.</summary>
+    TenantNotActive,
     NotFound,
     Conflict,
     RateLimited,
@@ -29,11 +32,21 @@ public sealed class ApiResult<T> : IApiOutcome
 
     public string? ErrorCode { get; init; }
 
+    /// <summary>The API's own Spanish message of a 409 (for example the line quota that is full). Null for every other outcome.</summary>
+    public string? Detail { get; init; }
+
+    /// <summary>The status the API reported with a <see cref="ApiResultStatus.TenantNotActive"/> outcome ("Pending" or "Suspended"), when it did.</summary>
+    public string? TenantStatus { get; init; }
+
     public bool IsSuccess => Status == ApiResultStatus.Success;
 
     public static ApiResult<T> Success(T value) => new() { Status = ApiResultStatus.Success, Value = value };
 
     public static ApiResult<T> Failure(ApiResultStatus status) => new() { Status = status };
+
+    public static ApiResult<T> Conflict(string? detail) => new() { Status = ApiResultStatus.Conflict, Detail = detail };
+
+    public static ApiResult<T> TenantNotActive(string? tenantStatus) => new() { Status = ApiResultStatus.TenantNotActive, TenantStatus = tenantStatus };
 
     public static ApiResult<T> Invalid(IReadOnlyDictionary<string, string[]> errors)
         => new() { Status = ApiResultStatus.ValidationFailed, ValidationErrors = errors };

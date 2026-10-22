@@ -17,6 +17,9 @@ public static class UiMessages
     public const string NotFound = "No encontramos lo que buscas.";
     public const string AntiforgeryRejected = "El formulario no es válido o ha caducado. Recarga la página e inténtalo de nuevo.";
 
+    public const string QuotaFallback = "No se pudo activar la línea: tu cupo de líneas activas está completo.";
+    public const string ContactConversia = "Si necesitas más líneas, contacta al equipo de Conversia.";
+
     public static string TooManyAttempts(int? retryAfterSeconds)
         => retryAfterSeconds is { } seconds
             ? $"Demasiados intentos. Vuelve a intentarlo en {Seconds(seconds)}."

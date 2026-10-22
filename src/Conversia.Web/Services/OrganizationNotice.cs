@@ -16,8 +16,8 @@ public static class OrganizationNotice
     {
         BranchCreated => "Sucursal creada.",
         AdvisorCreated => "Asesor creado.",
-        ChannelActivated => "Número activado: ya recibe mensajes.",
-        ChannelDeactivated => "Número desactivado: dejó de recibir mensajes.",
+        ChannelActivated => "Línea activada: ya recibe mensajes.",
+        ChannelDeactivated => "Línea desactivada: dejó de recibir mensajes.",
         _ => null,
     };
 }

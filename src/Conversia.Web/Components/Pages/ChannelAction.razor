@@ -42,7 +42,7 @@ else if (!Redirected)
                     </div>
                     <div>
                         <dt>Estado ahora</dt>
-                        <dd>@(_channel?.IsActive == true ? "Activo" : "Desactivado")</dd>
+                        <dd>@(_channel?.IsActive == true ? "Activa" : "Inactiva")</dd>
                     </div>
                 </dl>
                 <p class="muted" data-testid="confirm-effect">@Effect</p>
@@ -103,8 +103,8 @@ else if (!Redirected)
 
     private string PageTitleText => Kind switch
     {
-        ChannelActionKind.Activate => "Activar número",
-        ChannelActionKind.Deactivate => "Desactivar número",
+        ChannelActionKind.Activate => "Activar línea",
+        ChannelActionKind.Deactivate => "Desactivar línea",
         _ => "Rotar secreto",
     };
 
@@ -112,29 +112,29 @@ else if (!Redirected)
 
     private string Intro => Kind switch
     {
-        ChannelActionKind.Activate => "Vuelve a recibir los mensajes de este número.",
+        ChannelActionKind.Activate => "Empieza a recibir los mensajes de este número.",
         ChannelActionKind.Deactivate => "Deja de recibir los mensajes de este número.",
         _ => "Genera un secreto nuevo para la dirección de este número.",
     };
 
     private string Question => Kind switch
     {
-        ChannelActionKind.Activate => "¿Activar este número?",
-        ChannelActionKind.Deactivate => "¿Desactivar este número?",
+        ChannelActionKind.Activate => "¿Activar esta línea?",
+        ChannelActionKind.Deactivate => "¿Desactivar esta línea?",
         _ => "¿Rotar el secreto de este número?",
     };
 
     private string Confirm => Kind switch
     {
-        ChannelActionKind.Activate => "Sí, activar",
-        ChannelActionKind.Deactivate => "Sí, desactivar",
+        ChannelActionKind.Activate => "Sí, activar la línea",
+        ChannelActionKind.Deactivate => "Sí, desactivar la línea",
         _ => "Sí, rotar el secreto",
     };
 
     private string Effect => Kind switch
     {
-        ChannelActionKind.Activate => "El webhook vuelve a aceptar los mensajes del proveedor con el secreto que ya tenga configurado.",
-        ChannelActionKind.Deactivate => "El proveedor recibirá un rechazo (401) y los mensajes que envíe mientras esté desactivado no se guardarán. Puedes volver a activarlo cuando quieras.",
+        ChannelActionKind.Activate => "El webhook acepta los mensajes del proveedor con el secreto que ya tenga configurado. Cada línea activa cuenta para el cupo de tu acuerdo con Conversia.",
+        ChannelActionKind.Deactivate => "El proveedor recibirá un rechazo (401) y los mensajes que envíe mientras esté inactiva no se guardarán. Desactivar una línea libera su lugar en el cupo, y puedes volver a activarla cuando quieras.",
         _ => "El secreto actual deja de funcionar al instante: hasta que configures el nuevo en 360dialog, los mensajes de este número serán rechazados. El secreto nuevo se mostrará una sola vez.",
     };
 
@@ -209,6 +209,14 @@ else if (!Redirected)
                 {
                     RedirectTo(OrganizationNotice.Url(active ? OrganizationNotice.ChannelActivated : OrganizationNotice.ChannelDeactivated));
                     return;
+                }
+
+                if (changed.Status == ApiResultStatus.Conflict)
+                {
+                    // The quota is full (or the company cannot operate): the API's own message says which, and the person is told who can help.
+                    Message = $"{changed.Detail ?? UiMessages.QuotaFallback} {UiMessages.ContactConversia}";
+                    SetStatusCode(StatusCodes.Status409Conflict);
+                    break;
                 }
 
                 await TryFailAsync(changed);

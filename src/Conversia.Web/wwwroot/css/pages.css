@@ -408,3 +408,53 @@
   padding: 0;
   list-style: none;
 }
+
+/* ---- Company state and line quota ---- */
+.bullets,
+.steps {
+  padding-left: 1.25rem;
+}
+
+.bullets {
+  list-style: disc;
+}
+
+.steps {
+  list-style: decimal;
+}
+
+.bullets li,
+.steps li {
+  padding-left: var(--space-1);
+}
+
+.quota {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.quota__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.quota__title {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.quota__note > :first-child {
+  margin-top: 0;
+}
+
+.quota__note > :last-child {
+  margin-bottom: 0;
+}

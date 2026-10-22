@@ -27,9 +27,9 @@ internal static class ApiResponseReader
         {
             HttpStatusCode.BadRequest => await ReadValidationAsync<T>(response, cancellationToken),
             HttpStatusCode.Unauthorized => ApiResult<T>.Failure(ApiResultStatus.Unauthorized),
-            HttpStatusCode.Forbidden => ApiResult<T>.Failure(ApiResultStatus.Forbidden),
+            HttpStatusCode.Forbidden => await ReadForbiddenAsync<T>(response, cancellationToken),
             HttpStatusCode.NotFound => ApiResult<T>.Failure(ApiResultStatus.NotFound),
-            HttpStatusCode.Conflict => ApiResult<T>.Failure(ApiResultStatus.Conflict),
+            HttpStatusCode.Conflict => ApiResult<T>.Conflict(ProblemDetailsErrors.TryReadDetail(await ReadBodyAsync(response, cancellationToken))),
             HttpStatusCode.TooManyRequests => ApiResult<T>.RateLimited(ReadRetryAfterSeconds(response)),
             HttpStatusCode.InternalServerError => await ReadServerErrorAsync<T>(response, cancellationToken),
             _ => throw UpstreamResponseException.For(status)
@@ -48,6 +48,28 @@ internal static class ApiResponseReader
         return value is not null && (isUsable?.Invoke(value) ?? true)
             ? ApiResult<T>.Success(value)
             : throw UpstreamResponseException.For(response.StatusCode);
+    }
+
+    // A 403 is either "you may not do that" or the expected state of a company that cannot operate yet: the stable code tells them apart.
+    private static async Task<ApiResult<T>> ReadForbiddenAsync<T>(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        var problem = ProblemDetailsErrors.TryReadCode(await ReadBodyAsync(response, cancellationToken));
+        return problem is { Code: ProblemDetailsErrors.TenantNotActiveCode }
+            ? ApiResult<T>.TenantNotActive(problem.Value.TenantStatus)
+            : ApiResult<T>.Failure(ApiResultStatus.Forbidden);
+    }
+
+    // A body that cannot be read is no reason to fail: the status alone already says what happened.
+    private static async Task<string> ReadBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await response.Content.ReadAsStringAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException or InvalidOperationException)
+        {
+            return string.Empty;
+        }
     }
 
     private static async Task<ApiResult<T>> ReadValidationAsync<T>(HttpResponseMessage response, CancellationToken cancellationToken)

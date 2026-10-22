@@ -149,6 +149,10 @@ else if (!Redirected)
         {
             await EndSessionAsync();
         }
+        else if (users.Status == ApiResultStatus.TenantNotActive || profile.Status == ApiResultStatus.TenantNotActive)
+        {
+            RedirectTo(LocalReturnUrl.PendingAccount);
+        }
         else if (users.Status == ApiResultStatus.Forbidden)
         {
             SetStatusCode(StatusCodes.Status403Forbidden);
@@ -182,6 +186,12 @@ else if (!Redirected)
         if (result.Status == ApiResultStatus.Unauthorized)
         {
             await EndSessionAsync();
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.TenantNotActive)
+        {
+            RedirectTo(LocalReturnUrl.PendingAccount);
             return;
         }
 

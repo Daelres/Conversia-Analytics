@@ -1,6 +1,7 @@
 @page "/organizacion"
 @attribute [Authorize]
 @using Conversia.Application.DTOs.Organization
+@using Conversia.Application.DTOs.Tenants
 @using Conversia.Domain.Enums
 @using Conversia.Web.Components.Organization
 @using Conversia.Web.Time
@@ -160,15 +161,29 @@ else if (!Redirected)
                 </div>
             </Card>
 
-            <Card Title="Números de WhatsApp" Subtitle="Cada número tiene su propia dirección de webhook y su secreto." IconName="phone" id="numeros" data-testid="channels-card">
+            <Card Title="Números de WhatsApp" Subtitle="Cada número es una línea, con su propia dirección de webhook y su secreto." IconName="phone" id="numeros" data-testid="channels-card">
                 <div class="stack">
+                    @if (_loaded && _tenant is not null)
+                    {
+                        <LineQuota Active="_tenant.ActiveLines" Max="_tenant.MaxActiveLines">
+                            @if (_tenant.MaxActiveLines == 0)
+                            {
+                                <p class="muted" data-testid="quota-note">Tu empresa todavía no tiene líneas activas asignadas. El equipo de Conversia define cuántas puedes activar según tu acuerdo comercial. Puedes registrar tus números desde ya.</p>
+                            }
+                            else if (_tenant.ActiveLines >= _tenant.MaxActiveLines)
+                            {
+                                <p class="muted" data-testid="quota-note">Usas todas las líneas de tu acuerdo. Para activar otra, desactiva una o pide al equipo de Conversia ampliar tu cupo.</p>
+                            }
+                        </LineQuota>
+                    }
+
                     @if (!_loaded)
                     {
                     }
                     else if (_channels.Count == 0)
                     {
-                        <EmptyState Title="Aún no hay números conectados" Art="chat"
-                                    Text="@(_canManage ? "Crea un número para obtener la dirección y el secreto que debes configurar en 360dialog." : "Cuando alguien conecte un número de WhatsApp, lo verás aquí.")" />
+                        <EmptyState Title="Aún no hay números registrados" Art="chat"
+                                    Text="@(_canManage ? "Registra un número para obtener la dirección y el secreto que debes configurar en 360dialog. Después, actívalo para que reciba mensajes." : "Cuando alguien registre un número de WhatsApp, lo verás aquí.")" />
                     }
                     else
                     {
@@ -180,7 +195,7 @@ else if (!Redirected)
                                         <th scope="col">Número</th>
                                         <th scope="col">Sucursal</th>
                                         <th scope="col">Estado</th>
-                                        <th scope="col" data-align="end">Creado</th>
+                                        <th scope="col" data-align="end">Registrado</th>
                                         @if (_canManage)
                                         {
                                             <th scope="col"><span class="sr-only">Acciones</span></th>
@@ -193,8 +208,8 @@ else if (!Redirected)
                                         <tr data-testid="channel-row" data-channel-id="@channel.Id" data-active="@(channel.IsActive ? "true" : "false")">
                                             <th scope="row" data-label="Número" id="ch-@channel.Id">@channel.DisplayPhoneNumber</th>
                                             <td data-label="Sucursal">@BranchName(channel.BranchId)</td>
-                                            <td data-label="Estado"><Chip Tone="@(channel.IsActive ? ChipTone.Success : ChipTone.Warning)" IconName="@(channel.IsActive ? "check-circle" : "power")">@(channel.IsActive ? "Activo" : "Desactivado")</Chip></td>
-                                            <td data-label="Creado" data-align="end">@MetricsFormat.Date(DateOnly.FromDateTime(TimeZone.ToLocal(channel.CreatedAt)))</td>
+                                            <td data-label="Estado"><Chip Tone="@(channel.IsActive ? ChipTone.Success : ChipTone.Neutral)" IconName="@(channel.IsActive ? "check-circle" : "minus")" data-testid="channel-state">@(channel.IsActive ? "Activa" : "Inactiva")</Chip></td>
+                                            <td data-label="Registrado" data-align="end">@MetricsFormat.Date(DateOnly.FromDateTime(TimeZone.ToLocal(channel.CreatedAt)))</td>
                                             @if (_canManage)
                                             {
                                                 <td class="table__cell-actions">
@@ -205,7 +220,7 @@ else if (!Redirected)
                                                         }
                                                         else
                                                         {
-                                                            <a href="/organizacion/canales/@channel.Id/activar" id="ca-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="ca-@channel.Id ch-@channel.Id"><Icon Name="power" Class="icon--sm" />Activar</a>
+                                                            <a href="/organizacion/canales/@channel.Id/activar" id="ca-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="ca-@channel.Id ch-@channel.Id"><Icon Name="power" Class="icon--sm" />Activar línea</a>
                                                         }
                                                         <a href="/organizacion/canales/@channel.Id/rotar-secreto" id="cr-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="cr-@channel.Id ch-@channel.Id"><Icon Name="key" Class="icon--sm" />Rotar secreto</a>
                                                     </div>
@@ -219,6 +234,7 @@ else if (!Redirected)
                     }
 
                     <div hidden="@(!_canManage)" data-testid="channel-form-panel">
+                        <p class="muted" data-testid="channel-form-intro">Registra el número de WhatsApp de una sucursal para obtener su dirección y su secreto. Para recibir mensajes, la línea debe estar activa; el número de líneas activas lo define tu acuerdo con Conversia.</p>
                         <EditForm Model="NewChannel" FormName="create-channel" OnValidSubmit="CreateChannelAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="channel-form">
                             <DataAnnotationsValidator />
                             <input type="hidden" name="@($"{nameof(NewChannel)}.{nameof(NewChannelInput.SubmissionId)}")" value="@_submissionId" />
@@ -247,7 +263,7 @@ else if (!Redirected)
                             <div class="form-actions">
                                 @if (_canManage)
                                 {
-                                    <button type="submit" class="btn btn--primary"><Icon Name="plus" />Crear número</button>
+                                    <button type="submit" class="btn btn--primary"><Icon Name="plus" />Registrar número</button>
                                 }
                             </div>
                         </EditForm>
@@ -264,6 +280,7 @@ else if (!Redirected)
     private IReadOnlyList<BranchResponse> _branches = [];
     private IReadOnlyList<AdvisorResponse> _advisors = [];
     private IReadOnlyList<ChannelResponse> _channels = [];
+    private TenantInfoResponse? _tenant;
     private CreateChannelResponse? _secret;
     private string _secretTitle = string.Empty;
     private IReadOnlyDictionary<string, string[]>? _branchErrors;
@@ -321,9 +338,10 @@ else if (!Redirected)
         var advisorsTask = Api.GetAdvisorsAsync(Token!);
         var channelsTask = Api.GetChannelsAsync(Token!);
         var profileTask = Api.GetMyProfileAsync(Token!);
-        await Task.WhenAll(branchesTask, advisorsTask, channelsTask, profileTask);
+        var tenantTask = Api.GetTenantAsync(Token!);
+        await Task.WhenAll(branchesTask, advisorsTask, channelsTask, profileTask, tenantTask);
 
-        if (await TryFailAsync(branchesTask.Result, advisorsTask.Result, channelsTask.Result, profileTask.Result))
+        if (await TryFailAsync(branchesTask.Result, advisorsTask.Result, channelsTask.Result, profileTask.Result, tenantTask.Result))
         {
             return;
         }
@@ -340,6 +358,7 @@ else if (!Redirected)
         _branches = branchesTask.Result.Value!;
         _advisors = advisorsTask.Result.Value!;
         _channels = channelsTask.Result.Value!;
+        _tenant = tenantTask.Result.Value!;
         _loaded = true;
     }
 
@@ -405,7 +424,7 @@ else if (!Redirected)
         if (result.IsSuccess)
         {
             _secret = result.Value;
-            _secretTitle = "Número creado: guarda su dirección y su secreto";
+            _secretTitle = "Número registrado: guarda su dirección y su secreto";
             NewChannel.DisplayPhoneNumber = null;
             NewChannel.ProviderPhoneNumberId = null;
             NewChannel.BranchId = null;

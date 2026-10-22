@@ -9,4 +9,7 @@ public interface IApiOutcome
 
     /// <summary>The code of an unexpected failure (<see cref="ApiResultStatus.Unavailable"/> only), else null.</summary>
     string? ErrorCode { get; }
+
+    /// <summary>The API's Spanish message of a conflict (<see cref="ApiResultStatus.Conflict"/> only), else null.</summary>
+    string? Detail { get; }
 }

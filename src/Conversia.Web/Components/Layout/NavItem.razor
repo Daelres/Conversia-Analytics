@@ -1,15 +1,32 @@
 @inject NavigationManager Navigation
 
 <li>
-    <a class="@CssClass" href="@Href" aria-current="@(IsCurrent ? "page" : null)">
-        <Icon Name="@IconName" />
-        <span>@Label</span>
-    </a>
+    @if (Locked)
+    {
+        @* Not a link: the page needs an active company. aria-disabled and the lock icon say so without relying on colour. *@
+        <span class="nav-link nav-link--locked" aria-disabled="true" data-locked="true">
+            <Icon Name="@IconName" />
+            <span>@Label</span>
+            <Icon Name="lock" Class="nav-link__lock icon--sm" />
+            <span class="sr-only">(disponible cuando tu empresa esté activa)</span>
+        </span>
+    }
+    else
+    {
+        <a class="@CssClass" href="@Href" aria-current="@(IsCurrent ? "page" : null)">
+            <Icon Name="@IconName" />
+            <span>@Label</span>
+        </a>
+    }
 </li>
 
 @code {
-    [Parameter, EditorRequired]
+    [Parameter]
     public string Href { get; set; } = "/";
+
+    /// <summary>Shown but not available yet (the company is not active): rendered without a link.</summary>
+    [Parameter]
+    public bool Locked { get; set; }
 
     [Parameter, EditorRequired]
     public string Label { get; set; } = string.Empty;
