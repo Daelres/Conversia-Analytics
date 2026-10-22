@@ -33,11 +33,18 @@ Estado de verificación de esta guía (22 de octubre de 2026): todo lo que ocurr
 | El webhook se registra con `POST https://waba-sandbox.360dialog.io/v1/configs/webhook`, cabecera `D360-API-KEY` y un cuerpo JSON con `url`. La URL debe ser HTTPS (si no, `400` "url must be HTTPS"). | misma página del sandbox |
 | La referencia de la API documenta que `POST /v1/configs/webhook` acepta además un objeto `headers` (valores de texto) que 360dialog reenvía con cada entrega. **No se verificó que el sandbox lo respete**: la página del sandbox no menciona cabeceras personalizadas y la referencia solo lista el servidor de producción. | https://docs.360dialog.com/docs/messaging-api/api-reference/webhooks.md y https://docs.360dialog.com/docs/messaging/webhook.md |
 
-### Riesgo principal: la cabecera del secreto
+### Riesgo principal: ¿el sandbox reenvía cabeceras personalizadas?
 
-Conversia autentica cada entrega con la cabecera `X-Webhook-Secret` (junto con la llave que va en la URL). **No hay otra forma de enviar el secreto**: el código solo lee esa cabecera (`WebhooksController`). Si el sandbox no reenvía cabeceras personalizadas, **todas las entregas recibirán `401` y no llegará ningún mensaje**, por mucho que todo lo demás esté bien. Cómo lo sabrás: en el paso 4 (Qué debes ver) la inspección del túnel muestra la petición de 360dialog sin esa cabecera y la respuesta `401`.
+Conversia acepta el secreto del canal de **dos formas** (la llave del canal siempre va en la URL):
 
-Si ocurre, es un bloqueo de código, no de configuración. Propuesta concreta (no incluida en esta tarea): aceptar el mismo secreto también en la cabecera `Authorization: Basic <base64(usuario:secreto)>` (360dialog documenta `Authorization` como cabecera personalizada del webhook). Cambia solo `WebhooksController` y `WebhookRoutes`; el resto de las reglas (comparación en tiempo constante, `401` uniforme) no cambia. No pongas el secreto en la URL: quedaría en los registros del túnel.
+- **Variante A, cabecera personalizada:** `X-Webhook-Secret: <SECRETO>`. Es la predeterminada y la más simple.
+- **Variante B, HTTP Basic:** `Authorization: Basic <base64 de conversia:SECRETO>`. El secreto es la **contraseña**; el usuario se ignora (cualquier valor, incluso vacío; usa `conversia` por convención).
+
+Qué usar: **empieza por la variante A**. La referencia de 360dialog documenta un objeto `headers` para el webhook y su ejemplo usa `Authorization`, así que es posible que el sandbox reenvíe `Authorization` aunque no reenvíe cabeceras con otro nombre. Si con la variante A las entregas reciben `401` (en el paso 5 la inspección del túnel muestra la petición de 360dialog **sin** la cabecera `X-Webhook-Secret` y la respuesta `401`), vuelve a registrar el webhook con la variante B (paso 4.4) y repite el envío.
+
+Si el sandbox **no reenvía ninguna de las dos** (la inspección del túnel muestra la petición sin `X-Webhook-Secret` y sin `Authorization`), la prueba contra el sandbox no se puede completar: repórtalo como hallazgo (CA-08 queda en "No cumple"). **No existe otra opción en el código**: el secreto nunca se acepta en la URL ni en parámetros de consulta, porque quedaría en los registros del túnel y de cualquier proxy. En ese caso lo que queda es consultar a 360dialog cómo autenticar webhooks del sandbox, o probar con una cuenta de producción.
+
+Si mandas las dos cabeceras, se revisa primero `X-Webhook-Secret` y, solo si no autentica, la contraseña de `Authorization`; con que una sea correcta basta. Detalles en [`docs/WEBHOOKS.md`](WEBHOOKS.md#authentication).
 
 ## 1. Requisitos externos
 
@@ -233,15 +240,22 @@ Guarda el secreto en una variable sin dejarlo en el historial:
 read -rs WEBHOOK_SECRET && export WEBHOOK_SECRET
 ```
 
-Envía una entrega vacía de prueba:
+Envía una entrega vacía de prueba con la variante A:
 
 ```bash
 curl -i -X POST "https://<TUNNEL_HOST>/api/webhooks/360dialog/<CHANNEL_KEY>" -H "X-Webhook-Secret: $WEBHOOK_SECRET" -H "Content-Type: application/json" -d '{}'
 ```
 
-**Qué debes ver:** `HTTP/1.1 200` con cuerpo vacío. En `/mensajes/eventos` aparece una entrega "Procesada" con resultado "Sin mensajes que guardar".
+Y con la variante B (la cabecera se arma desde la variable y viaja por la entrada estándar, así el secreto no queda en el historial ni en la lista de procesos):
 
-**Si no ves eso:** `401` = llave o secreto equivocados, línea inactiva o empresa que no está activa; `404` o error del túnel = la dirección del túnel o el puerto están mal (el túnel debe apuntar al puerto de la **API**); `429` = demasiados intentos fallidos desde tu red en un minuto; espera 60 segundos.
+```bash
+export BASIC_B64="$(printf 'conversia:%s' "$WEBHOOK_SECRET" | base64 | tr -d '\n')"
+printf 'Authorization: Basic %s\n' "$BASIC_B64" | curl -i -X POST "https://<TUNNEL_HOST>/api/webhooks/360dialog/<CHANNEL_KEY>" -H @- -H "Content-Type: application/json" -d '{}'
+```
+
+**Qué debes ver:** `HTTP/1.1 200` con cuerpo vacío, con las dos variantes. En `/mensajes/eventos` aparece una entrega "Procesada" con resultado "Sin mensajes que guardar".
+
+**Si no ves eso:** `401` = llave o secreto equivocados (en la variante B, también un base64 mal formado o sin los dos puntos), línea inactiva o empresa que no está activa; `404` o error del túnel = la dirección del túnel o el puerto están mal (el túnel debe apuntar al puerto de la **API**); `429` = demasiados intentos fallidos desde tu red en un minuto; espera 60 segundos.
 
 ### Paso 4.4. Registrar el webhook en el sandbox
 
@@ -251,15 +265,24 @@ Guarda tu llave del sandbox sin mostrarla:
 read -rs D360_API_KEY && export D360_API_KEY
 ```
 
-Registra la dirección y el secreto:
+Registra la dirección y el secreto con **una** de estas variantes. Variante A (cabecera personalizada):
 
 ```bash
 curl -i -X POST "https://waba-sandbox.360dialog.io/v1/configs/webhook" -H "D360-API-KEY: $D360_API_KEY" -H "Content-Type: application/json" -d "{\"url\":\"https://<TUNNEL_HOST>/api/webhooks/360dialog/<CHANNEL_KEY>\",\"headers\":{\"X-Webhook-Secret\":\"$WEBHOOK_SECRET\"}}"
 ```
 
+Variante B (`Authorization: Basic`), si la A no llega al servicio. El base64 se calcula desde la variable (sin escribir el secreto en la terminal) y es la **contraseña** de `conversia:<SECRETO>`:
+
+```bash
+export BASIC_B64="$(printf 'conversia:%s' "$WEBHOOK_SECRET" | base64 | tr -d '\n')"
+curl -i -X POST "https://waba-sandbox.360dialog.io/v1/configs/webhook" -H "D360-API-KEY: $D360_API_KEY" -H "Content-Type: application/json" -d "{\"url\":\"https://<TUNNEL_HOST>/api/webhooks/360dialog/<CHANNEL_KEY>\",\"headers\":{\"Authorization\":\"Basic $BASIC_B64\"}}"
+```
+
+El `BASIC_B64` equivale a la credencial: trátalo como el secreto (no lo pegues en chats ni tickets). Si rotas el secreto, vuelve a calcularlo y a registrar.
+
 **Qué debes ver:** `HTTP/1.1 200` (según la documentación, el cuerpo repite la `url` registrada). Puedes cambiar la dirección en cualquier momento repitiendo el comando.
 
-**Si no ves eso:** `400 "url must be HTTPS"` = usaste una dirección `http://`; `401` = la llave del sandbox es incorrecta o fue revocada por un nuevo `START`; una respuesta que rechace `headers` = **ver "Riesgo principal" en la sección 0**: en ese caso no podrás completar la prueba hasta cambiar el código.
+**Si no ves eso:** `400 "url must be HTTPS"` = usaste una dirección `http://`; `401` = la llave del sandbox es incorrecta o fue revocada por un nuevo `START`; una respuesta que rechace `headers` = **ver "Riesgo principal" en la sección 0**: prueba la otra variante y, si ninguna cabecera se acepta o se reenvía, repórtalo (no hay más opciones en el código).
 
 ## 5. Enviar mensajes desde tu WhatsApp y verificar **[Externo]** (la verificación en pantalla es la misma que ya se probó con entregas emuladas)
 
@@ -314,7 +337,7 @@ Una **misma entrega idéntica** reenviada (mismo cuerpo exacto) no crea otra fil
 | No llega nada | El webhook no está registrado, o la llave del sandbox fue revocada por un nuevo `START` | Repite el paso 4.4 con la llave vigente. |
 | No llega nada, la inspección de ngrok muestra `401` | Línea inactiva | Actívala (paso 3.6). La tarjeta "Líneas" lo avisa: "está inactiva y el webhook la rechaza". |
 | `401` | Empresa Pendiente o Suspendida | Pide al administrador activarla o reactivarla (paso 3.2). La respuesta es la misma que con un secreto equivocado, a propósito. |
-| `401` | Falta la cabecera `X-Webhook-Secret` o el secreto es otro | Registra el webhook con `headers` (paso 4.4) o rota el secreto y registra el nuevo. Si el sandbox no reenvía la cabecera, ver "Riesgo principal". |
+| `401` | Falta la cabecera del secreto (`X-Webhook-Secret` o `Authorization: Basic`) o el secreto es otro | Registra el webhook con `headers` (paso 4.4, variante A o B) o rota el secreto y registra el nuevo. Con `Authorization`, comprueba que el base64 sea de `conversia:<SECRETO>` sin saltos de línea. Si el sandbox no reenvía ninguna cabecera, ver "Riesgo principal". |
 | `429` con `Retry-After` | Más de 60 intentos fallidos por minuto desde la misma dirección (o más de 6000 entregas por minuto en la línea) | Espera 60 segundos. Detrás de un túnel, todas las peticiones llegan desde la misma dirección. |
 | Fila "Pendiente" que no avanza | Procesamiento detenido o empresa que dejó de estar activa | `docker compose logs --tail 50 api`; `curl http://localhost:<API_PORT>/health`. |
 | Fila "Fallida" | Un error al procesar tras 8 intentos | Lee el error de la fila; ver `docs/WEBHOOKS.md` (Runbook) para reencolar. |
@@ -368,9 +391,9 @@ Marca ☐ cuando lo hayas comprobado. La columna **Previo** indica qué ya se ej
 | CA-03 | El administrador activa y fija el cupo | Pasos 3.2 | "Activa" y "Líneas activas 0 de N" | V | ☐ |
 | CA-04 | El cupo rechaza una línea activa de más | Registra una segunda línea y actívala con cupo 1 | "Tu cupo de líneas activas está completo (1 de 1)..." | V | ☐ |
 | CA-05 | Una línea inactiva no recibe | Antes del paso 3.6, envía una entrega de prueba (paso 4.3) | `401` | V | ☐ |
-| CA-06 | El webhook rechaza un secreto equivocado o ausente | Paso 4.3 con otro secreto y sin la cabecera | `401` en ambos casos, sin guardar nada | V | ☐ |
+| CA-06 | El webhook rechaza un secreto equivocado o ausente | Paso 4.3 con otro secreto y sin la cabecera (también con una contraseña Basic equivocada) | `401` en todos los casos, sin guardar nada | V | ☐ |
 | CA-07 | El túnel HTTPS llega a la API | Paso 4.3 | `200` y una fila en `/mensajes/eventos` | E | ☐ |
-| CA-08 | 360dialog acepta el webhook y reenvía la cabecera del secreto | Paso 4.4; luego el paso 5 | El registro responde 200 y las entregas no reciben `401` | E | ☐ |
+| CA-08 | 360dialog acepta el webhook y reenvía la cabecera del secreto (`X-Webhook-Secret` o `Authorization: Basic`) | Paso 4.4 (variante A; si falla, la B); luego el paso 5 | El registro responde 200 y las entregas no reciben `401`; anota qué variante funcionó | E | ☐ |
 | CA-09 | Un mensaje del sandbox aparece en `/mensajes` en pocos segundos | Paso 5, fila 1 | Mensaje "Entrante" con tu nombre y `…1234` | E (el camino interno: V) | ☐ |
 | CA-10 | El texto con emoji y el texto largo llegan íntegros | Paso 5, filas 2 y 3 | Emoji intactos; el texto completo en la conversación | E (el camino interno: V) | ☐ |
 | CA-11 | Un tipo que no es texto muestra una etiqueta | Paso 5, filas 5 y 6 | `[Imagen sin texto]`, `[Audio sin texto]` | E (el camino interno: V) | ☐ |

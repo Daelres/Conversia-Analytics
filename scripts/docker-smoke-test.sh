@@ -448,6 +448,23 @@ for feed_endpoint in messages/recent messages/summary webhook-events; do
   [ "$(code_of "$api_url/api/$feed_endpoint")" = "401" ] && pass "GET /api/$feed_endpoint without a token -> 401" || fail "GET /api/$feed_endpoint without a token did not return 401"
 done
 
+# The same webhook with the secret as the password of "Authorization: Basic" (the alternative to X-Webhook-Secret). The header goes through
+# stdin (-H @-), never the command line, like the X-Webhook-Secret one.
+post_webhook_basic() { # <password> <payload file>: prints the HTTP status
+  printf 'Authorization: Basic %s\n' "$(printf 'conversia:%s' "$1" | base64 | tr -d '\n')" | curl -s -o /dev/null -w '%{http_code}' --max-time 20 -H 'Content-Type: application/json' -H @- --data-binary "@$2" "$api_url$webhook_path"
+}
+basic_text="Me interesa agendar una valoracion para la proxima semana"
+basic_payload="$work/basic.json"
+jq -nc --arg bn "$business_number" --arg cn "$customer_number" --arg text "$basic_text" --argjson ts "$((now - 30))" --arg id "wamid.SMOKE-BASIC-$suffix" '
+  {object:"whatsapp_business_account",entry:[{id:"102290129340398",changes:[{field:"messages",value:{messaging_product:"whatsapp",
+   metadata:{display_phone_number:$bn,phone_number_id:"106540352242922"},
+   contacts:[{profile:{name:"Cliente Smoke"},wa_id:$cn}],
+   messages:[{from:$cn,id:$id,timestamp:($ts|tostring),type:"text",text:{body:$text}}]}}]}]}' >"$basic_payload"
+[ "$(post_webhook_basic "wrong-$suffix" "$basic_payload")" = "401" ] && pass "webhook: a wrong Basic password is rejected (401)" || fail "webhook: a wrong Basic password was not rejected with 401"
+[ "$(post_webhook_basic "$webhook_secret" "$basic_payload")" = "200" ] && pass "webhook: a delivery with the secret as the Basic password is accepted (200)" || fail "webhook: a valid Basic delivery was not accepted"
+basic_in_feed() { json_get "$auth_headers" "$api_url/api/messages/recent" | jq -e '[.items[] | select(.direction == "Inbound" and .text == "'"$basic_text"'")] | length == 1'; }
+if wait_until 60 basic_in_feed; then pass "the Basic delivery was processed and appears in GET /api/messages/recent"; else fail "the Basic delivery did not appear in /api/messages/recent within 60s"; fi
+
 # ------------------------------------------------------------------ one request through the Web
 echo
 echo ">> Through the Web: sign in and read the conversation list (the Web calls the API)"

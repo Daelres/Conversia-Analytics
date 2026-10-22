@@ -107,7 +107,6 @@ docs/
   CLASSIFICATION.md          # clasificador de conversaciones (reglas en español; cómo conectar un LLM)
   METRICS.md                 # definición exacta de cada métrica del tablero, alertas y configuración
   SIMULATOR.md               # simulador de webhooks (solo desarrollo): uso, seguridad y cómo probar con el sandbox de 360dialog
-  PLATFORM_ADMIN.md          # administrador de plataforma: aprobación de empresas, cupo por línea, sesión propia y auditoría
   PRUEBAS_SANDBOX.md         # guía de la fase de pruebas con el sandbox de 360dialog (en español) y lista de aceptación
   DOCKER.md                  # las tres imágenes (api, migrator, web): build, variables, health checks, multi-arch y prueba de humo
 src/

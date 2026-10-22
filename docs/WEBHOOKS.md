@@ -6,7 +6,7 @@ deliveries into contacts, conversations, messages and opportunities.
 
 ```
 360dialog ──POST──► /api/webhooks/360dialog/{channelKey}
-                      │ authenticate (channel key + X-Webhook-Secret)
+                      │ authenticate (channel key + secret: X-Webhook-Secret or Authorization: Basic)
                       │ validate (one JSON object, size limit), SHA-256 of the body
                       ▼
                   WebhookEvents (Pending, jsonb)  ──► 200 immediately
@@ -26,11 +26,11 @@ worker's job, so a parsing bug can never lose a message.
 
 | | |
 |---|---|
-| Authentication | None (no JWT). The channel is identified by `{channelKey}` and authenticated by the header `X-Webhook-Secret`. |
+| Authentication | None (no JWT). The channel is identified by `{channelKey}` and authenticated by its secret, sent in the header `X-Webhook-Secret` **or** as the password of `Authorization: Basic` (see [Authentication](#authentication)). Never in the URL. |
 | Body | One JSON object, at most `Webhooks:MaxBodyBytes` (default 1 MiB). Any content type. |
 | `200` | Stored as a new pending event, **or** an event with the same body hash already existed for the channel (nothing stored). 360dialog must always see `200` for a delivery we have, otherwise it retries. Empty body. |
 | `400` | The body is empty, not a single JSON object, or JSON that PostgreSQL `jsonb` cannot hold (a `\u0000` escape, an unpaired surrogate). `application/problem+json`. |
-| `401` | Unknown key, malformed key, inactive channel, **channel of a company that is not Active (pending or suspended)**, missing secret or wrong secret. **One identical answer** for all of them, so nothing tells an attacker which part failed. The body is not read. |
+| `401` | Unknown key, malformed key, inactive channel, **channel of a company that is not Active (pending or suspended)**, missing secret, wrong secret or a malformed `Authorization` header. **One identical answer** for all of them, so nothing tells an attacker which part failed. The body is not read. |
 | `413` | Body over the limit (checked on `Content-Length` and, for chunked bodies, while reading). |
 | `429` | The client IP failed to authenticate more than `Webhooks:FailedAuthRateLimitPerMinute` times (default 60) in a minute (it is then refused before being authenticated), or the channel received more than `Webhooks:ChannelRateLimitPerMinute` deliveries (default 6000). Has `Retry-After`. See [Rate limits](#rate-limits-and-proxies). |
 
@@ -114,13 +114,51 @@ curl -X POST "https://waba-sandbox.360dialog.io/v1/configs/webhook" \
       }'
 ```
 
-360dialog then sends the secret back in the `X-Webhook-Secret` header of every call.
+360dialog then sends the secret back in the `X-Webhook-Secret` header of every call. If the sandbox does not forward custom headers, register the
+`Authorization: Basic` variant instead (next section).
 
 **Unverified for the sandbox.** 360dialog's API reference documents a `headers` object (string values) for `POST /v1/configs/webhook`, but the sandbox
-page does not mention custom headers on deliveries and the reference lists only the production server. If the sandbox does not forward the header,
-every delivery gets the uniform `401`: the endpoint reads the secret **only** from `X-Webhook-Secret` (`WebhooksController`). The proposed fallback
-(not implemented) is to accept the same secret in an `Authorization` header (360dialog documents `Authorization` for Basic authentication of webhooks);
-never in the URL. The step-by-step test procedure is [`docs/PRUEBAS_SANDBOX.md`](PRUEBAS_SANDBOX.md) (Spanish).
+page does not mention custom headers on deliveries and the reference lists only the production server. That is why the endpoint accepts the secret in
+two headers. If the sandbox forwards neither, every delivery gets the uniform `401` and there is no further option in code: the secret is never
+accepted in the URL. The step-by-step test procedure is [`docs/PRUEBAS_SANDBOX.md`](PRUEBAS_SANDBOX.md) (Spanish).
+
+## Authentication
+
+The same per-channel secret can be presented in either header. Pick one when you register the webhook; the secret itself is the one shown once when the
+channel is created (or rotated).
+
+| Variant | Header | Registration body (`headers` of `POST /v1/configs/webhook`) |
+|---|---|---|
+| Custom header (default) | `X-Webhook-Secret: <SECRET>` | `{"X-Webhook-Secret": "<SECRET>"}` |
+| HTTP Basic | `Authorization: Basic base64(conversia:<SECRET>)` | `{"Authorization": "Basic <base64 of conversia:<SECRET>>"}` |
+
+Rules of the Basic variant (`WebhookBasicAuth`, `Conversia.Application/Ingestion`):
+
+- The secret is the Basic **password**: everything after the first `:` of the decoded value. The **user name is ignored**: any value is accepted, even an empty
+  one (`:<SECRET>`). The documented convention is `conversia`.
+- The scheme name is case-insensitive and surrounding whitespace is tolerated. Anything else is "no credential" and a failed authentication (the same uniform
+  `401`, never a `400`, never an exception): another scheme (`Bearer`), invalid base64 (also unpadded), bytes that are not UTF-8, no colon, an empty password.
+- The value of `Authorization` is capped at 1 KiB (`WebhookBasicAuth.MaxHeaderLength`); a longer one is refused before it is decoded.
+- If **both** headers are present, `X-Webhook-Secret` is checked first; only when it does not authenticate is the Basic password tried. Either one being valid
+  is enough, and neither can make a failure succeed that would fail on its own (a wrong secret in one header never blocks a right one in the other, but
+  there is no way to authenticate without the real secret). Why not "exactly one": a proxy or tunnel that adds its own `Authorization` must not break a
+  delivery that carries a valid `X-Webhook-Secret`.
+- Same checks as for the header, in the same order and **before the body is read**: SHA-256 of the presented secret compared in constant time with the stored
+  hash, unknown / malformed key / inactive channel / non-Active company all answer the identical `401`. A request that presents nothing valid counts **once** as a
+  failed authentication toward the per-IP throttle (`429` after `Webhooks:FailedAuthRateLimitPerMinute`); authenticated deliveries count toward the channel's
+  own limit. See [Rate limits](#rate-limits-and-proxies).
+- The `Authorization` value and the secret are never logged, never put in an exception or a problem detail, and not captured by the error registry
+  (`ErrorLogs` keeps the method, the redacted path, the user agent and the error, never request headers). The channel key in the path is redacted too.
+- A `?secret=...` / `?key=...` in the query string is **ignored**: without a header the call is a `401`.
+
+```bash
+# Header variant
+curl -i -X POST "https://<TUNNEL_HOST>/api/webhooks/360dialog/<CHANNEL_KEY>" -H "X-Webhook-Secret: <SECRET>" -H "Content-Type: application/json" -d '{}'
+
+# Basic variant: curl builds the header; read the secret from a prompt so it does not stay in the shell history
+read -rs WEBHOOK_SECRET
+curl -i -u "conversia:$WEBHOOK_SECRET" -X POST "https://<TUNNEL_HOST>/api/webhooks/360dialog/<CHANNEL_KEY>" -H "Content-Type: application/json" -d '{}'
+```
 
 ## Payload mapping
 

@@ -96,6 +96,7 @@ assigns advisors with `PUT /api/conversations/{id}/advisor` so the per-advisor n
 | `--rate` | 15 | Requests per second to the webhook (the limits are in `docs/WEBHOOKS.md`; a `429` is waited out for as long as `Retry-After` says). |
 | `--wait-seconds` | 180 | How long to wait for the workers. |
 | `--no-assign` | | Leave every conversation without an advisor. |
+| `--auth` | `header` | How the channel secret is presented to the webhook: `header` (`X-Webhook-Secret`) or `basic` (`Authorization: Basic base64(conversia:<secret>)`). Useful to exercise the Basic variant of `docs/WEBHOOKS.md#authentication`. Applies to `play` and `populate`. |
 
 What the data looks like (so the dashboard has something to say):
 
@@ -164,13 +165,16 @@ real provider's sandbox at your machine, once you have an account and a sandbox 
          }'
    ```
 
+   If the sandbox does not forward custom headers, register `"headers": { "Authorization": "Basic <base64 of conversia:<webhookSecret>>" }` instead
+   (the endpoint accepts the secret as the Basic password; see `docs/WEBHOOKS.md`, section Authentication).
+
 4. Write to the sandbox number from your phone and watch **Mensajes** (`/mensajes`) and **Conversaciones**. In the sandbox your phone plays the
    *customer*, so only inbound messages arrive; replies sent through the sandbox API are not documented as being echoed to the webhook. The
    business-side (echo) format and the first-response time therefore **cannot be validated in the sandbox**: treat those metrics as unproven.
 
 The complete test-phase procedure (in Spanish: environment, registrations, tunnel, verification, problems table and acceptance checklist)
 is [`docs/PRUEBAS_SANDBOX.md`](PRUEBAS_SANDBOX.md). That guide also covers the open question below: whether the sandbox forwards the custom
-`X-Webhook-Secret` header.
+`X-Webhook-Secret` header or the `Authorization` header.
 
 ## Limits
 
