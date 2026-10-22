@@ -91,4 +91,7 @@ public static class MetricsFormat
 
     /// <summary>A clock time already in the tenant's time zone: "14:05".</summary>
     public static string Clock(DateTime moment) => moment.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>The time with seconds ("14:05:09"): where the order of arrival matters, a minute is too coarse.</summary>
+    public static string ClockSeconds(DateTime moment) => moment.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
 }

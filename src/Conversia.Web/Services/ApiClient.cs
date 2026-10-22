@@ -5,6 +5,7 @@ using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Admin;
 using Conversia.Application.DTOs.Auth;
 using Conversia.Application.DTOs.Conversations;
+using Conversia.Application.DTOs.Messages;
 using Conversia.Application.DTOs.Metrics;
 using Conversia.Application.DTOs.Organization;
 using Conversia.Application.DTOs.Tenants;
@@ -92,6 +93,15 @@ public sealed class ApiClient : IApiClient
 
     public Task<ApiResult<OpportunityResponse>> SetOpportunityOutcomeAsync(string token, Guid id, SetOpportunityOutcomeRequest request, CancellationToken cancellationToken = default)
         => SendAsync<OpportunityResponse>(HttpMethod.Put, $"api/conversations/{id}/opportunity", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<PagedResponse<RecentMessageItem>>> GetRecentMessagesAsync(string token, RecentMessagesQuery query, CancellationToken cancellationToken = default)
+        => SendAsync<PagedResponse<RecentMessageItem>>(HttpMethod.Get, "api/messages/recent" + MessagesQueryString.Build(query), token, body: null, response => response.Items is not null, cancellationToken);
+
+    public Task<ApiResult<MessagesSummaryResponse>> GetMessagesSummaryAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<MessagesSummaryResponse>(HttpMethod.Get, "api/messages/summary", token, body: null, response => response.Lines is not null, cancellationToken);
+
+    public Task<ApiResult<PagedResponse<WebhookEventItem>>> GetWebhookEventsAsync(string token, WebhookEventsQuery query, CancellationToken cancellationToken = default)
+        => SendAsync<PagedResponse<WebhookEventItem>>(HttpMethod.Get, "api/webhook-events" + MessagesQueryString.Build(query), token, body: null, response => response.Items is not null, cancellationToken);
 
     public Task<ApiResult<IReadOnlyList<ChannelResponse>>> GetChannelsAsync(string token, CancellationToken cancellationToken = default)
         => SendAsync<IReadOnlyList<ChannelResponse>>(HttpMethod.Get, "api/channels", token, body: null, isUsable: null, cancellationToken);

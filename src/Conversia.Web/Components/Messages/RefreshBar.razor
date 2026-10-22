@@ -1,0 +1,22 @@
+@* The refresh controls of the messages pages: a button that reloads and the choice of reloading by itself (a meta refresh, so it needs no JavaScript). *@
+<div class="refresh-bar" role="group" aria-label="Actualización" data-testid="refresh-bar" data-auto="@Current">
+    <a class="btn btn--secondary btn--sm" href="@UrlFor(Current)" data-testid="refresh-now"><Icon Name="refresh" Class="icon--sm" />Actualizar</a>
+    <span class="refresh-bar__label" id="auto-label">Actualizar solo:</span>
+    <ul class="refresh-bar__choices" aria-labelledby="auto-label">
+        <li><a class="refresh-bar__choice" href="@UrlFor(0)" aria-current="@(Current == 0 ? "true" : null)" data-testid="auto-choice" data-seconds="0">Apagado</a></li>
+        @foreach (var seconds in MessageFeedFilters.AutoRefreshChoices)
+        {
+            <li><a class="refresh-bar__choice" href="@UrlFor(seconds)" aria-current="@(Current == seconds ? "true" : null)" data-testid="auto-choice" data-seconds="@seconds">@seconds s</a></li>
+        }
+    </ul>
+</div>
+
+@code {
+    /// <summary>The seconds between reloads now; 0 is off.</summary>
+    [Parameter, EditorRequired]
+    public int Current { get; set; }
+
+    /// <summary>The address of the page with this refresh rate (0 turns it off); the button reloads the current one.</summary>
+    [Parameter, EditorRequired]
+    public Func<int, string> UrlFor { get; set; } = _ => "#";
+}

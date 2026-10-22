@@ -1,0 +1,300 @@
+@page "/mensajes"
+@attribute [Authorize]
+@using Conversia.Application.DTOs
+@using Conversia.Application.DTOs.Messages
+@using Conversia.Application.Time
+@using Conversia.Domain.Enums
+@using Conversia.Web.Components.Dashboard
+@using Conversia.Web.Components.Messages
+@using Conversia.Web.Time
+@inherits AuthenticatedPageBase
+@inject TenantTimeZone TimeZone
+@inject TimeProvider Clock
+
+<PageTitle>Mensajes recibidos - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <StatusView DataPage="forbidden" Code="403" Title="Sin acceso a los mensajes" Art="locked"
+                Hint="Pide acceso a la persona propietaria de tu empresa.">
+        <ChildContent>Tu cuenta no tiene el permiso «@PermissionLabels.For(Permission.ConversationsView)». Con él podrás ver los mensajes que llegan y los chats de ventas.</ChildContent>
+        <Actions>
+            <a class="btn btn--primary" href="/"><Icon Name="home" />Ir al inicio</a>
+        </Actions>
+    </StatusView>
+}
+else if (!Redirected)
+{
+    @if (Filters.AutoSeconds > 0)
+    {
+        <HeadContent>
+            <meta http-equiv="refresh" content="@Filters.AutoSeconds" />
+        </HeadContent>
+    }
+
+    <div class="page" data-page="messages">
+        <PageHeader Eyebrow="Ventas" EyebrowIcon="message" Title="Mensajes recibidos"
+                    Description="Lo que el servicio lee de WhatsApp, del más reciente al más antiguo. Úsalo para comprobar que tus mensajes están llegando.">
+            <a class="btn btn--secondary" href="@WebhookEventFilters.Path" data-testid="to-deliveries"><Icon Name="activity" />Entregas del webhook</a>
+            <a class="btn btn--secondary" href="/conversaciones"><Icon Name="message" />Conversaciones</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_summary is not null)
+        {
+            <section class="kpi-grid" aria-label="Resumen de llegada" data-testid="messages-summary">
+                <KpiCard Kpi="messages-today" Label="Mensajes hoy" Value="@MetricsFormat.Whole(_summary.MessagesToday)" RawValue="@_summary.MessagesToday.ToString()"
+                         IconName="message" Help="@TodayHelp" />
+                <KpiCard Kpi="last-inbound" Label="Último mensaje entrante" Value="@MomentOrNone(_summary.LastInboundAt)" IconName="arrow-left"
+                         Help="@AgeOrNone(_summary.LastInboundAt, "Aún no ha llegado ningún mensaje de un cliente.")" />
+                <KpiCard Kpi="last-outbound" Label="Último mensaje saliente" Value="@MomentOrNone(_summary.LastOutboundAt)" IconName="arrow-right"
+                         Help="@AgeOrNone(_summary.LastOutboundAt, "Aún no se ha leído ninguna respuesta de un asesor.")" />
+                <KpiCard Kpi="last-24h" Label="Últimas 24 horas" Value="@MetricsFormat.Whole(_summary.InboundLast24Hours + _summary.OutboundLast24Hours)"
+                         RawValue="@((_summary.InboundLast24Hours + _summary.OutboundLast24Hours).ToString())" IconName="clock"
+                         Help="@($"{MetricsFormat.Whole(_summary.InboundLast24Hours)} entrantes · {MetricsFormat.Whole(_summary.OutboundLast24Hours)} salientes")" />
+            </section>
+
+            <Card Title="Líneas" Subtitle="La última entrega que llegó al webhook de cada número." IconName="phone" data-testid="lines-card">
+                @if (_summary.Lines.Count == 0)
+                {
+                    <p class="muted" data-testid="no-lines">Aún no hay números conectados. <a href="/organizacion">Registra y activa una línea</a> para empezar a recibir mensajes.</p>
+                }
+                else
+                {
+                    <ul class="line-list" data-testid="line-list">
+                        @foreach (var line in _summary.Lines)
+                        {
+                            <li class="line-list__item" data-testid="line-status" data-channel-id="@line.ChannelId" data-active="@(line.IsActive ? "true" : "false")" data-delivery="@(line.LastDeliveryAt is null ? "never" : "seen")">
+                                <div class="line-list__who">
+                                    <strong>@line.DisplayPhoneNumber</strong>
+                                    <span class="muted">@(line.BranchName ?? MetricsFormat.NoData)</span>
+                                </div>
+                                @if (line.IsActive)
+                                {
+                                    <Chip Tone="ChipTone.Success" IconName="check-circle">Activa</Chip>
+                                }
+                                else
+                                {
+                                    <Chip Tone="ChipTone.Warning" IconName="power">Inactiva</Chip>
+                                }
+                                @if (line.LastDeliveryAt is { } last)
+                                {
+                                    <span data-testid="last-delivery">Última entrega: @Stamp(last) · @ConversationFormat.Age(last, _nowUtc)</span>
+                                }
+                                else
+                                {
+                                    <span class="muted" data-testid="last-delivery">Nunca ha llegado una entrega a esta línea@(line.IsActive ? "." : ": está inactiva y el webhook la rechaza.")</span>
+                                }
+                            </li>
+                        }
+                    </ul>
+                }
+            </Card>
+        }
+
+        <RefreshBar Current="Filters.AutoSeconds" UrlFor="seconds => Filters.ToUrl(autoSeconds: seconds)" />
+
+        <form method="get" action="@MessageFeedFilters.Path" class="filters filters--wide" role="search" aria-label="Filtros de mensajes" data-testid="message-filters">
+            @if (_summary is { Lines.Count: > 0 })
+            {
+                <div class="field">
+                    <label for="f-line" class="field__label">Línea</label>
+                    <select id="f-line" name="linea" class="input">
+                        <option value="">Todas</option>
+                        @foreach (var line in _summary.Lines)
+                        {
+                            <option value="@line.ChannelId" selected="@(line.ChannelId == Filters.ChannelId)">@line.DisplayPhoneNumber@(line.BranchName is null ? "" : " · " + line.BranchName)</option>
+                        }
+                    </select>
+                </div>
+            }
+            else if (Filters.ChannelId is { } channelId)
+            {
+                <input type="hidden" name="linea" value="@channelId" />
+            }
+            <div class="field">
+                <label for="f-direction" class="field__label">Dirección</label>
+                <select id="f-direction" name="direccion" class="input">
+                    <option value="">Todas</option>
+                    <option value="@MessageFeedFilters.InboundText" selected="@(Filters.Direction == "Inbound")">Entrantes (clientes)</option>
+                    <option value="@MessageFeedFilters.OutboundText" selected="@(Filters.Direction == "Outbound")">Salientes (negocio)</option>
+                </select>
+            </div>
+            @if (Filters.AutoSeconds > 0)
+            {
+                <input type="hidden" name="auto" value="@Filters.AutoSeconds" />
+            }
+            <div class="filters__actions">
+                <button type="submit" class="btn btn--secondary"><Icon Name="filter" />Filtrar</button>
+                @if (Filters.IsFiltered)
+                {
+                    <a class="btn btn--ghost" href="@((Filters with { ChannelId = null, Direction = null }).ToUrl(1, keepSeen: false))" data-testid="clear-filters"><Icon Name="x" />Borrar filtros</a>
+                }
+            </div>
+        </form>
+
+        @if (_page is not null)
+        {
+            @if (_page.TotalCount == 0)
+            {
+                @if (Filters.IsFiltered)
+                {
+                    <EmptyState Title="Ningún mensaje coincide" Art="search" Text="Prueba con otra línea o con todas las direcciones.">
+                        <Actions>
+                            <a class="btn btn--secondary" href="@MessageFeedFilters.Path"><Icon Name="x" />Borrar filtros</a>
+                        </Actions>
+                    </EmptyState>
+                }
+                else
+                {
+                    <EmptyState Title="Aún no llegan mensajes" Art="chat"
+                                Text="Revisa la guía de pruebas: que el webhook esté registrado en el proveedor y la línea activa. Si ya enviaste un mensaje, mira si la entrega llegó en «Entregas del webhook».">
+                        <Actions>
+                            <a class="btn btn--primary" href="@WebhookEventFilters.Path"><Icon Name="activity" />Ver las entregas del webhook</a>
+                            <a class="btn btn--secondary" href="/organizacion"><Icon Name="building" />Ver los números conectados</a>
+                        </Actions>
+                    </EmptyState>
+                }
+            }
+            else
+            {
+                <div class="feed-head">
+                    <p class="muted" data-testid="feed-count">@MetricsFormat.Whole(_page.TotalCount) @(_page.TotalCount == 1 ? "mensaje" : "mensajes")</p>
+                    @if (_page.Page == 1 && _page.Items.Count > 0)
+                    {
+                        <a class="btn btn--ghost btn--sm" href="@Filters.ToUrl(1, seenId: _page.Items[0].Id)" data-testid="mark-seen"><Icon Name="check" Class="icon--sm" />Marcar como vistos</a>
+                    }
+                    @if (Filters.SeenId is not null)
+                    {
+                        <span class="muted" data-testid="new-count">@(_newIds.Count == 0 ? "Nada nuevo desde que los marcaste." : $"{_newIds.Count} nuevos desde que los marcaste.")</span>
+                    }
+                </div>
+
+                @if (_page.Items.Count == 0)
+                {
+                    <p class="muted" data-testid="page-beyond">Esta página ya no tiene mensajes: la lista terminó antes. Vuelve a una página anterior.</p>
+                }
+                else
+                {
+                    <ol class="feed" data-testid="feed" aria-label="Mensajes, del más reciente al más antiguo">
+                        @foreach (var item in _page.Items)
+                        {
+                            var inbound = item.Direction == "Inbound";
+                            <li class="feed__item feed__item--@(inbound ? "in" : "out")" data-testid="feed-message" data-message-id="@item.Id" data-direction="@item.Direction" data-new="@(_newIds.Contains(item.Id) ? "true" : null)">
+                                <div class="feed__meta">
+                                    @if (inbound)
+                                    {
+                                        <Chip Tone="ChipTone.Brand" IconName="arrow-left" data-testid="direction-chip">Entrante</Chip>
+                                    }
+                                    else
+                                    {
+                                        <Chip Tone="ChipTone.Neutral" IconName="arrow-right" data-testid="direction-chip">Saliente</Chip>
+                                    }
+                                    @if (_newIds.Contains(item.Id))
+                                    {
+                                        <Chip Tone="ChipTone.Accent" data-testid="new-chip">Nuevo</Chip>
+                                    }
+                                    <time class="feed__time" datetime="@item.SentAt.ToString("O")" data-testid="feed-time">@Stamp(item.SentAt)</time>
+                                    <span class="muted feed__age">@ConversationFormat.Age(item.SentAt, _nowUtc) · llegó @MetricsFormat.ClockSeconds(TimeZone.ToLocal(item.ReceivedAt))</span>
+                                </div>
+                                <div class="feed__who">
+                                    <strong data-testid="feed-contact">@(string.IsNullOrWhiteSpace(item.Contact.DisplayName) ? "Cliente" : item.Contact.DisplayName.Trim())</strong>
+                                    <span class="muted" data-testid="feed-phone">@item.Contact.MaskedWaId</span>
+                                    <span class="muted" data-testid="feed-line">@item.Line.DisplayPhoneNumber@(item.Line.BranchName is null ? "" : " · " + item.Line.BranchName)</span>
+                                </div>
+                                @if (string.IsNullOrEmpty(item.Text))
+                                {
+                                    <p class="feed__text feed__text--empty" data-testid="feed-text">[@item.TypeLabel sin texto]</p>
+                                }
+                                else
+                                {
+                                    <p class="feed__text" data-testid="feed-text">@item.Text</p>
+                                }
+                                <a class="feed__link" href="@ConversationLinks.Detail(item.ConversationId)" data-testid="feed-conversation">Ver la conversación completa</a>
+                            </li>
+                        }
+                    </ol>
+                }
+
+                <Pager Page="_page.Page" PageSize="MessageFeedFilters.PageSize" Total="_page.TotalCount" TotalText="@($"{MetricsFormat.Whole(_page.TotalCount)} mensajes")"
+                       UrlFor="page => Filters.ToUrl(page)" />
+            }
+        }
+    </div>
+}
+
+@code {
+    private PagedResponse<RecentMessageItem>? _page;
+    private MessagesSummaryResponse? _summary;
+    private HashSet<Guid> _newIds = [];
+    private DateTime _nowUtc;
+
+    [SupplyParameterFromQuery(Name = "linea")] public string? LineText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "direccion")] public string? DirectionText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "page")] public string? PageText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "auto")] public string? AutoText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "visto")] public string? SeenText { get; set; }
+
+    private MessageFeedFilters Filters => MessageFeedFilters.Parse(LineText, DirectionText, PageText, AutoText, SeenText);
+
+    private string TodayHelp => $"Desde las 00:00 de hoy ({_summary!.TimeZone}).";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        _nowUtc = Clock.GetUtcNow().UtcDateTime;
+        var filters = Filters;
+        var recentTask = Api.GetRecentMessagesAsync(Token!, filters.ToQuery());
+        var summaryTask = Api.GetMessagesSummaryAsync(Token!);
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        var newerTask = filters.SeenId is { } seen ? Api.GetRecentMessagesAsync(Token!, filters.ToNewerQuery(seen)) : null;
+        await Task.WhenAll(new Task[] { recentTask, summaryTask, profileTask }.Concat(newerTask is null ? [] : [newerTask]));
+
+        if (await TryFailAsync(recentTask.Result, summaryTask.Result, profileTask.Result))
+        {
+            if (recentTask.Result.Status == ApiResultStatus.ValidationFailed)
+            {
+                Message = string.Join(' ', recentTask.Result.ValidationErrors.Values.SelectMany(messages => messages));
+            }
+
+            return;
+        }
+
+        Shell.Remember(profileTask.Result.Value!);
+        if (!profileTask.Result.Value!.Can(Permission.ConversationsView))
+        {
+            Deny();
+            return;
+        }
+
+        _page = recentTask.Result.Value;
+        _summary = summaryTask.Result.Value;
+
+        // A marker that cannot be resolved (the message is gone, or the answer failed) is simply not shown: the feed itself stands.
+        if (newerTask is { Result: { IsSuccess: true, Value: { } newer } })
+        {
+            _newIds = newer.Items.Select(i => i.Id).ToHashSet();
+        }
+    }
+
+    private string Stamp(DateTime utc)
+    {
+        var local = TimeZone.ToLocal(utc);
+        return DateOnly.FromDateTime(local) == TimeZone.Today(Clock)
+            ? "Hoy " + MetricsFormat.ClockSeconds(local)
+            : MetricsFormat.Moment(local);
+    }
+
+    private string MomentOrNone(DateTime? utc) => utc is { } value ? Stamp(value) : MetricsFormat.NoData;
+
+    private string AgeOrNone(DateTime? utc, string none) => utc is { } value ? ConversationFormat.Age(value, _nowUtc) : none;
+}

@@ -229,7 +229,7 @@ public class PendingAccountTests(TestApiFactory api)
             ? Task.FromResult<HttpResponseMessage?>(null)
             : FakeApi.Respond(HttpStatusCode.Forbidden, $$"""{"status":403,"title":"Empresa no activa","detail":"{{detail}}","code":"tenant_not_active"{{status}}}""");
 
-        foreach (var path in new[] { "/panel", "/conversaciones", "/organizacion", "/users" })
+        foreach (var path in new[] { "/panel", "/conversaciones", "/mensajes", "/mensajes/eventos", "/organizacion", "/users" })
         {
             var response = await session.GetAsync(path);
 
@@ -252,7 +252,7 @@ public class PendingAccountTests(TestApiFactory api)
 
         var nav = page.Document.QuerySelector("nav[aria-label='Navegación principal']")!;
         var locked = nav.QuerySelectorAll("[data-locked=true]").ToList();
-        Assert.Equal(["Panel", "Conversaciones", "Organización", "Usuarios"], locked.Select(l => l.QuerySelector("span:not(.sr-only)")!.Plain().Trim()));
+        Assert.Equal(["Panel", "Conversaciones", "Mensajes", "Organización", "Usuarios"], locked.Select(l => l.QuerySelector("span:not(.sr-only)")!.Plain().Trim()));
         Assert.All(locked, l =>
         {
             Assert.Equal("true", l.GetAttribute("aria-disabled")); // locked in words as well as in colour

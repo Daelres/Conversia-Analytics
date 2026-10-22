@@ -27,7 +27,9 @@ else if (!Redirected)
 {
     <div class="page" data-page="conversations">
         <PageHeader Eyebrow="Ventas" EyebrowIcon="message" Title="Conversaciones"
-                    Description="Los chats de WhatsApp con tus clientes: quién los atiende, cuánto tardaron en responder y cómo terminaron." />
+                    Description="Los chats de WhatsApp con tus clientes: quién los atiende, cuánto tardaron en responder y cómo terminaron.">
+            <a class="btn btn--secondary" href="/mensajes" data-testid="to-messages"><Icon Name="activity" />Mensajes recibidos</a>
+        </PageHeader>
 
         <ErrorAlert Message="@Message" />
 

@@ -1,0 +1,26 @@
+@using Conversia.Application.DTOs.Messages
+@* What became of a webhook delivery, in one badge. The code is a hook for the tests and the legend; the words carry the meaning. *@
+<Chip Tone="Tone" IconName="@Icon" data-testid="outcome-chip" data-outcome="@Event.OutcomeCode">@Event.Outcome</Chip>
+
+@code {
+    [Parameter, EditorRequired]
+    public WebhookEventItem Event { get; set; } = default!;
+
+    private ChipTone Tone => Event.OutcomeCode switch
+    {
+        "stored" => ChipTone.Success,
+        "partial" or "skipped" or "retrying" => ChipTone.Warning,
+        "failed" => ChipTone.Danger,
+        "pending" => ChipTone.Brand,
+        _ => ChipTone.Neutral,
+    };
+
+    private string Icon => Event.OutcomeCode switch
+    {
+        "stored" => "check-circle",
+        "partial" or "skipped" or "retrying" => "alert-triangle",
+        "failed" => "x-circle",
+        "pending" => "clock",
+        _ => "info",
+    };
+}

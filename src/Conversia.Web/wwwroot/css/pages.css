@@ -524,3 +524,199 @@ textarea.input {
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
+
+/* ---- Messages: the feed of what arrived, the lines and the deliveries ---- */
+.refresh-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.refresh-bar__label {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.refresh-bar__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.refresh-bar__choice {
+  display: inline-block;
+  padding: 0.2rem var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.refresh-bar__choice:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.refresh-bar__choice[aria-current="true"] {
+  border-color: var(--brand-border);
+  background: var(--brand-soft);
+  color: var(--brand-soft-text);
+}
+
+.line-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.line-list__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  padding-block: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.line-list__item + .line-list__item {
+  border-top: 1px solid var(--border);
+}
+
+.line-list__who {
+  display: flex;
+  flex-direction: column;
+  min-width: 10rem;
+}
+
+.feed-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.feed {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.feed__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid transparent;
+}
+
+.feed__item + .feed__item {
+  border-top: 1px solid var(--border);
+}
+
+.feed__item--in {
+  border-left-color: var(--brand-border);
+}
+
+.feed__item[data-new="true"] {
+  background: var(--brand-soft);
+}
+
+.feed__meta,
+.feed__who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+
+.feed__time {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.feed__age {
+  font-size: var(--text-xs);
+}
+
+.feed__who {
+  font-size: var(--text-sm);
+}
+
+/* A long message is cut to a few lines here; the whole of it is in the conversation. Line breaks stay. */
+.feed__text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.feed__text--empty {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.feed__link {
+  align-self: flex-start;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.delivery-error {
+  display: block;
+  max-width: 28rem;
+  font-size: var(--text-xs);
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.legend__row {
+  display: grid;
+  gap: var(--space-1) var(--space-4);
+  padding-block: var(--space-2);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.legend__row + .legend__row {
+  border-top: 1px solid var(--border);
+}
+
+.legend dt {
+  font-weight: 700;
+}
+
+.legend dd {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+@media (min-width: 720px) {
+  .legend__row {
+    grid-template-columns: 16rem minmax(0, 1fr);
+  }
+}

@@ -1,0 +1,273 @@
+@page "/mensajes/eventos"
+@attribute [Authorize]
+@using Conversia.Application.DTOs
+@using Conversia.Application.DTOs.Messages
+@using Conversia.Application.Time
+@using Conversia.Domain.Enums
+@using Conversia.Web.Components.Messages
+@using Conversia.Web.Time
+@inherits AuthenticatedPageBase
+@inject TenantTimeZone TimeZone
+@inject TimeProvider Clock
+
+<PageTitle>Entregas del webhook - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <StatusView DataPage="forbidden" Code="403" Title="Sin acceso a las entregas" Art="locked"
+                Hint="Pide acceso a la persona propietaria de tu empresa.">
+        <ChildContent>Tu cuenta no tiene el permiso «@PermissionLabels.For(Permission.ConversationsView)». Con él podrás ver los mensajes que llegan y las entregas del webhook.</ChildContent>
+        <Actions>
+            <a class="btn btn--primary" href="/"><Icon Name="home" />Ir al inicio</a>
+        </Actions>
+    </StatusView>
+}
+else if (!Redirected)
+{
+    @if (Filters.AutoSeconds > 0)
+    {
+        <HeadContent>
+            <meta http-equiv="refresh" content="@Filters.AutoSeconds" />
+        </HeadContent>
+    }
+
+    <div class="page" data-page="deliveries">
+        <PageHeader Eyebrow="Ventas" EyebrowIcon="activity" Title="Entregas del webhook"
+                    Description="Cada aviso que WhatsApp envió a tus números, también los que no guardaron ningún mensaje. Si un mensaje no aparece en «Mensajes recibidos», aquí se ve qué pasó con su entrega.">
+            <a class="btn btn--secondary" href="@MessageFeedFilters.Path"><Icon Name="message" />Mensajes recibidos</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        <Alert Kind="AlertKind.Info" data-testid="privacy-note">Aquí nunca se muestra el contenido de las entregas: solo la hora, el resultado y los conteos. El texto de los mensajes está en «Mensajes recibidos». Las entregas procesadas se conservan unos días (14 por defecto) y las fallidas más tiempo (60); después desaparecen de esta lista.</Alert>
+
+        <RefreshBar Current="Filters.AutoSeconds" UrlFor="seconds => Filters.ToUrl(autoSeconds: seconds)" />
+
+        <form method="get" action="@WebhookEventFilters.Path" class="filters filters--wide" role="search" aria-label="Filtros de entregas" data-testid="delivery-filters">
+            @if (_lines is { Count: > 0 })
+            {
+                <div class="field">
+                    <label for="f-line" class="field__label">Línea</label>
+                    <select id="f-line" name="linea" class="input">
+                        <option value="">Todas</option>
+                        @foreach (var line in _lines)
+                        {
+                            <option value="@line.ChannelId" selected="@(line.ChannelId == Filters.ChannelId)">@line.DisplayPhoneNumber@(line.BranchName is null ? "" : " · " + line.BranchName)</option>
+                        }
+                    </select>
+                </div>
+            }
+            else if (Filters.ChannelId is { } channelId)
+            {
+                <input type="hidden" name="linea" value="@channelId" />
+            }
+            <div class="field">
+                <label for="f-status" class="field__label">Estado</label>
+                <select id="f-status" name="estado" class="input">
+                    <option value="">Todos</option>
+                    @foreach (var status in WebhookEventFilters.Statuses)
+                    {
+                        <option value="@status" selected="@(status == Filters.Status)">@StatusLabel(status)</option>
+                    }
+                </select>
+            </div>
+            @if (Filters.AutoSeconds > 0)
+            {
+                <input type="hidden" name="auto" value="@Filters.AutoSeconds" />
+            }
+            <div class="filters__actions">
+                <button type="submit" class="btn btn--secondary"><Icon Name="filter" />Filtrar</button>
+                @if (Filters.IsFiltered)
+                {
+                    <a class="btn btn--ghost" href="@((Filters with { ChannelId = null, Status = null }).ToUrl(1))" data-testid="clear-filters"><Icon Name="x" />Borrar filtros</a>
+                }
+            </div>
+        </form>
+
+        @if (_page is not null)
+        {
+            @if (_page.TotalCount == 0)
+            {
+                @if (Filters.IsFiltered)
+                {
+                    <EmptyState Title="Ninguna entrega coincide" Art="search" Text="Prueba con otra línea o con todos los estados.">
+                        <Actions>
+                            <a class="btn btn--secondary" href="@WebhookEventFilters.Path"><Icon Name="x" />Borrar filtros</a>
+                        </Actions>
+                    </EmptyState>
+                }
+                else
+                {
+                    <EmptyState Title="Aún no ha llegado ninguna entrega" Art="chat"
+                                Text="Si enviaste un mensaje y no aparece nada aquí, el aviso no llegó al webhook: revisa que la dirección y el secreto estén registrados en el proveedor y que la línea esté activa.">
+                        <Actions>
+                            <a class="btn btn--primary" href="/organizacion"><Icon Name="building" />Ver los números conectados</a>
+                        </Actions>
+                    </EmptyState>
+                }
+            }
+            else
+            {
+                @if (_page.Items.Count == 0)
+                {
+                    <p class="muted" data-testid="page-beyond">Esta página ya no tiene entregas: la lista terminó antes. Vuelve a una página anterior.</p>
+                }
+                else
+                {
+                    <div class="table-wrap" role="region" aria-label="Lista de entregas del webhook" tabindex="0">
+                        <table class="table table--cards table--compact" data-testid="delivery-table">
+                            <caption class="sr-only">Entregas del webhook, de la más reciente a la más antigua</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Llegó</th>
+                                    <th scope="col">Línea</th>
+                                    <th scope="col">Estado</th>
+                                    <th scope="col">Resultado</th>
+                                    <th scope="col" data-align="end">Guardados</th>
+                                    <th scope="col" data-align="end">Omitidos</th>
+                                    <th scope="col" data-align="end">Recibos</th>
+                                    <th scope="col" data-align="end">Intentos</th>
+                                    <th scope="col">Error</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in _page.Items)
+                                {
+                                    <tr data-testid="delivery-row" data-event-id="@item.Id" data-status="@item.Status" data-outcome="@item.OutcomeCode">
+                                        <th scope="row" data-label="Llegó">
+                                            <time datetime="@item.ReceivedAt.ToString("O")">@Stamp(item.ReceivedAt)</time>
+                                            <span class="muted conversation__phone">@ConversationFormat.Age(item.ReceivedAt, _nowUtc)</span>
+                                        </th>
+                                        <td data-label="Línea">
+                                            <span data-testid="delivery-line">@item.Line.DisplayPhoneNumber</span>
+                                            <span class="muted conversation__phone">@(item.Line.BranchName ?? MetricsFormat.NoData)</span>
+                                        </td>
+                                        <td data-label="Estado"><Chip Tone="StatusTone(item.Status)" data-testid="status-chip">@StatusLabel(item.Status)</Chip></td>
+                                        <td data-label="Resultado"><DeliveryOutcomeChip Event="item" /></td>
+                                        <td data-label="Guardados" data-align="end" data-testid="delivery-stored">@Count(item.StoredMessageCount)</td>
+                                        <td data-label="Omitidos" data-align="end" data-testid="delivery-skipped">@Count(item.SkippedMessageCount)</td>
+                                        <td data-label="Recibos" data-align="end" data-testid="delivery-receipts">@Count(item.StatusCount)</td>
+                                        <td data-label="Intentos" data-align="end">@MetricsFormat.Whole(item.Attempts)</td>
+                                        <td data-label="Error">
+                                            @if (string.IsNullOrWhiteSpace(item.LastError))
+                                            {
+                                                <span class="muted">—</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="delivery-error" data-testid="delivery-error">@item.LastError</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                <Pager Page="_page.Page" PageSize="WebhookEventFilters.PageSize" Total="_page.TotalCount" TotalText="@($"{MetricsFormat.Whole(_page.TotalCount)} entregas")"
+                       UrlFor="page => Filters.ToUrl(page)" />
+            }
+        }
+
+        <Card Title="Qué significa cada resultado" Subtitle="Lo que pasó con la entrega, en palabras." IconName="info" data-testid="outcome-legend">
+            <dl class="legend">
+                @foreach (var (outcome, label, text) in Legend)
+                {
+                    <div class="legend__row" data-outcome="@outcome">
+                        <dt>@label</dt>
+                        <dd>@text</dd>
+                    </div>
+                }
+            </dl>
+        </Card>
+    </div>
+}
+
+@code {
+    private PagedResponse<WebhookEventItem>? _page;
+    private IReadOnlyList<LineActivity>? _lines;
+    private DateTime _nowUtc;
+
+    private static readonly (string Code, string Label, string Text)[] Legend =
+    [
+        ("stored", "Mensajes guardados", "La entrega traía mensajes y ya están en «Mensajes recibidos»."),
+        ("partial", "Mensajes guardados, algunos omitidos", "Se guardaron los mensajes que se pudieron; los demás no tenían un número, identificador o fecha utilizables."),
+        ("receipts", "Solo recibos de entrega", "WhatsApp avisó que un mensaje se envió, se entregó o se leyó. No trae texto de clientes, por eso no genera mensajes."),
+        ("skipped", "Mensajes omitidos", "La entrega traía mensajes que no se pudieron guardar: sin número de teléfono utilizable, sin identificador o fecha, de un grupo o dirigidos a otro número."),
+        ("repeated", "Mensajes repetidos", "Los mensajes ya estaban guardados: el proveedor reenvió la entrega y no se duplicó nada."),
+        ("empty", "Sin mensajes que guardar", "Un aviso de otro tipo, que el servicio no usa."),
+        ("pending", "Pendiente de procesar", "La entrega llegó y está en la cola; se procesa en segundos."),
+        ("retrying", "Pendiente de reintento", "El procesamiento falló y se volverá a intentar solo."),
+        ("failed", "Falló", "No se pudo procesar tras los reintentos. Revisa el error; si persiste, escribe a soporte con el código que ves."),
+    ];
+
+    [SupplyParameterFromQuery(Name = "linea")] public string? LineText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "estado")] public string? StatusText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "page")] public string? PageText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "auto")] public string? AutoText { get; set; }
+
+    private WebhookEventFilters Filters => WebhookEventFilters.Parse(LineText, StatusText, PageText, AutoText);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        _nowUtc = Clock.GetUtcNow().UtcDateTime;
+        var eventsTask = Api.GetWebhookEventsAsync(Token!, Filters.ToQuery());
+        var summaryTask = Api.GetMessagesSummaryAsync(Token!);
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        await Task.WhenAll(eventsTask, summaryTask, profileTask);
+
+        if (await TryFailAsync(eventsTask.Result, summaryTask.Result, profileTask.Result))
+        {
+            if (eventsTask.Result.Status == ApiResultStatus.ValidationFailed)
+            {
+                Message = string.Join(' ', eventsTask.Result.ValidationErrors.Values.SelectMany(messages => messages));
+            }
+
+            return;
+        }
+
+        Shell.Remember(profileTask.Result.Value!);
+        if (!profileTask.Result.Value!.Can(Permission.ConversationsView))
+        {
+            Deny();
+            return;
+        }
+
+        _page = eventsTask.Result.Value;
+        _lines = summaryTask.Result.Value!.Lines;
+    }
+
+    private string Stamp(DateTime utc)
+    {
+        var local = TimeZone.ToLocal(utc);
+        return DateOnly.FromDateTime(local) == TimeZone.Today(Clock)
+            ? "Hoy " + MetricsFormat.ClockSeconds(local)
+            : MetricsFormat.Moment(local);
+    }
+
+    private static string Count(int? count) => count is { } value ? MetricsFormat.Whole(value) : MetricsFormat.NoData;
+
+    private static string StatusLabel(string status) => status switch
+    {
+        "Pending" => "Pendiente",
+        "Processed" => "Procesada",
+        "Failed" => "Fallida",
+        _ => status,
+    };
+
+    private static ChipTone StatusTone(string status) => status switch
+    {
+        "Processed" => ChipTone.Success,
+        "Failed" => ChipTone.Danger,
+        _ => ChipTone.Brand,
+    };
+}

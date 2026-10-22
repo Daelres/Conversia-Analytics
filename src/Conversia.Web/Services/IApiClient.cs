@@ -2,6 +2,7 @@ using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Admin;
 using Conversia.Application.DTOs.Auth;
 using Conversia.Application.DTOs.Conversations;
+using Conversia.Application.DTOs.Messages;
 using Conversia.Application.DTOs.Metrics;
 using Conversia.Application.DTOs.Organization;
 using Conversia.Application.DTOs.Tenants;
@@ -59,6 +60,14 @@ public interface IApiClient
 
     /// <summary><c>PUT /api/conversations/{id}/opportunity</c>: a person decides the outcome.</summary>
     Task<ApiResult<OpportunityResponse>> SetOpportunityOutcomeAsync(string token, Guid id, SetOpportunityOutcomeRequest request, CancellationToken cancellationToken = default);
+
+    // ---- messages and webhook deliveries (ConversationsView) ----
+
+    Task<ApiResult<PagedResponse<RecentMessageItem>>> GetRecentMessagesAsync(string token, RecentMessagesQuery query, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<MessagesSummaryResponse>> GetMessagesSummaryAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PagedResponse<WebhookEventItem>>> GetWebhookEventsAsync(string token, WebhookEventsQuery query, CancellationToken cancellationToken = default);
 
     // ---- organization writes (OrganizationManage) ----
 
