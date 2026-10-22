@@ -1,4 +1,5 @@
 using Conversia.Web.Authentication;
+using Conversia.Web.Http;
 
 namespace Conversia.Web.Components.Pages.Admin;
 
@@ -23,7 +24,17 @@ public abstract class AdminPageBase : AuthenticatedPageBase
     protected override void OnNotFound()
     {
         CompanyMissing = true;
-        SetStatusCode(StatusCodes.Status404NotFound);
+        NotFoundInPlace();
         Message = null;
+    }
+
+    /// <summary>
+    /// A 404 the page answers itself. The status-code pages re-run every 404 into the public "page not found"; the marker makes that page (and
+    /// the layout around it) the administration's own "company not found".
+    /// </summary>
+    protected void NotFoundInPlace()
+    {
+        NotFoundMarker.Mark(HttpContext, NotFoundMarker.Company);
+        SetStatusCode(StatusCodes.Status404NotFound);
     }
 }

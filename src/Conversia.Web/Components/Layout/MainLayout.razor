@@ -2,20 +2,33 @@
 @implements IDisposable
 @inject ShellState Shell
 
-<InPageLink Fragment="main" class="skip-link">Saltar al contenido</InPageLink>
-<div class="shell" data-shell="@(_signedIn ? "app" : "site")">
-    <ShellHeader SignedIn="_signedIn" Profile="Shell.User" Tenant="Shell.Tenant" />
-    <div class="shell-body">
-        <main id="main" tabindex="-1">
-            <ErrorCodeNotice />
-            @Body
-        </main>
-        <SiteFooter />
+@if (AdministrationNotFound)
+{
+    @* The page of a company that does not exist is answered through the generic not-found route: it keeps the administrator's own shell. *@
+    <AdminLayout Body="Body" />
+}
+else
+{
+    <InPageLink Fragment="main" class="skip-link">Saltar al contenido</InPageLink>
+    <div class="shell" data-shell="@(_signedIn ? "app" : "site")">
+        <ShellHeader SignedIn="_signedIn" Profile="Shell.User" Tenant="Shell.Tenant" />
+        <div class="shell-body">
+            <main id="main" tabindex="-1">
+                <ErrorCodeNotice />
+                @Body
+            </main>
+            <SiteFooter />
+        </div>
     </div>
-</div>
+}
 
 @code {
     private bool _signedIn;
+
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private bool AdministrationNotFound => Http.NotFoundMarker.IsMarked(HttpContext, Http.NotFoundMarker.Company);
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationState { get; set; }

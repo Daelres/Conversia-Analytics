@@ -99,7 +99,7 @@ else if (!Redirected)
     {
         if (_action is null)
         {
-            SetStatusCode(StatusCodes.Status404NotFound);
+            NotFoundInPlace();
             return;
         }
 
