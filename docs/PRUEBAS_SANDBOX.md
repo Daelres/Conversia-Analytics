@@ -259,7 +259,13 @@ printf 'Authorization: Basic %s\n' "$BASIC_B64" | curl -i -X POST "https://<TUNN
 
 ### Paso 4.4. Registrar el webhook en el sandbox
 
-Guarda tu llave del sandbox sin mostrarla:
+**Atajo:** el script `scripts/sandbox-register-webhook.sh` hace el paso 4.3 (probar el túnel) y este paso 4.4 en una sola ejecución. Te pide, sin mostrarlos, la dirección del túnel, la llave del canal, el secreto y la llave del sandbox. Para la variante B (`Authorization: Basic`) agrégale `--basic`.
+
+```bash
+bash scripts/sandbox-register-webhook.sh
+```
+
+Si prefieres hacerlo a mano, sigue estos comandos. Guarda tu llave del sandbox sin mostrarla:
 
 ```bash
 read -rs D360_API_KEY && export D360_API_KEY
