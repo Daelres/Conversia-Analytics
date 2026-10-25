@@ -35,6 +35,8 @@ Estado de verificación de esta guía (22 de octubre de 2026): todo lo que ocurr
 
 ### Riesgo principal: ¿el sandbox reenvía cabeceras personalizadas?
 
+> **Resuelto (24-25 oct 2026):** el sandbox aceptó `headers` y reenvió `X-Webhook-Secret`; la variante A funcionó de punta a punta y la B no fue necesaria. Resumen y paso a producción en [`CONFIGURACION_360DIALOG.md`](CONFIGURACION_360DIALOG.md).
+
 Conversia acepta el secreto del canal de **dos formas** (la llave del canal siempre va en la URL):
 
 - **Variante A, cabecera personalizada:** `X-Webhook-Secret: <SECRETO>`. Es la predeterminada y la más simple.

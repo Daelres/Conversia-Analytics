@@ -117,10 +117,21 @@ curl -X POST "https://waba-sandbox.360dialog.io/v1/configs/webhook" \
 360dialog then sends the secret back in the `X-Webhook-Secret` header of every call. If the sandbox does not forward custom headers, register the
 `Authorization: Basic` variant instead (next section).
 
-**Unverified for the sandbox.** 360dialog's API reference documents a `headers` object (string values) for `POST /v1/configs/webhook`, but the sandbox
+**Unverified for the sandbox (now resolved: see the next subsection).** 360dialog's API reference documents a `headers` object (string values) for `POST /v1/configs/webhook`, but the sandbox
 page does not mention custom headers on deliveries and the reference lists only the production server. That is why the endpoint accepts the secret in
 two headers. If the sandbox forwards neither, every delivery gets the uniform `401` and there is no further option in code: the secret is never
 accepted in the URL. The step-by-step test procedure is [`docs/PRUEBAS_SANDBOX.md`](PRUEBAS_SANDBOX.md) (Spanish).
+
+### Sandbox result and production differences
+
+**Verified (24-25 Oct 2026):** the sandbox accepted `headers` in `POST /v1/configs/webhook` and **forwarded** `X-Webhook-Secret` on every delivery; messages sent
+from a phone to the sandbox number reached `/mensajes` end to end. The `Authorization: Basic` variant was not needed in the sandbox.
+
+Production differs (from 360dialog's documentation; **not yet verified** against a real production number): the config server is `https://waba-v2.360dialog.io`
+(`POST` answers `201`, `GET` reads the configuration); the webhook URL must be HTTPS with a valid certificate, with no underscores in the domain and no explicit
+port; the endpoint must answer `200` within 5 seconds (failed deliveries are retried for up to 7 days); the API key is generated once in the Client Hub. Conversia
+shows only the relative route, so the public host must be prepended when building the URL. The production payload format and the coexistence echoes
+(`smb_message_echoes`) remain unverified. The full runbook (Spanish) is [`docs/CONFIGURACION_360DIALOG.md`](CONFIGURACION_360DIALOG.md).
 
 ## Authentication
 

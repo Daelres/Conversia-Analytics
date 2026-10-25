@@ -133,7 +133,8 @@ Stop with `docker compose down`; add `-v` to also delete the database volume.
 
 To test with real WhatsApp messages through the 360dialog sandbox, follow
 [`docs/PRUEBAS_SANDBOX.md`](docs/PRUEBAS_SANDBOX.md) (in Spanish): step by step, with an
-acceptance checklist.
+acceptance checklist. The 360dialog setup for sandbox and production is summarized in
+[`docs/CONFIGURACION_360DIALOG.md`](docs/CONFIGURACION_360DIALOG.md) (in Spanish).
 
 To fill the stack with believable WhatsApp conversations (branches, advisors, numbers
 and chats the classifier and the dashboard can show), use the webhook simulator:
@@ -360,6 +361,7 @@ Docker smoke test.
   not, sanitization, storm control, the report endpoint, retention, SQL to
   investigate an error.
 - `docs/PRUEBAS_SANDBOX.md` — test-phase guide (Spanish): run the stack, register the company and the line, connect the 360dialog sandbox through a tunnel, check the messages in the UI, problems table and acceptance checklist.
+- `docs/CONFIGURACION_360DIALOG.md` — 360dialog configuration runbook (Spanish): sandbox (verified) versus production (documented, not yet verified), prerequisites, registering and rotating the webhook, troubleshooting.
 - `docs/SIMULATOR.md` — the webhook simulator: fill a local stack with believable
   conversations (setup, populate, play), the safety rules, and how to point the
   360dialog sandbox at your machine (documentation only).
