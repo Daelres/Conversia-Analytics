@@ -17,7 +17,8 @@ Estado de verificación de esta guía (22 de octubre de 2026): todo lo que ocurr
 **Qué NO probamos**
 
 - La capa de IA. La clasificación que ves (etapa, motivo, objeción) la hace un clasificador de reglas en español; no es parte de esta prueba y puede cambiar sola un minuto después del último mensaje.
-- Las respuestas de los asesores. En el sandbox tu teléfono hace de **cliente** y el número del sandbox hace de **línea del negocio**. Según la documentación, solo se reenvían al webhook los mensajes que tú envías al sandbox; no está documentado que los mensajes que el sandbox te envía por su API se reflejen en el webhook (asume que no se reflejan). Por eso no se pueden validar aquí los mensajes salientes ("Saliente"), el tiempo de primera respuesta ni la regla de "ganada por confirmación del asesor".
+- Las respuestas que los asesores escriben **desde su teléfono**. En el sandbox tu teléfono hace de **cliente** y el número del sandbox hace de **línea del negocio**; no hay un teléfono de asesor conectado a esa línea, así que el eco de la app WhatsApp Business no se puede probar aquí.
+- Lo que **sí** se puede probar de los mensajes salientes: enviarlos por la API de Conversia (`POST /api/conversations/{id}/messages`, ver `docs/MESSAGING.md`) con la llave del sandbox guardada en el canal. El sandbox solo permite escribirle a **tu propio número** (el que envió `START`), solo texto y sus 3 plantillas predefinidas, y cada llave admite **25 solicitudes en total** (las rechazadas también cuentan). El mensaje enviado queda guardado como "Saliente" y cuenta para el tiempo de primera respuesta. No está documentado que el sandbox devuelva ese mensaje al webhook (solo los estados de entrega); si lo hace con el mismo identificador, Conversia no lo duplica. Todavía no hay una página para enviar: se hace por la API.
 - El formato real del mensaje que un asesor escribe desde la app WhatsApp Business (eco de coexistencia): sigue **sin verificar** (ver `docs/WEBHOOKS.md`).
 - Clientes que WhatsApp identifica solo con un identificador de usuario (BSUID) y sin número de teléfono: Conversia los omite y los cuenta (ver el paso 6).
 
@@ -409,7 +410,7 @@ Marca ☐ cuando lo hayas comprobado. La columna **Previo** indica qué ya se ej
 | CA-15 | Una empresa suspendida deja de recibir y se reanuda | Suspende desde `/admin/empresas/<ID>`, envía; reactiva y envía | `401` mientras está suspendida y "Tu empresa está suspendida" en la Web; `200` al reactivar | V | ☐ |
 | CA-16 | Los datos de cada empresa están aislados | Registra una segunda empresa, actívala | Su `/mensajes` está vacío ("Aún no llegan mensajes") | V | ☐ |
 | CA-17 | Rotar el secreto invalida el anterior | "Rotar secreto" y envía con el viejo y el nuevo | El viejo da `401`; el nuevo `200` | V | ☐ |
-| CA-18 | Entiendo lo que **no** cubre esta prueba | Sección 0 | Aceptado: sin IA, sin respuestas de asesores ni primera respuesta, eco de coexistencia sin verificar, BSUID omitidos | E | ☐ |
+| CA-18 | Entiendo lo que **no** cubre esta prueba | Sección 0 | Aceptado: sin IA, sin respuestas de asesores desde el teléfono (los salientes solo por la API, con el límite de 25 solicitudes), eco de coexistencia sin verificar, BSUID omitidos | E | ☐ |
 
 Si CA-07 a CA-11 pasan, el camino real 360dialog → túnel → Conversia → pantalla funciona.
 

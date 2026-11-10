@@ -69,6 +69,25 @@ public class ChannelsController : ControllerBase
         return Ok(channel);
     }
 
+    /// <summary>
+    /// Stores the provider API key of the channel (encrypted) and its environment; without <c>apiKey</c> it changes only the environment.
+    /// The key is write-only: neither this answer nor any other carries it.
+    /// </summary>
+    [HttpPut("{id:guid}/provider-credentials")]
+    [Authorize(Policy = nameof(Permission.OrganizationManage))]
+    public async Task<ActionResult<ChannelResponse>> SetProviderCredentials(Guid id, SetProviderCredentialsRequest request, CancellationToken cancellationToken)
+    {
+        var channel = await _organization.SetChannelProviderCredentialsAsync(id, request, cancellationToken);
+        Response.Headers.CacheControl = "no-store";
+        return Ok(channel);
+    }
+
+    /// <summary>Forgets the provider API key of the channel: nothing can be sent through it until a new one is set. Idempotent.</summary>
+    [HttpDelete("{id:guid}/provider-credentials")]
+    [Authorize(Policy = nameof(Permission.OrganizationManage))]
+    public async Task<ActionResult<ChannelResponse>> ClearProviderCredentials(Guid id, CancellationToken cancellationToken)
+        => Ok(await _organization.ClearChannelProviderCredentialsAsync(id, cancellationToken));
+
     private async Task<bool> CanManageAsync()
         => (await _authorization.AuthorizeAsync(User, resource: null, nameof(Permission.OrganizationManage))).Succeeded;
 }

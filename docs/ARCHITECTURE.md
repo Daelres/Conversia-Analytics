@@ -73,6 +73,12 @@ ASP.NET Core.
   into contacts, conversations, messages and opportunities, idempotently).
   `Services/WebhookIngestionService` is the request side: authenticate by
   channel secret, validate, store.
+- `Messaging/` — the outbound port: `IWhatsAppMessageSender` (one way of sending a
+  message, no provider types) and `IWhatsAppMessageSenderResolver` (the sender of a
+  channel, chosen per call). `Services/MessageSendingService` is the use case:
+  check, call the provider with no transaction open, record the message the way
+  ingestion does. `Interfaces/ISecretProtector` protects the provider key a channel
+  stores (`docs/MESSAGING.md`).
 
 No CQRS/MediatR pipeline is imposed by this project. Keep it simple:
 one interface + one implementation class per use case. Do not
@@ -109,6 +115,11 @@ Everything that talks to the outside world.
   second, bounded transaction and records failures with exponential back-off
   (`docs/WEBHOOKS.md`). The queue health check, the retention purge and the
   backlog reporter live here too.
+- `Messaging/` — `Dialog360MessageSender` (typed `HttpClient`; the only class that
+  knows the 360dialog send call) and `WhatsAppMessageSenderResolver`.
+  `Security/AesGcmSecretProtector` implements `ISecretProtector` (AES-256-GCM, master
+  key from configuration). `Persistence/TenantIngestionLock` is the per-tenant
+  advisory lock ingestion and sending share.
 - `Repositories/` — concrete repository implementations of the
   `Domain.Interfaces` contracts.
 - `Services/` — infrastructure-backed service implementations

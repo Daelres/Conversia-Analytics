@@ -1,4 +1,5 @@
 using Conversia.Domain.Entities;
+using Conversia.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -62,6 +63,11 @@ public class WhatsAppChannelConfiguration : IEntityTypeConfiguration<WhatsAppCha
         builder.Property(c => c.ChannelKey).IsRequired().HasMaxLength(WhatsAppChannel.ChannelKeyMaxLength);
         builder.Property(c => c.WebhookSecretHash).IsRequired();
         builder.Property(c => c.IsActive).IsRequired();
+        // Ciphertext only (ISecretProtector); the plaintext key is never a column.
+        builder.Property(c => c.ProviderApiKeyCiphertext).HasMaxLength(WhatsAppChannel.ProviderApiKeyCiphertextMaxLength);
+        builder.Property(c => c.ProviderApiKeySetAt);
+        builder.Property(c => c.ProviderEnvironment).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength)
+            .HasDefaultValue(WhatsAppProviderEnvironment.Sandbox);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.UpdatedAt);
 

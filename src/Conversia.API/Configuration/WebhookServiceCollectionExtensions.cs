@@ -16,7 +16,7 @@ public static class WebhookServiceCollectionExtensions
     /// <summary>
     /// Registers the 360dialog webhook (endpoint options, rate limit, ingestion service) and the background worker that processes the
     /// stored events. With <c>Webhooks:Processing:Enabled=false</c> the worker is not started (events still pile up as Pending).
-    /// Also binds <c>Dialog360:ApiKey</c>, which nothing uses yet.
+    /// Also binds <c>Dialog360:ApiKey</c>, which the API does not use (the key that sends messages is stored per channel, see <c>AddMessaging</c>).
     /// </summary>
     public static IServiceCollection AddWebhookIngestion(this IServiceCollection services, IConfiguration configuration)
     {

@@ -838,6 +838,20 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("ProviderApiKeyCiphertext")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<DateTime?>("ProviderApiKeySetAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProviderEnvironment")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Sandbox");
+
                     b.Property<string>("ProviderPhoneNumberId")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");

@@ -1,6 +1,7 @@
 using Conversia.Application.DTOs.Organization;
 using Conversia.Application.Exceptions;
 using Conversia.Application.Interfaces;
+using Conversia.Application.Messaging;
 using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
 using Conversia.Domain.Exceptions;
@@ -12,18 +13,23 @@ public class OrganizationService : IOrganizationService
 {
     private const string UnknownBranchMessage = "La sucursal indicada no existe.";
     private const string UnknownUserMessage = "El usuario indicado no existe.";
+    public const string MissingProviderApiKeyMessage = "La clave de API del proveedor es obligatoria: este número todavía no tiene una.";
 
     private readonly IBranchRepository _branches;
     private readonly IAdvisorRepository _advisors;
     private readonly IWhatsAppChannelRepository _channels;
     private readonly IUserRepository _users;
     private readonly ITenantUnitOfWork _unitOfWork;
+    private readonly ISecretProtector _secretProtector;
+    private readonly TimeProvider _timeProvider;
 
     public OrganizationService(
         IBranchRepository branches, IAdvisorRepository advisors, IWhatsAppChannelRepository channels, IUserRepository users,
-        ITenantUnitOfWork unitOfWork)
+        ITenantUnitOfWork unitOfWork, ISecretProtector secretProtector, TimeProvider timeProvider)
     {
         _unitOfWork = unitOfWork;
+        _secretProtector = secretProtector;
+        _timeProvider = timeProvider;
         _branches = branches;
         _advisors = advisors;
         _channels = channels;
@@ -126,6 +132,51 @@ public class OrganizationService : IOrganizationService
         var secret = channel.RotateWebhookSecret();
         await _channels.UpdateAsync(channel, cancellationToken);
         return CreateChannelResponse.From(channel, secret);
+    }
+
+    public async Task<ChannelResponse> SetChannelProviderCredentialsAsync(Guid id, SetProviderCredentialsRequest request, CancellationToken cancellationToken = default)
+    {
+        // The DTO attributes already refused these over HTTP; the service does not depend on having been called through them.
+        if (string.IsNullOrWhiteSpace(request.Environment)
+            || !Enum.TryParse<WhatsAppProviderEnvironment>(request.Environment.Trim(), ignoreCase: true, out var environment)
+            || !Enum.IsDefined(environment)
+            || char.IsAsciiDigit(request.Environment.Trim()[0]))
+        {
+            throw new DomainException(WhatsAppChannel.ProviderEnvironmentRuleMessage);
+        }
+
+        var keyGiven = !string.IsNullOrWhiteSpace(request.ApiKey);
+        if (keyGiven && !WhatsAppChannel.IsValidProviderApiKey(request.ApiKey))
+        {
+            throw new DomainException(WhatsAppChannel.ProviderApiKeyRuleMessage);
+        }
+
+        var channel = await _channels.GetForUpdateAsync(id, cancellationToken) ?? throw new ChannelNotFoundException();
+        if (keyGiven)
+        {
+            // Only the encrypted form goes any further than this method.
+            var ciphertext = _secretProtector.Protect(request.ApiKey!.Trim(), ProviderCredentialPurpose.ForChannel(channel.Id));
+            channel.SetProviderCredentials(ciphertext, environment, _timeProvider.GetUtcNow().UtcDateTime);
+        }
+        else if (channel.HasProviderApiKey)
+        {
+            channel.SetProviderEnvironment(environment);
+        }
+        else
+        {
+            throw new DomainException(MissingProviderApiKeyMessage);
+        }
+
+        await _channels.UpdateAsync(channel, cancellationToken);
+        return ChannelResponse.From(channel);
+    }
+
+    public async Task<ChannelResponse> ClearChannelProviderCredentialsAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var channel = await _channels.GetForUpdateAsync(id, cancellationToken) ?? throw new ChannelNotFoundException();
+        channel.ClearProviderCredentials();
+        await _channels.UpdateAsync(channel, cancellationToken);
+        return ChannelResponse.From(channel);
     }
 
     // A branch of another tenant is invisible through the query filter, so it fails exactly like an unknown id.

@@ -104,6 +104,7 @@ docs/
   ARCHITECTURE.md, EXTENDING.md, WORKFLOW.md, ERRORS.md, USERS_TENANTS_PERMISSIONS.md   # arquitectura y guías técnicas del proyecto
   PLATFORM_ADMIN.md          # administrador de plataforma: aprobación de empresas, cupo de líneas activas, API /api/admin, arranque, modelo de seguridad y runbook
   WEBHOOKS.md                # ingesta del webhook de 360dialog (endpoint, mapeo, reintentos, cierre de conversaciones, formato no verificado)
+  MESSAGING.md               # envío manual de mensajes por 360dialog: endpoints, clave de API por canal cifrada, errores y límites del sandbox
   CLASSIFICATION.md          # clasificador de conversaciones (reglas en español; cómo conectar un LLM)
   METRICS.md                 # definición exacta de cada métrica del tablero, alertas y configuración
   SIMULATOR.md               # simulador de webhooks (solo desarrollo): uso, seguridad y cómo probar con el sandbox de 360dialog

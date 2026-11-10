@@ -18,6 +18,9 @@ public interface IContactRepository
     /// <summary>Tracked lookup by normalized WhatsApp id, for the load-modify-<see cref="UpdateAsync"/> path.</summary>
     Task<Contact?> GetByWaIdAsync(string waId, CancellationToken cancellationToken = default);
 
+    /// <summary>Untracked, read-only lookup. Another tenant's contact is indistinguishable from a missing one (null).</summary>
+    Task<Contact?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+
     Task AddAsync(Contact contact, CancellationToken cancellationToken = default);
 
     /// <summary>Persists the changes made to a contact loaded through <see cref="GetByWaIdAsync"/>.</summary>
@@ -42,6 +45,19 @@ public interface IConversationRepository
     /// <summary>Tracked lookup by id for the load-modify-<see cref="UpdateAsync"/> path. Another tenant's conversation is indistinguishable from a missing one (null).</summary>
     Task<Conversation?> GetForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>Untracked, read-only lookup: it locks nothing. Another tenant's conversation is indistinguishable from a missing one (null).</summary>
+    Task<Conversation?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Runs <paramref name="change"/> on a conversation and saves it, in one transaction that first takes the lock that serializes the
+    /// ingestion of the tenant (waiting for it) and then the lock of the conversation row. While it runs, no webhook delivery of the
+    /// tenant is being processed and the conversation cannot be closed or classified underneath it, so <paramref name="change"/> may add
+    /// messages to the conversation exactly as ingestion does. Everything the repositories of the same scope write inside
+    /// <paramref name="change"/> belongs to that transaction. Returns false when the conversation does not exist (or belongs to another
+    /// tenant). If <paramref name="change"/> throws, nothing is saved. Lock order: docs/WEBHOOKS.md, "Lock order".
+    /// </summary>
+    Task<bool> ChangeSerializedWithIngestionAsync(Guid tenantId, Guid conversationId, Func<Conversation, Task> change, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Runs <paramref name="change"/> on a conversation and its opportunity and saves both, holding the lock of the conversation row for the
     /// whole read-change-save, so it cannot interleave with the classifier or the close-by-inactivity job (which take the same lock before
@@ -54,6 +70,9 @@ public interface IConversationRepository
 public interface IMessageRepository
 {
     Task<bool> ExistsAsync(Guid channelId, string providerMessageId, CancellationToken cancellationToken = default);
+
+    /// <summary>Untracked lookup of the message a channel stored under a provider id; null when there is none.</summary>
+    Task<Message?> FindAsync(Guid channelId, string providerMessageId, CancellationToken cancellationToken = default);
 
     Task AddAsync(Message message, CancellationToken cancellationToken = default);
 

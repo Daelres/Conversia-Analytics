@@ -41,7 +41,7 @@ public sealed record WebhookProcessingOptions(
 
 /// <summary>
 /// The <c>Dialog360</c> section. <see cref="ApiKey"/> is bound from <c>Dialog360:ApiKey</c> (environment <c>Dialog360__ApiKey</c>) but
-/// nothing reads it yet: this phase makes no outbound call to 360dialog. A class with its own <c>ToString</c>, never a record,
+/// nothing reads it: messages are sent with the key stored for each channel (<see cref="Dialog360ApiOptions"/>, docs/MESSAGING.md). A class with its own <c>ToString</c>, never a record,
 /// so the key cannot be printed by accident.
 /// </summary>
 public sealed class Dialog360Options

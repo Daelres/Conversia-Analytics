@@ -171,6 +171,28 @@ public class MessageResponse
     public string? Text { get; set; }
 
     public DateTime SentAt { get; set; }
+
+    public static MessageResponse From(Message message) => new()
+    {
+        Id = message.Id,
+        Direction = message.Direction.ToString(),
+        Type = message.Type,
+        Text = message.Text,
+        SentAt = message.SentAt,
+    };
+}
+
+/// <summary>
+/// Body of <c>POST /api/conversations/{id}/messages</c>: a plain-text message a person sends to the customer of the conversation.
+/// The text is sent and stored trimmed.
+/// </summary>
+public class SendMessageRequest
+{
+    public static readonly string TextRuleMessage = $"El texto del mensaje {Domain.Common.TextRules.RuleText(Message.TextMaxLength)}.";
+
+    [Display(Name = "Texto")]
+    [TrimmedText(Message.TextMaxLength)]
+    public string? Text { get; set; }
 }
 
 public class OpportunityResponse

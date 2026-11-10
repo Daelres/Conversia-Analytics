@@ -71,8 +71,11 @@ services:
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env (copy .env.example). It must be at least 32 bytes.}
       # Optional. Unset: the report endpoint is off (404). The Web gets the same value as ErrorReporting__ApiKey.
       ErrorLogging__ReportKey: ${ERROR_REPORT_KEY:-}
-      # Optional. The 360dialog API key (configuration Dialog360:ApiKey). Nothing calls 360dialog yet; this only passes the value through.
+      # Optional. The 360dialog API key (configuration Dialog360:ApiKey). The API does not use it (keys are stored per channel); this only passes the value through.
       Dialog360__ApiKey: ${D360_API_KEY:-}
+      # Optional. Master key (base64 of 32 random bytes) that encrypts each channel's 360dialog API key. Unset: sending messages and
+      # setting a channel's key answer 503. A malformed value stops the API. See docs/MESSAGING.md.
+      Messaging__CredentialEncryptionKey: ${CREDENTIAL_ENCRYPTION_KEY:-}
       # Optional. Both set: the API creates this platform administrator at startup if no one has the email (it never changes an existing
       # one). Empty = no bootstrap. The password needs at least 12 characters and must not be a placeholder. See docs/PLATFORM_ADMIN.md.
       PlatformAdmin__Email: ${PLATFORM_ADMIN_EMAIL:-}

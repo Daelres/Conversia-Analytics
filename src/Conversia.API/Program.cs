@@ -36,6 +36,7 @@ builder.Services.AddWebhookIngestion(builder.Configuration);
 builder.Services.AddConversations(builder.Configuration);
 builder.Services.AddClassification(builder.Configuration);
 builder.Services.AddMetrics(builder.Configuration);
+builder.Services.AddMessaging(builder.Configuration);
 builder.Services.AddOptionalForwardedHeaders(builder.Configuration);
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>

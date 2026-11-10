@@ -180,17 +180,15 @@ public sealed class WebhookEventRunner(
     //
     // It is also why two ingestion workers cannot deadlock on the conversation rows they lock afterwards (FindOpenAsync, FOR UPDATE): they are
     // taken only while holding this lock, so two transactions of one tenant never run together, and conversations never cross tenants. The jobs
-    // that do touch conversation rows meanwhile (closing, classification) use SKIP LOCKED and never wait. See docs/WEBHOOKS.md, "Lock order".
+    // that do touch conversation rows meanwhile (closing, classification) use SKIP LOCKED and never wait. A person sending a message takes
+    // this same lock (waiting for it) before the conversation row, so it queues behind a delivery instead of crossing it.
+    // See docs/WEBHOOKS.md, "Lock order".
     private async Task<bool> TryLockTenantAsync(ApplicationDbContext db, Guid tenantId, CancellationToken cancellationToken)
     {
-        var key = tenantId.ToString();
         var deadline = timeProvider.GetTimestamp();
         while (true)
         {
-            var acquired = await db.Database
-                .SqlQuery<bool>($"SELECT pg_try_advisory_xact_lock(hashtextextended({key}, 0)) AS \"Value\"")
-                .SingleAsync(cancellationToken);
-            if (acquired)
+            if (await TenantIngestionLock.TryAcquireAsync(db, tenantId, cancellationToken))
             {
                 return true;
             }
@@ -204,13 +202,9 @@ public sealed class WebhookEventRunner(
         }
     }
 
-    private async Task SetTimeoutsAsync(ApplicationDbContext db, CancellationToken cancellationToken)
-    {
-        // set_config(..., is_local = true) is SET LOCAL with a parameter: the settings end with the transaction.
-        var value = $"{options.ProcessingTimeoutSeconds}s";
-        await db.Database.ExecuteSqlAsync($"SELECT set_config('statement_timeout', {value}, true)", cancellationToken);
-        await db.Database.ExecuteSqlAsync($"SELECT set_config('idle_in_transaction_session_timeout', {value}, true)", cancellationToken);
-    }
+    // No lock_timeout here: the worker never waits for the tenant lock (it tries it) and its row locks are bounded by statement_timeout.
+    private Task SetTimeoutsAsync(ApplicationDbContext db, CancellationToken cancellationToken)
+        => TransactionTimeouts.SetLocalAsync(db, TimeSpan.FromSeconds(options.ProcessingTimeoutSeconds), lockTimeout: null, cancellationToken);
 
     // ---- Bookkeeping: fresh scope, fresh transaction, no tenant context (the event is addressed by id). Never throws. ----
 

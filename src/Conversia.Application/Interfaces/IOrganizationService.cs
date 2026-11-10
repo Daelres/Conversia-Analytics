@@ -42,4 +42,15 @@ public interface IOrganizationService
 
     /// <summary>Generates a new webhook secret, returned once; the previous one stops working at once. Throws <see cref="Exceptions.ChannelNotFoundException"/>.</summary>
     Task<CreateChannelResponse> RotateChannelSecretAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Stores the provider API key of the channel, encrypted, together with its environment; without a key in the request it changes only
+    /// the environment of a channel that already has one. The answer never carries the key. Throws
+    /// <see cref="Exceptions.ChannelNotFoundException"/>, <see cref="Domain.Exceptions.DomainException"/> (no key given and none stored, or an
+    /// invalid key or environment) and <see cref="Exceptions.SecretProtectionException"/> when the key cannot be encrypted.
+    /// </summary>
+    Task<ChannelResponse> SetChannelProviderCredentialsAsync(Guid id, SetProviderCredentialsRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Forgets the provider API key of the channel (the environment stays). Idempotent. Throws <see cref="Exceptions.ChannelNotFoundException"/>.</summary>
+    Task<ChannelResponse> ClearChannelProviderCredentialsAsync(Guid id, CancellationToken cancellationToken = default);
 }

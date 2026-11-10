@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using Conversia.Application.Validation;
 using Conversia.Domain.Entities;
+using Conversia.Domain.Enums;
 
 namespace Conversia.Application.DTOs.Organization;
 
@@ -23,7 +24,26 @@ public class CreateChannelRequest
     public string? ProviderPhoneNumberId { get; set; }
 }
 
-/// <summary>A channel as listed. It never carries the webhook secret nor its hash.</summary>
+/// <summary>
+/// Body of <c>PUT /api/channels/{id}/provider-credentials</c>. <see cref="ApiKey"/> is write-only: it is encrypted before it is stored
+/// and no response ever carries it. Leave it out (or blank) to keep the stored key and change only the environment.
+/// </summary>
+public class SetProviderCredentialsRequest
+{
+    [Display(Name = "Clave de API del proveedor")]
+    [ProviderApiKey]
+    public string? ApiKey { get; set; }
+
+    /// <summary>A <see cref="WhatsAppProviderEnvironment"/> name: <c>Sandbox</c> or <c>Production</c>. It selects a configured base URL; no URL is ever taken from a request.</summary>
+    [Display(Name = "Entorno del proveedor")]
+    [Required(ErrorMessage = ValidationMessages.Required)]
+    [EnumName(typeof(WhatsAppProviderEnvironment))]
+    public string? Environment { get; set; }
+
+    public override string ToString() => $"SetProviderCredentialsRequest {{ ApiKeyGiven = {!string.IsNullOrWhiteSpace(ApiKey)}, Environment = {Environment} }}";
+}
+
+/// <summary>A channel as listed. It never carries the webhook secret nor its hash, nor the provider API key in any form.</summary>
 public class ChannelResponse
 {
     public Guid Id { get; set; }
@@ -44,6 +64,15 @@ public class ChannelResponse
 
     public bool IsActive { get; set; }
 
+    /// <summary>Whether a provider API key is stored for the channel. The key itself is never returned.</summary>
+    public bool HasProviderApiKey { get; set; }
+
+    /// <summary>When the stored key was set; null while there is none.</summary>
+    public DateTime? ProviderApiKeySetAt { get; set; }
+
+    /// <summary><c>Sandbox</c> or <c>Production</c>: which installation of the provider the channel sends through.</summary>
+    public string ProviderEnvironment { get; set; } = string.Empty;
+
     public DateTime CreatedAt { get; set; }
 
     /// <summary>The same channel without the key that identifies its webhook URL, for callers who may look but not manage.</summary>
@@ -54,6 +83,9 @@ public class ChannelResponse
         DisplayPhoneNumber = DisplayPhoneNumber,
         ProviderPhoneNumberId = ProviderPhoneNumberId,
         IsActive = IsActive,
+        HasProviderApiKey = HasProviderApiKey,
+        ProviderApiKeySetAt = ProviderApiKeySetAt,
+        ProviderEnvironment = ProviderEnvironment,
         CreatedAt = CreatedAt,
     };
 
@@ -66,6 +98,9 @@ public class ChannelResponse
         ChannelKey = channel.ChannelKey,
         WebhookPath = WebhookRoutes.Dialog360Path(channel.ChannelKey),
         IsActive = channel.IsActive,
+        HasProviderApiKey = channel.HasProviderApiKey,
+        ProviderApiKeySetAt = channel.ProviderApiKeySetAt,
+        ProviderEnvironment = channel.ProviderEnvironment.ToString(),
         CreatedAt = channel.CreatedAt,
     };
 }
@@ -85,6 +120,9 @@ public class CreateChannelResponse : ChannelResponse
         ChannelKey = channel.ChannelKey,
         WebhookPath = WebhookRoutes.Dialog360Path(channel.ChannelKey),
         IsActive = channel.IsActive,
+        HasProviderApiKey = channel.HasProviderApiKey,
+        ProviderApiKeySetAt = channel.ProviderApiKeySetAt,
+        ProviderEnvironment = channel.ProviderEnvironment.ToString(),
         CreatedAt = channel.CreatedAt,
         WebhookSecret = webhookSecret,
     };
