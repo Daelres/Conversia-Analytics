@@ -58,9 +58,19 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
             })
             .ToListAsync(cancellationToken);
 
+        // Only what tells whether a message can leave through the channel: the key is reduced to "there is one" in the query itself, so
+        // neither it nor anything that identifies the channel is ever loaded for this answer.
+        var channel = await db.WhatsAppChannels.AsNoTracking()
+            .Where(c => c.Id == row.Conversation.ChannelId)
+            .Select(c => new { c.IsActive, HasKey = c.ProviderApiKeyCiphertext != null, c.ProviderEnvironment })
+            .FirstOrDefaultAsync(cancellationToken);
+
         var item = ToItem(row);
         return new ConversationDetailResponse
         {
+            Channel = channel is null
+                ? null
+                : new ConversationChannelState { IsActive = channel.IsActive, HasProviderApiKey = channel.HasKey, ProviderEnvironment = channel.ProviderEnvironment.ToString() },
             Id = item.Id,
             Contact = item.Contact,
             ChannelId = item.ChannelId,

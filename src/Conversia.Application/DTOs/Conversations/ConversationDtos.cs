@@ -145,8 +145,27 @@ public class ConversationListItem
     public OpportunityResponse Opportunity { get; set; } = new();
 }
 
+/// <summary>
+/// What the detail of a conversation says about its WhatsApp channel: only whether a message can leave through it, so that a person who
+/// may write (<c>ConversationsManage</c>) is told why not without needing to see the organization. Nothing that identifies or
+/// authenticates the channel is here: no number, no webhook key, no provider key.
+/// </summary>
+public class ConversationChannelState
+{
+    public bool IsActive { get; set; }
+
+    /// <summary>Whether a provider API key is stored for the channel. The key itself is never returned.</summary>
+    public bool HasProviderApiKey { get; set; }
+
+    /// <summary><c>Sandbox</c> or <c>Production</c>.</summary>
+    public string ProviderEnvironment { get; set; } = string.Empty;
+}
+
 public class ConversationDetailResponse : ConversationListItem
 {
+    /// <summary>Whether the channel of the conversation can send; null only from an API older than this field.</summary>
+    public ConversationChannelState? Channel { get; set; }
+
     /// <summary>The user who last assigned or unassigned the advisor (an id only, no name); null when nobody has, or the system did.</summary>
     public Guid? AdvisorAssignedBy { get; set; }
 

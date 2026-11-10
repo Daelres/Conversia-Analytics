@@ -8,6 +8,7 @@ public static class ConversationsNotice
 {
     public const string AdvisorChanged = "advisor";
     public const string OutcomeSaved = "outcome";
+    public const string MessageSent = "sent";
 
     public static string Url(Guid conversationId, string code) => $"{ConversationLinks.Detail(conversationId)}?notice={code}";
 
@@ -15,6 +16,7 @@ public static class ConversationsNotice
     {
         AdvisorChanged => "Asesor actualizado.",
         OutcomeSaved => "Resultado guardado. El clasificador ya no lo cambiará.",
+        MessageSent => "Mensaje enviado.",
         _ => null,
     };
 }

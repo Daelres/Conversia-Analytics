@@ -10,6 +10,7 @@
 @inherits AuthenticatedPageBase
 @inject TenantTimeZone TimeZone
 @inject TimeProvider Clock
+@inject OneTimeSubmissions Submissions
 
 <PageTitle>Conversación - Conversia</PageTitle>
 
@@ -64,16 +65,20 @@ else if (!Redirected)
         }
 
         <div class="conversation-layout">
-            @if (_conversation is not null)
-            {
-                <Card Title="Chat" Subtitle="@ChatSubtitle" IconName="message" data-testid="chat-card">
-                    <ChatThread Messages="_conversation.Messages" ToLocal="TimeZone.ToLocal" />
-                    @if (_conversation.MessageCount > _conversation.Messages.Count)
-                    {
-                        <p class="muted" data-testid="chat-truncated">Se muestran los primeros @MetricsFormat.Whole(_conversation.Messages.Count) de @MetricsFormat.Whole(_conversation.MessageCount) mensajes.</p>
-                    }
-                </Card>
-            }
+            <div class="stack">
+                @if (_conversation is not null)
+                {
+                    <Card Title="Chat" Subtitle="@ChatSubtitle" IconName="message" data-testid="chat-card">
+                        <ChatThread Messages="_conversation.Messages" ToLocal="TimeZone.ToLocal" />
+                        @if (_conversation.MessageCount > _conversation.Messages.Count)
+                        {
+                            <p class="muted" data-testid="chat-truncated">Se muestran los primeros @MetricsFormat.Whole(_conversation.Messages.Count) de @MetricsFormat.Whole(_conversation.MessageCount) mensajes.</p>
+                        }
+                    </Card>
+                }
+
+                <MessageComposer State="_composer" SubmissionId="@_submissionId" Error="@_sendError" ApiErrors="_sendErrors" OnSend="SendAsync" OnInvalid="LoadAsync" />
+            </div>
 
             <div class="stack conversation-side">
                 @if (_conversation is not null)
@@ -194,6 +199,10 @@ else if (!Redirected)
     private DateTime _nowUtc;
     private IReadOnlyDictionary<string, string[]>? _assignErrors;
     private IReadOnlyDictionary<string, string[]>? _outcomeErrors;
+    private IReadOnlyDictionary<string, string[]>? _sendErrors;
+    private ComposerState _composer = ComposerState.Unknown;
+    private string _submissionId = OneTimeSubmissions.NewId();
+    private string? _sendError;
 
     private AssignAdvisorInput? _assign;
     private OutcomeInput? _outcome;
@@ -285,6 +294,9 @@ else if (!Redirected)
         _conversation = detailTask.Result.Value;
         CanManage = profileTask.Result.Value!.Can(Permission.ConversationsManage);
 
+        // The conversation itself says whether its line can send, so a person who may write needs no access to the organization.
+        _composer = ComposerState.For(CanManage, _conversation!.Status, _conversation.Channel);
+
         // Choosing an advisor needs to see them: without OrganizationView the list is simply empty (the current advisor is still named).
         _advisors = advisorsTask.Result.IsSuccess ? advisorsTask.Result.Value : null;
 
@@ -295,6 +307,74 @@ else if (!Redirected)
             Outcome.Stage = OutcomeInput.Stages.Contains(_conversation.Opportunity.Stage) ? _conversation.Opportunity.Stage : null;
             Outcome.LossReason = _conversation.Opportunity.Stage == "Lost" ? _conversation.Opportunity.LossReason : null;
             Outcome.Detail = _conversation.Opportunity.Stage == "Lost" ? _conversation.Opportunity.LossDetail : null;
+        }
+    }
+
+    private async Task SendAsync(SendMessageInput input)
+    {
+        // The provider is called once per form: a double click or a reload of the answer must not send the message twice.
+        // The claim belongs to the signed-in user and this conversation, so nobody else's forms can use it up or push it out.
+        var sender = HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+        if (!Submissions.TryClaim(sender, Id.ToString("N"), input.SubmissionId))
+        {
+            _sendError = SendFailure.AlreadySubmitted;
+            await LoadAsync();
+            return;
+        }
+
+        var result = await Api.SendMessageAsync(Token!, Id, input.ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo(ConversationsNotice.Url(Id, ConversationsNotice.MessageSent));
+            return;
+        }
+
+        if (SendFailure.MessageLeft(result.ProblemCode))
+        {
+            input.Text = null;
+        }
+
+        switch (result.Status)
+        {
+            case ApiResultStatus.ValidationFailed:
+                _sendErrors = result.ValidationErrors;
+                SetStatusCode(StatusCodes.Status400BadRequest);
+                break;
+            case ApiResultStatus.RateLimited when result.ProblemCode is null:
+                _sendError = SendFailure.TooManyMessages(result.RetryAfterSeconds);
+                SetStatusCode(StatusCodes.Status429TooManyRequests);
+                break;
+            case ApiResultStatus.Conflict or ApiResultStatus.Unprocessable or ApiResultStatus.RateLimited or ApiResultStatus.Unavailable
+                when SendFailure.Describe(result.ProblemCode) is { } described:
+                _sendError = described;
+                SetStatusCode(result.Status switch
+                {
+                    ApiResultStatus.Conflict => StatusCodes.Status409Conflict,
+                    ApiResultStatus.Unprocessable => StatusCodes.Status422UnprocessableEntity,
+                    ApiResultStatus.RateLimited => StatusCodes.Status429TooManyRequests,
+                    _ when SendFailure.MessageLeft(result.ProblemCode) => StatusCodes.Status500InternalServerError,
+                    _ => StatusCodes.Status503ServiceUnavailable,
+                });
+                break;
+            case ApiResultStatus.Conflict:
+                _sendError = result.Detail ?? UiMessages.Unavailable;
+                SetStatusCode(StatusCodes.Status409Conflict);
+                break;
+            case ApiResultStatus.Unavailable:
+                // No answer the Web can use: a timeout, a dropped connection, a gateway or an API that failed. The request may have reached
+                // the provider all the same, so the person is told what an unavailable provider would tell them. It was already logged and
+                // reported as an upstream failure, and its error code is on the page.
+                _sendError = SendFailure.OutcomeUnknown;
+                SetStatusCode(StatusCodes.Status503ServiceUnavailable);
+                break;
+            default:
+                await TryFailAsync(result);
+                break;
+        }
+
+        if (!Redirected && !_missing && !Denied)
+        {
+            await LoadAsync();
         }
     }
 

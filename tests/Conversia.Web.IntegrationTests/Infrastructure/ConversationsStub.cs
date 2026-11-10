@@ -27,6 +27,9 @@ internal sealed class ConversationsStub
     public static readonly Guid Manual = Guid.Parse("d0000000-0000-4000-8000-000000000005");
     public static readonly Guid Editor = Guid.Parse("e0000000-0000-4000-8000-000000000001");
 
+    /// <summary>The WhatsApp number every conversation of the stub came through.</summary>
+    public static readonly Guid Line = Guid.Parse("b0000000-0000-4000-8000-000000000009");
+
     /// <summary>The number of the customer in <see cref="Won"/>; the list must never show it whole.</summary>
     public const string WonPhone = "573001234567";
 
@@ -67,6 +70,19 @@ internal sealed class ConversationsStub
     /// <summary>The messages of the conversation the detail page opens, oldest first.</summary>
     public IReadOnlyList<MessageResponse>? Messages { get; set; }
 
+    /// <summary>The line of the conversations: active, with a key, in production. The detail of a conversation carries its state.</summary>
+    public ChannelResponse Channel { get; set; } = new()
+    {
+        Id = Line, BranchId = Centro, DisplayPhoneNumber = "+57 300 000 0009", IsActive = true, HasProviderApiKey = true,
+        ProviderApiKeySetAt = new DateTime(2026, 10, 1, 15, 0, 0, DateTimeKind.Utc), ProviderEnvironment = "Production",
+    };
+
+    /// <summary>The caller may not look at the organization: the line answers 403, as the real API does without OrganizationView.</summary>
+    public bool ChannelForbidden { get; set; }
+
+    /// <summary>The messages the page sent through <c>POST /api/conversations/{id}/messages</c>, as the stub stored them.</summary>
+    public List<MessageResponse> Sent { get; } = [];
+
     /// <summary>Answers these paths (with their method, <c>PUT /api/conversations/...</c>) with something else.</summary>
     public Dictionary<string, Func<BackendRequest, HttpResponseMessage>> Overrides { get; } = new();
 
@@ -89,6 +105,8 @@ internal sealed class ConversationsStub
             ("GET", "/api/advisors") => FakeBackend.Answer(HttpStatusCode.OK, Advisors),
             ("GET", "/api/conversations") => List(request),
             ("GET", _) when IdOf(path, "") is { } id => Detail(id),
+            ("GET", _) when path == $"/api/channels/{Line}" => ChannelForbidden ? FakeBackend.Raw(HttpStatusCode.Forbidden, null) : FakeBackend.Answer(HttpStatusCode.OK, Channel),
+            ("POST", _) when IdOf(path, "/messages") is { } id => Send(id, request),
             ("PUT", _) when IdOf(path, "/advisor") is { } id => Assign(id, request),
             ("PUT", _) when IdOf(path, "/opportunity") is { } id => Outcome(id, request),
             _ => null,
@@ -130,8 +148,23 @@ internal sealed class ConversationsStub
             return FakeBackend.Raw(HttpStatusCode.NotFound, null);
         }
 
-        var messages = Messages ?? DefaultMessages(item);
-        return FakeBackend.Answer(HttpStatusCode.OK, ToDetail(item, messages));
+        var messages = (Messages ?? DefaultMessages(item)).Concat(Sent).ToList();
+        var detail = ToDetail(item, messages);
+        detail.Channel = new ConversationChannelState { IsActive = Channel.IsActive, HasProviderApiKey = Channel.HasProviderApiKey, ProviderEnvironment = Channel.ProviderEnvironment };
+        return FakeBackend.Answer(HttpStatusCode.OK, detail);
+    }
+
+    private HttpResponseMessage Send(Guid id, BackendRequest request)
+    {
+        if (All.All(c => c.Id != id))
+        {
+            return FakeBackend.Raw(HttpStatusCode.NotFound, null);
+        }
+
+        using var body = request.BodyJson();
+        var message = new MessageResponse { Id = Guid.NewGuid(), Direction = "Outbound", Type = "text", Text = body.RootElement.GetProperty("text").GetString()!.Trim(), SentAt = Now };
+        Sent.Add(message);
+        return FakeBackend.Answer(HttpStatusCode.Created, message);
     }
 
     private HttpResponseMessage Assign(Guid id, BackendRequest request)
@@ -203,7 +236,7 @@ internal sealed class ConversationsStub
         DateTime started, DateTime? inbound, DateTime? response, DateTime? closed, OpportunityResponse opportunity, int messages)
         => new()
         {
-            Id = id, Contact = new ContactSummary { Id = Guid.NewGuid(), WaId = waId, DisplayName = name }, ChannelId = Guid.NewGuid(), BranchId = branch,
+            Id = id, Contact = new ContactSummary { Id = Guid.NewGuid(), WaId = waId, DisplayName = name }, ChannelId = Line, BranchId = branch,
             BranchName = branchName, AdvisorId = advisor, AdvisorName = advisorName, Source = source, Status = status, StartedAt = started,
             LastMessageAt = (closed ?? response ?? inbound ?? started), FirstInboundAt = inbound, FirstResponseAt = response, ClosedAt = closed,
             MessageCount = messages, Opportunity = opportunity,

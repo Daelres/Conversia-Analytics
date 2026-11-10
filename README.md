@@ -26,11 +26,14 @@ adapted to PostgreSQL and rewritten around this product.
   unanswered conversations; top reasons for not closing; volume by day and hour; and
   alerts ([`docs/METRICS.md`](docs/METRICS.md)).
 - **Executive dashboard** — `/panel` shows six headline numbers, alerts and the breakdowns.
-  `/conversaciones` lists the chats and shows each thread with its classification;
+  `/conversaciones` lists the chats and shows each thread with its classification, and
+  lets a person send a plain-text message into an open one (manual, not a bot:
+  [`docs/MESSAGING.md`](docs/MESSAGING.md#from-the-web));
   `/mensajes` ("Mensajes recibidos") and `/mensajes/eventos` ("Entregas del webhook") show
   what the webhook received, to check that messages are arriving;
-  `/organizacion` manages branches, advisors and WhatsApp numbers (and shows the lines
-  used out of the company's quota); `/users` manages users and their permissions.
+  `/organizacion` manages branches, advisors and WhatsApp numbers (the lines used out of
+  the company's quota, and the 360dialog API key of each number, which is written and
+  never shown again); `/users` manages users and their permissions.
   A company that is still pending or suspended sees `/cuenta-pendiente` instead.
 - **Platform administration** — `/admin/login` is the administrator's own sign-in;
   `/admin` lists the companies, `/admin/empresas/{id}` approves, suspends and sets the line
@@ -279,6 +282,7 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Support:ContactText` | Web | *(unset)* | Optional, one line of plain text (up to 300 characters, no control characters; longer or invalid stops the Web at startup) shown on the pending and suspended page as "Cómo contactar al equipo", for example `Escríbenos a soporte@empresa.co o al +57 300 000 0000`. Shown as text, never as markup. Compose: `SUPPORT_CONTACT_TEXT`. |
 | `Api:BaseUrl` | Web | `https://localhost:7199/` | Absolute http(s) URL of the API. Required. |
 | `Api:TimeoutSeconds` | Web | `10` | Timeout of each API call, 1 to 300. |
+| `Api:SendTimeoutSeconds` | Web | `60` | Timeout of sending a WhatsApp message, the one call that waits for the provider. Keep it above `Dialog360:TimeoutSeconds` plus `Messaging:RecordTimeoutSeconds` (`docs/MESSAGING.md`). 1 to 600. |
 
 ## API endpoints
 
@@ -314,7 +318,7 @@ policy in their own tenant.
 | GET | `/api/messages/recent` | `ConversationsView` | `200` page of the newest messages (filters `channelId`, `direction`, `since`, `afterId` for "newer than the last one I saw"; page size 1 to 100, default 50) with line, branch, customer name and masked number (`…1234`), arrival time and a Spanish type label; same rate limit as the metrics | `400`, `401`, `403`, `404` unknown or other-tenant `afterId` |
 | GET | `/api/messages/summary` | `ConversationsView` | `200` messages today (`Metrics:TimeZone`), last inbound/outbound, last 24 hours and, per line, the last webhook delivery that arrived | `401`, `403` |
 | GET | `/api/webhook-events` | `ConversationsView` | `200` page of webhook deliveries, newest first (filters `channelId`, `status`): counts, outcome in Spanish and the sanitized last error; never the raw body | `400`, `401`, `403` |
-| GET | `/api/conversations/{id}` | `ConversationsView` | `200` conversation + opportunity (stage, outcome source, service, reason, objection, loss reason, classifier confidence and rule codes, `stageChangedBy`) + `advisorAssignedBy`/`advisorAssignedAt` (user ids only; null when the system did it) + messages (text included) | `401`, `403`, `404` unknown or other-tenant conversation |
+| GET | `/api/conversations/{id}` | `ConversationsView` | `200` conversation + opportunity (stage, outcome source, service, reason, objection, loss reason, classifier confidence and rule codes, `stageChangedBy`) + `advisorAssignedBy`/`advisorAssignedAt` (user ids only; null when the system did it) + `channel` (`isActive`, `hasProviderApiKey`, `providerEnvironment`: whether a message can leave through its number, nothing else about it) + messages (text included) | `401`, `403`, `404` unknown or other-tenant conversation |
 | PUT | `/api/conversations/{id}/advisor` | `ConversationsManage` | `200` conversation (`{"advisorId": null}` unassigns); records who did it (`advisorAssignedBy`, `advisorAssignedAt`) | `400` unknown/other-tenant/inactive advisor or one from another branch, `401`, `403`, `404` |
 | PUT | `/api/conversations/{id}/opportunity` | `ConversationsManage` | `200` opportunity; a manual `Won`, `Lost` (needs `lossReason`) or `InFollowUp`, which the classifier never overwrites; records who decided (`stageChangedBy`) | `400`, `401`, `403`, `404` |
 | POST | `/api/conversations/{id}/messages` | `ConversationsManage` | `201` the stored Outbound message; a person sends a plain text (1 to 4096 characters) to the customer through 360dialog. Manual, not a bot (`docs/MESSAGING.md`) | `400`, `401`, `403`, `404`, `409` closed / inactive channel / no or invalid key, `422` recipient not allowed or rejected, `429`, `500` sent but not recorded, `503` outcome unknown: verify before resending |

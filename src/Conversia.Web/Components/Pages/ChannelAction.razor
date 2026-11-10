@@ -34,7 +34,7 @@ else if (!Redirected)
         @* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller
            without OrganizationManage who forges one must still reach the API and be refused there, not crash here. *@
         <div hidden="@(!ShowForm)">
-            <Card Title="@Question" IconName="@(Kind == ChannelActionKind.Rotate ? "key" : "power")" data-testid="channel-confirm">
+            <Card Title="@Question" IconName="@ActionIcon" data-testid="channel-confirm">
                 <div class="stack">
                     <dl class="kv">
                         <div>
@@ -52,7 +52,7 @@ else if (!Redirected)
                         <div class="form-actions">
                             @if (ShowForm)
                             {
-                                <button type="submit" class="@(Kind == ChannelActionKind.Activate ? "btn btn--primary" : "btn btn--danger")"><Icon Name="@(Kind == ChannelActionKind.Rotate ? "key" : "power")" />@Confirm</button>
+                                <button type="submit" class="@(Kind == ChannelActionKind.Activate ? "btn btn--primary" : "btn btn--danger")"><Icon Name="@ActionIcon" />@Confirm</button>
                             }
                             <a class="btn btn--ghost" href="/organizacion">Cancelar</a>
                         </div>
@@ -70,6 +70,7 @@ else if (!Redirected)
         Activate,
         Deactivate,
         Rotate,
+        RemoveKey,
     }
 
     private ChannelResponse? _channel;
@@ -97,16 +98,25 @@ else if (!Redirected)
         "activar" => ChannelActionKind.Activate,
         "desactivar" => ChannelActionKind.Deactivate,
         "rotar-secreto" => ChannelActionKind.Rotate,
+        "quitar-clave" => ChannelActionKind.RemoveKey,
         _ => ChannelActionKind.Unknown,
     };
 
     // A rotation that just ran shows its secret and no longer offers the action again.
     private bool ShowForm => _channel is not null && _canManage && _secret is null && !Redirected;
 
+    private string ActionIcon => Kind switch
+    {
+        ChannelActionKind.Rotate => "key",
+        ChannelActionKind.RemoveKey => "trash",
+        _ => "power",
+    };
+
     private string PageTitleText => Kind switch
     {
         ChannelActionKind.Activate => "Activar línea",
         ChannelActionKind.Deactivate => "Desactivar línea",
+        ChannelActionKind.RemoveKey => "Quitar la clave de API",
         _ => "Rotar secreto",
     };
 
@@ -116,6 +126,7 @@ else if (!Redirected)
     {
         ChannelActionKind.Activate => "Empieza a recibir los mensajes de este número.",
         ChannelActionKind.Deactivate => "Deja de recibir los mensajes de este número.",
+        ChannelActionKind.RemoveKey => "Borra la clave del proveedor con la que este número envía mensajes.",
         _ => "Genera un secreto nuevo para la dirección de este número.",
     };
 
@@ -123,6 +134,7 @@ else if (!Redirected)
     {
         ChannelActionKind.Activate => "¿Activar esta línea?",
         ChannelActionKind.Deactivate => "¿Desactivar esta línea?",
+        ChannelActionKind.RemoveKey => "¿Quitar la clave de API de este número?",
         _ => "¿Rotar el secreto de este número?",
     };
 
@@ -130,6 +142,7 @@ else if (!Redirected)
     {
         ChannelActionKind.Activate => "Sí, activar la línea",
         ChannelActionKind.Deactivate => "Sí, desactivar la línea",
+        ChannelActionKind.RemoveKey => "Sí, quitar la clave",
         _ => "Sí, rotar el secreto",
     };
 
@@ -137,6 +150,7 @@ else if (!Redirected)
     {
         ChannelActionKind.Activate => "El webhook acepta los mensajes del proveedor con el secreto que ya tenga configurado. Cada línea activa cuenta para el cupo de tu acuerdo con Conversia.",
         ChannelActionKind.Deactivate => "El proveedor recibirá un rechazo (401) y los mensajes que envíe mientras esté inactiva no se guardarán. Desactivar una línea libera su lugar en el cupo, y puedes volver a activarla cuando quieras.",
+        ChannelActionKind.RemoveKey => "Conversia borra la clave guardada y este número deja de poder enviar mensajes hasta que configures otra. Recibir mensajes no cambia. La clave no se puede recuperar: para volver a enviar tendrás que escribirla de nuevo.",
         _ => "El secreto actual deja de funcionar al instante: hasta que configures el nuevo en 360dialog, los mensajes de este número serán rechazados. El secreto nuevo se mostrará una sola vez.",
     };
 
@@ -222,6 +236,16 @@ else if (!Redirected)
                 }
 
                 await TryFailAsync(changed);
+                break;
+            case ChannelActionKind.RemoveKey:
+                var removed = await Api.RemoveProviderCredentialsAsync(Token!, Id);
+                if (removed.IsSuccess)
+                {
+                    RedirectTo(OrganizationNotice.Url(OrganizationNotice.ProviderKeyRemoved));
+                    return;
+                }
+
+                await TryFailAsync(removed);
                 break;
             case ChannelActionKind.Rotate:
                 var rotated = await Api.RotateChannelSecretAsync(Token!, Id);

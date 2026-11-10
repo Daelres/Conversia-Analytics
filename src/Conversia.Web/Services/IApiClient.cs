@@ -61,6 +61,12 @@ public interface IApiClient
     /// <summary><c>PUT /api/conversations/{id}/opportunity</c>: a person decides the outcome.</summary>
     Task<ApiResult<OpportunityResponse>> SetOpportunityOutcomeAsync(string token, Guid id, SetOpportunityOutcomeRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// <c>POST /api/conversations/{id}/messages</c>: sends a plain-text WhatsApp message to the customer of the conversation and stores it.
+    /// A refusal carries its <see cref="ApiResult{T}.ProblemCode"/> (docs/MESSAGING.md); the API makes one attempt and so does this call.
+    /// </summary>
+    Task<ApiResult<MessageResponse>> SendMessageAsync(string token, Guid id, SendMessageRequest request, CancellationToken cancellationToken = default);
+
     // ---- messages and webhook deliveries (ConversationsView) ----
 
     Task<ApiResult<PagedResponse<RecentMessageItem>>> GetRecentMessagesAsync(string token, RecentMessagesQuery query, CancellationToken cancellationToken = default);
@@ -87,6 +93,15 @@ public interface IApiClient
 
     /// <summary>The answer carries the NEW webhook secret: the only time it is ever given.</summary>
     Task<ApiResult<CreateChannelResponse>> RotateChannelSecretAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// <c>PUT /api/channels/{id}/provider-credentials</c>: stores the provider API key of the channel (write-only: no answer carries it)
+    /// and its environment. A request without a key keeps the stored one and changes only the environment.
+    /// </summary>
+    Task<ApiResult<ChannelResponse>> SetProviderCredentialsAsync(string token, Guid id, SetProviderCredentialsRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary><c>DELETE /api/channels/{id}/provider-credentials</c>: removes the stored key. Idempotent.</summary>
+    Task<ApiResult<ChannelResponse>> RemoveProviderCredentialsAsync(string token, Guid id, CancellationToken cancellationToken = default);
 
     // ---- the caller's own company (any status) ----
 

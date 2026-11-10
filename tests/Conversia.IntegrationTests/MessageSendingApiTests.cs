@@ -45,6 +45,55 @@ public class MessageSendingApiTests
         return (f, seeded, owner, waId);
     }
 
+    // ---- What the detail says about the channel ---------------------------------------------------------------------
+
+    [Fact]
+    public async Task TheDetail_SaysWhetherItsChannelCanSend_AndNothingElseAboutTheChannel()
+    {
+        var (f, conversation, owner, _) = await StartConversationAsync(credentials: false);
+        using var __ = f;
+        var url = $"/api/conversations/{conversation.ConversationId}";
+        var stored = await LoadChannelAsync(_factory.Services, f.Channel.Id);
+
+        var before = (await owner.GetFromJsonAsync<ConversationDetailResponse>(url))!;
+
+        Assert.NotNull(before.Channel);
+        Assert.Equal(stored.IsActive, before.Channel.IsActive);
+        Assert.False(before.Channel.HasProviderApiKey);
+        Assert.Equal("Sandbox", before.Channel.ProviderEnvironment);
+
+        const string key = "d360-detail-key-Ab3";
+        Assert.Equal(HttpStatusCode.OK, (await PutCredentialsAsync(owner, f.Channel.Id, key, "Production")).StatusCode);
+        var body = await owner.GetStringAsync(url);
+        using var json = System.Text.Json.JsonDocument.Parse(body);
+        var channel = json.RootElement.GetProperty("channel");
+
+        Assert.True(channel.GetProperty("hasProviderApiKey").GetBoolean());
+        Assert.Equal("Production", channel.GetProperty("providerEnvironment").GetString());
+        Assert.Equal(["hasProviderApiKey", "isActive", "providerEnvironment"], channel.EnumerateObject().Select(p => p.Name).Order());
+        Assert.DoesNotContain(key, body);
+        Assert.DoesNotContain(f.Channel.ChannelKey!, body);
+        Assert.DoesNotContain(f.Secret, body);
+        Assert.DoesNotContain((await LoadChannelAsync(_factory.Services, f.Channel.Id)).ProviderApiKeyCiphertext!, body);
+    }
+
+    [Fact]
+    public async Task TheDetail_FollowsTheChannelWhenItIsSwitchedOffAndItsKeyIsRemoved()
+    {
+        var (f, conversation, owner, _) = await StartConversationAsync();
+        using var __ = f;
+        var url = $"/api/conversations/{conversation.ConversationId}";
+        var ready = (await owner.GetFromJsonAsync<ConversationDetailResponse>(url))!.Channel!;
+        Assert.True(ready.HasProviderApiKey);
+
+        Assert.Equal(HttpStatusCode.OK, (await owner.DeleteAsync(CredentialsUrl(f.Channel.Id))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await owner.PostAsync($"{ChannelsUrl}/{f.Channel.Id}/{(ready.IsActive ? "deactivate" : "activate")}", null)).StatusCode);
+        var after = (await owner.GetFromJsonAsync<ConversationDetailResponse>(url))!.Channel!;
+
+        Assert.False(after.HasProviderApiKey);
+        Assert.Equal(!ready.IsActive, after.IsActive);
+    }
+
     // ---- Sent --------------------------------------------------------------------------------------------------------
 
     [Fact]

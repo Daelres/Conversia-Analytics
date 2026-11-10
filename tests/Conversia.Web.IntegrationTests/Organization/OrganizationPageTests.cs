@@ -59,8 +59,8 @@ public class OrganizationPageTests
         var managed = (await manager.OpenAsync("/organizacion")).ShouldBe(HttpStatusCode.OK);
         var viewed = (await viewer.OpenAsync("/organizacion")).ShouldBe(HttpStatusCode.OK);
 
-        Assert.Equal(["/organizacion/canales/" + OrganizationStub.Line + "/desactivar", "/organizacion/canales/" + OrganizationStub.Line + "/rotar-secreto",
-                      "/organizacion/canales/" + OrganizationStub.Retired + "/activar", "/organizacion/canales/" + OrganizationStub.Retired + "/rotar-secreto"],
+        Assert.Equal(["/organizacion/canales/" + OrganizationStub.Line + "/desactivar", "/organizacion/canales/" + OrganizationStub.Line + "/rotar-secreto", "/organizacion/canales/" + OrganizationStub.Line + "/clave-api",
+                      "/organizacion/canales/" + OrganizationStub.Retired + "/activar", "/organizacion/canales/" + OrganizationStub.Retired + "/rotar-secreto", "/organizacion/canales/" + OrganizationStub.Retired + "/clave-api"],
             managed.Select("[data-testid=channel-row] td.table__cell-actions a").Select(a => a.GetAttribute("href")!));
         Assert.All(new[] { "branch-form-panel", "advisor-form-panel", "channel-form-panel" }, id => Assert.False(managed.Document.QuerySelector($"[data-testid={id}]")!.HasAttribute("hidden")));
         Assert.All(new[] { "branch-form-panel", "advisor-form-panel", "channel-form-panel" }, id => Assert.True(viewed.Document.QuerySelector($"[data-testid={id}]")!.HasAttribute("hidden")));

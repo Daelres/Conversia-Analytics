@@ -1,0 +1,86 @@
+@* Writes one plain-text WhatsApp message to the customer of a conversation. Self-contained: it owns the form, its counter and every
+   state in which it is not offered; the page decides the state and makes the call. A person sends each message: nothing here is automatic. *@
+<Card Title="Enviar un mensaje" Subtitle="Texto por WhatsApp para el cliente de esta conversación. Lo envía una persona: Conversia no responde por su cuenta."
+      IconName="message" id="redactar" data-testid="composer" data-state="@State.Availability.ToString()" hidden="@(State.Availability == ComposerAvailability.Unknown)">
+    <div class="stack">
+        @if (State.Reason is { } reason)
+        {
+            <Alert Kind="AlertKind.Info" data-testid="composer-unavailable">@reason</Alert>
+        }
+
+        @if (State.Sandbox)
+        {
+            <Alert Kind="AlertKind.Info" Title="Línea en Sandbox (pruebas)" data-testid="composer-sandbox-note">
+                Los mensajes solo llegan al número vinculado a la clave del sandbox, y el sandbox de 360dialog permite 25 solicitudes en total por clave: las rechazadas también cuentan.
+            </Alert>
+        }
+
+        @if (Error is not null)
+        {
+            <Alert Kind="AlertKind.Danger" data-testid="composer-error">@Error</Alert>
+        }
+
+        @* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller who forges one while the
+           composer is not offered must still reach the API and be refused there, not crash here. *@
+        <div hidden="@(!State.CanSend)">
+            <EditForm Model="Input" FormName="@FormName" OnValidSubmit="SubmitAsync" OnInvalidSubmit="InvalidAsync" method="post" class="form" data-testid="composer-form" data-submit-once>
+                <DataAnnotationsValidator />
+                <input type="hidden" name="@($"{nameof(Input)}.{nameof(SendMessageInput.SubmissionId)}")" value="@SubmissionId" />
+                <FormField TValue="string" For="() => Input.Text" Id="composer-text" Label="Mensaje" ApiErrors="ApiErrors"
+                           Hint="Texto sin formato. Revisa el mensaje antes de enviarlo: no se puede deshacer." Context="field">
+                    <InputTextArea id="composer-text" class="input" rows="4" maxlength="@SendMessageInput.MaxLength" data-char-count="#composer-count-value"
+                                   name="@($"{nameof(Input)}.{nameof(SendMessageInput.Text)}")" @bind-Value="Input.Text" @attributes="field" />
+                </FormField>
+                <p class="composer__count" data-testid="composer-count"><span id="composer-count-value">@Input.Length</span> / @SendMessageInput.MaxLength caracteres</p>
+                <ApiFieldErrors Errors="ApiErrors" KnownFields="@(["Text"])" />
+                <div class="form-actions">
+                    @if (State.CanSend)
+                    {
+                        <button type="submit" class="btn btn--primary" data-testid="composer-submit"><Icon Name="message" />Enviar mensaje</button>
+                    }
+                </div>
+            </EditForm>
+        </div>
+    </div>
+</Card>
+
+@code {
+    public const string FormName = "send-message";
+
+    private SendMessageInput? _input;
+
+    [SupplyParameterFromForm(FormName = FormName)]
+    private SendMessageInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    /// <summary>Whether the composer is offered and, when it is not, why.</summary>
+    [Parameter, EditorRequired]
+    public ComposerState State { get; set; } = ComposerState.Unknown;
+
+    /// <summary>The guard of this drawing of the form (see <see cref="OneTimeSubmissions"/>): the page issues a fresh one for every form it draws.</summary>
+    [Parameter, EditorRequired]
+    public string SubmissionId { get; set; } = string.Empty;
+
+    /// <summary>Why the last send did not go through, in words for the person who wrote it.</summary>
+    [Parameter]
+    public string? Error { get; set; }
+
+    /// <summary>Messages the API reported for the text.</summary>
+    [Parameter]
+    public IReadOnlyDictionary<string, string[]>? ApiErrors { get; set; }
+
+    /// <summary>A valid message was submitted. The handler may empty <see cref="SendMessageInput.Text"/> so that it is not drawn back.</summary>
+    [Parameter]
+    public EventCallback<SendMessageInput> OnSend { get; set; }
+
+    /// <summary>The form was submitted with a text the rules refuse: nothing is sent, the page only needs to load what it shows.</summary>
+    [Parameter]
+    public EventCallback OnInvalid { get; set; }
+
+    private Task SubmitAsync() => OnSend.InvokeAsync(Input);
+
+    private Task InvalidAsync() => OnInvalid.InvokeAsync();
+}

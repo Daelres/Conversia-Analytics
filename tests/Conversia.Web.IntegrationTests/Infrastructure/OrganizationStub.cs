@@ -19,6 +19,12 @@ internal sealed class OrganizationStub
     public static readonly Guid Line = Guid.Parse("b0000000-0000-4000-8000-000000000001");
     public static readonly Guid Retired = Guid.Parse("b0000000-0000-4000-8000-000000000002");
 
+    /// <summary>A line that already has a provider API key, in production.</summary>
+    public static readonly Guid Keyed = Guid.Parse("b0000000-0000-4000-8000-000000000003");
+
+    /// <summary>When the key of <see cref="Keyed"/> was set, and when the stub says a key it stores was set.</summary>
+    public static readonly DateTime KeySetAt = new(2026, 10, 1, 15, 0, 0, DateTimeKind.Utc);
+
     /// <summary>The key of the webhook address, as a manager's list carries it. The page must never print it in a list.</summary>
     public const string ListedKey = "lk-0123456789abcdefghijklmnopqrstuvwxyz";
 
@@ -41,9 +47,20 @@ internal sealed class OrganizationStub
 
     public IReadOnlyList<ChannelResponse> Channels { get; set; } =
     [
-        new() { Id = Line, BranchId = Centro, DisplayPhoneNumber = "+57 300 000 0001", IsActive = true, ChannelKey = ListedKey, WebhookPath = "/api/webhooks/360dialog/" + ListedKey, CreatedAt = new DateTime(2026, 9, 6, 15, 0, 0, DateTimeKind.Utc) },
-        new() { Id = Retired, BranchId = Norte, DisplayPhoneNumber = "+57 300 000 0002", IsActive = false, ChannelKey = ListedKey + "-2", WebhookPath = "/api/webhooks/360dialog/" + ListedKey + "-2", CreatedAt = new DateTime(2026, 9, 7, 15, 0, 0, DateTimeKind.Utc) },
+        new() { Id = Line, BranchId = Centro, DisplayPhoneNumber = "+57 300 000 0001", IsActive = true, ChannelKey = ListedKey, WebhookPath = "/api/webhooks/360dialog/" + ListedKey, ProviderEnvironment = "Sandbox", CreatedAt = new DateTime(2026, 9, 6, 15, 0, 0, DateTimeKind.Utc) },
+        new() { Id = Retired, BranchId = Norte, DisplayPhoneNumber = "+57 300 000 0002", IsActive = false, ChannelKey = ListedKey + "-2", WebhookPath = "/api/webhooks/360dialog/" + ListedKey + "-2", ProviderEnvironment = "Sandbox", CreatedAt = new DateTime(2026, 9, 7, 15, 0, 0, DateTimeKind.Utc) },
     ];
+
+    /// <summary>Adds <see cref="Keyed"/> to the lines: an active one that already has a provider API key, in production.</summary>
+    public OrganizationStub WithKeyedLine()
+    {
+        Channels =
+        [
+            .. Channels,
+            new() { Id = Keyed, BranchId = Centro, DisplayPhoneNumber = "+57 300 000 0003", IsActive = true, ChannelKey = ListedKey + "-3", WebhookPath = "/api/webhooks/360dialog/" + ListedKey + "-3", HasProviderApiKey = true, ProviderApiKeySetAt = KeySetAt, ProviderEnvironment = "Production", CreatedAt = new DateTime(2026, 9, 8, 15, 0, 0, DateTimeKind.Utc) },
+        ];
+        return this;
+    }
 
     /// <summary>What <c>GET /api/tenant</c> answers; null is a company that operates (<see cref="FakeBackend.ActiveTenant"/>).</summary>
     public TenantInfoResponse? Tenant { get; set; }
@@ -77,6 +94,8 @@ internal sealed class OrganizationStub
             ("POST", _) when ChannelId(path, "/rotate-secret") is { } id => Channels.Any(c => c.Id == id) ? FakeBackend.Answer(HttpStatusCode.OK, Secret(id, "+57 300 000 0001", ListedKey, RotatedSecret)) : FakeBackend.Raw(HttpStatusCode.NotFound, null),
             ("POST", _) when ChannelId(path, "/activate") is { } id => Toggle(id, true),
             ("POST", _) when ChannelId(path, "/deactivate") is { } id => Toggle(id, false),
+            ("PUT", _) when ChannelId(path, "/provider-credentials") is { } id => SetCredentials(id, request),
+            ("DELETE", _) when ChannelId(path, "/provider-credentials") is { } id => RemoveCredentials(id),
             _ => null,
         };
         return Task.FromResult(answer);
@@ -97,6 +116,46 @@ internal sealed class OrganizationStub
         }
 
         channel.IsActive = active;
+        return FakeBackend.Answer(HttpStatusCode.OK, channel);
+    }
+
+    // The rules of the real endpoint that the page depends on: a key is stored (never returned), a blank one keeps what is stored,
+    // and a blank one on a line without a key is a 400 in the API's own words.
+    private HttpResponseMessage SetCredentials(Guid id, BackendRequest request)
+    {
+        var channel = Channels.FirstOrDefault(c => c.Id == id);
+        if (channel is null)
+        {
+            return FakeBackend.Raw(HttpStatusCode.NotFound, null);
+        }
+
+        using var body = request.BodyJson();
+        var key = body.RootElement.TryGetProperty("apiKey", out var given) && given.ValueKind == JsonValueKind.String ? given.GetString() : null;
+        if (string.IsNullOrWhiteSpace(key) && !channel.HasProviderApiKey)
+        {
+            return FakeBackend.Raw(HttpStatusCode.BadRequest, """{"title":"x","status":400,"detail":"La clave de API del proveedor es obligatoria: este número todavía no tiene una."}""");
+        }
+
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            channel.HasProviderApiKey = true;
+            channel.ProviderApiKeySetAt = KeySetAt.AddDays(1);
+        }
+
+        channel.ProviderEnvironment = body.RootElement.GetProperty("environment").GetString()!;
+        return FakeBackend.Answer(HttpStatusCode.OK, channel);
+    }
+
+    private HttpResponseMessage RemoveCredentials(Guid id)
+    {
+        var channel = Channels.FirstOrDefault(c => c.Id == id);
+        if (channel is null)
+        {
+            return FakeBackend.Raw(HttpStatusCode.NotFound, null);
+        }
+
+        channel.HasProviderApiKey = false;
+        channel.ProviderApiKeySetAt = null;
         return FakeBackend.Answer(HttpStatusCode.OK, channel);
     }
 
@@ -164,6 +223,9 @@ internal sealed class OrganizationHarness : IDisposable
     }
 
     public IReadOnlyList<BackendRequest> Posts => Backend.DataRequests.Where(r => r.Method == HttpMethod.Post && r.Path.StartsWith("/api/", StringComparison.Ordinal) && r.Path != "/api/auth/login").ToList();
+
+    /// <summary>The calls that set or remove the provider credentials of a line, in order.</summary>
+    public IReadOnlyList<BackendRequest> CredentialCalls => Backend.DataRequests.Where(r => r.Path.EndsWith("/provider-credentials", StringComparison.Ordinal)).ToList();
 
     public void Dispose() => Host.Dispose();
 }

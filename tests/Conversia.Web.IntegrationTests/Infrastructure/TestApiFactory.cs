@@ -64,6 +64,16 @@ public sealed class TestApiFactory : WebApplicationFactory<ApiHost::Program>, IA
                     ? new InvalidOperationException($"the conversation list broke ({branch})")
                     : null))));
 
+    private readonly Lazy<MessagingApiHost> _messaging;
+
+    public TestApiFactory() => _messaging = new Lazy<MessagingApiHost>(() => MessagingApiHost.Create(this));
+
+    /// <summary>
+    /// A host on the same database that can send: it has a throw-away master key for the stored provider keys, and its provider is a
+    /// stand-in (<see cref="FakeMessageSender"/>), so no test ever calls 360dialog.
+    /// </summary>
+    internal MessagingApiHost WithMessaging() => _messaging.Value;
+
     public async Task InitializeAsync()
     {
         await _postgres.StartAsync();

@@ -28,12 +28,21 @@ public sealed class ApiClient : IApiClient
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _http;
+
+    // Each call has its own limit: sending a message waits for the API to call the provider and record the result, far longer than a read.
+    private readonly TimeSpan? _timeout;
+    private readonly TimeSpan? _sendTimeout;
     private readonly ILogger<ApiClient>? _logger;
     private readonly IWebErrorReporter? _errorReporter;
     private readonly ErrorCodeState? _errorCodes;
 
-    public ApiClient(HttpClient httpClient, ILogger<ApiClient>? logger = null, IWebErrorReporter? errorReporter = null, ErrorCodeState? errorCodes = null)
+    /// <param name="options">
+    /// The time limits of the calls. Without them (a client built by hand) the <see cref="HttpClient"/>'s own timeout is the only limit.
+    /// </param>
+    public ApiClient(HttpClient httpClient, ILogger<ApiClient>? logger = null, IWebErrorReporter? errorReporter = null, ErrorCodeState? errorCodes = null, Microsoft.Extensions.Options.IOptions<ApiOptions>? options = null)
     {
+        _timeout = options is null ? null : TimeSpan.FromSeconds(options.Value.TimeoutSeconds);
+        _sendTimeout = options is null ? null : TimeSpan.FromSeconds(options.Value.SendTimeoutSeconds);
         _http = httpClient;
         _logger = logger;
         _errorReporter = errorReporter;
@@ -94,6 +103,9 @@ public sealed class ApiClient : IApiClient
     public Task<ApiResult<OpportunityResponse>> SetOpportunityOutcomeAsync(string token, Guid id, SetOpportunityOutcomeRequest request, CancellationToken cancellationToken = default)
         => SendAsync<OpportunityResponse>(HttpMethod.Put, $"api/conversations/{id}/opportunity", token, request, isUsable: null, cancellationToken);
 
+    public Task<ApiResult<MessageResponse>> SendMessageAsync(string token, Guid id, SendMessageRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<MessageResponse>(HttpMethod.Post, $"api/conversations/{id}/messages", token, request, isUsable: null, cancellationToken, SendFailure.SendCodes, _sendTimeout);
+
     public Task<ApiResult<PagedResponse<RecentMessageItem>>> GetRecentMessagesAsync(string token, RecentMessagesQuery query, CancellationToken cancellationToken = default)
         => SendAsync<PagedResponse<RecentMessageItem>>(HttpMethod.Get, "api/messages/recent" + MessagesQueryString.Build(query), token, body: null, response => response.Items is not null, cancellationToken);
 
@@ -124,6 +136,12 @@ public sealed class ApiClient : IApiClient
     public Task<ApiResult<CreateChannelResponse>> RotateChannelSecretAsync(string token, Guid id, CancellationToken cancellationToken = default)
         => SendAsync<CreateChannelResponse>(HttpMethod.Post, $"api/channels/{id}/rotate-secret", token, body: null, response => !string.IsNullOrEmpty(response.WebhookSecret), cancellationToken);
 
+    public Task<ApiResult<ChannelResponse>> SetProviderCredentialsAsync(string token, Guid id, SetProviderCredentialsRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<ChannelResponse>(HttpMethod.Put, $"api/channels/{id}/provider-credentials", token, request, isUsable: null, cancellationToken, SendFailure.CredentialCodes);
+
+    public Task<ApiResult<ChannelResponse>> RemoveProviderCredentialsAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<ChannelResponse>(HttpMethod.Delete, $"api/channels/{id}/provider-credentials", token, body: null, isUsable: null, cancellationToken, SendFailure.CredentialCodes);
+
     public Task<ApiResult<TenantInfoResponse>> GetTenantAsync(string token, CancellationToken cancellationToken = default)
         => SendAsync<TenantInfoResponse>(HttpMethod.Get, "api/tenant", token, body: null, response => !string.IsNullOrEmpty(response.Name), cancellationToken);
 
@@ -150,9 +168,20 @@ public sealed class ApiClient : IApiClient
 
     private static bool HasToken(AuthResponse response) => !string.IsNullOrWhiteSpace(response.Token);
 
+    /// <param name="expectedCodes">The refusals this call knows how to word (see <see cref="ApiResponseReader"/>); none by default.</param>
+    /// <param name="timeout">The limit of this call when it is not the usual one.</param>
     private async Task<ApiResult<T>> SendAsync<T>(
-        HttpMethod method, string path, string? token, object? body, Func<T, bool>? isUsable, CancellationToken cancellationToken)
+        HttpMethod method, string path, string? token, object? body, Func<T, bool>? isUsable, CancellationToken cancellationToken,
+        IReadOnlySet<string>? expectedCodes = null, TimeSpan? timeout = null)
     {
+        // The caller's own cancellation still propagates; running out of time does not cancel the caller's token, so it is reported
+        // below like any other request that got no answer.
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if ((timeout ?? _timeout) is { } allowed)
+        {
+            limit.CancelAfter(allowed);
+        }
+
         try
         {
             using var request = new HttpRequestMessage(method, path);
@@ -166,8 +195,8 @@ public sealed class ApiClient : IApiClient
                 request.Content = JsonContent.Create(body, body.GetType(), options: JsonOptions);
             }
 
-            using var response = await _http.SendAsync(request, cancellationToken);
-            return Carry(await ApiResponseReader.ReadAsync(response, JsonOptions, isUsable, cancellationToken), method, path);
+            using var response = await _http.SendAsync(request, limit.Token);
+            return Carry(await ApiResponseReader.ReadAsync(response, JsonOptions, isUsable, limit.Token, expectedCodes), method, path);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

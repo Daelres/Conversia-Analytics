@@ -5,7 +5,7 @@ conversation's channel and, once 360dialog accepts the message, stores it as an 
 
 **This is a manual action, for validation and operation. It is not a bot:** nothing in Conversia sends a message by itself.
 Advisors still answer from their phones; this endpoint exists to test the provider end to end and to operate a line when needed.
-Backend only for now: there is no page for it yet.
+The Web has a screen for each part: see [From the Web](#from-the-web).
 
 ```
 POST /api/conversations/{id}/messages
@@ -18,6 +18,7 @@ POST /api/conversations/{id}/messages
 | Section | What |
 |---|---|
 | [Endpoints](#endpoints) | Sending, and setting the key of a channel |
+| [From the Web](#from-the-web) | The key of a number, and the composer of a conversation |
 | [Credentials](#credentials-model) | One key per channel, encrypted, write-only |
 | [Errors](#errors) | Every refusal and its code |
 | [Sandbox limits](#sandbox-limits) | 25 requests, your own number only |
@@ -44,6 +45,45 @@ Two limits, both sliding windows of one minute that count every request whatever
 characters without spaces. Leave `apiKey` out (or blank) to keep the stored key and change only the environment; on a channel
 without a key that is a `400`. `environment` is a name, never a URL: the base URLs come from configuration only, so a request cannot
 point the API (and the key) at another host.
+
+## From the Web
+
+| Where | Who | What |
+|---|---|---|
+| `/organizacion`, numbers table | `OrganizationView` | Per number: whether a key is stored, since when, and the environment (Sandbox / Producción) |
+| `/organizacion/canales/{id}/clave-api` | `OrganizationManage` | Set or replace the key and choose the environment; left blank, the stored key stays and only the environment changes |
+| `/organizacion/canales/{id}/quitar-clave` | `OrganizationManage` | Confirmation, then `DELETE` |
+| `/conversaciones/{id}`, "Enviar un mensaje" | `ConversationsManage` | The composer: a text area (4096 characters, with a counter) and one button |
+
+- **The key is typed and never read back.** The field is a password input that is never bound to a value, so no answer carries the key:
+  not the page after a refusal, not an address (post/redirect/get with a fixed notice code), not a cookie, not a log line. Tests guard
+  each (`ProviderCredentialsPageTests`, `MessagingEndToEndTests`).
+- **When the composer is not offered** it says why: the conversation is closed, the number is switched off, the number has no key, or the
+  account lacks `ConversationsManage`. This only decides what is shown; the API checks every one again on each send. The state of the
+  number comes with the conversation itself: `GET /api/conversations/{id}` carries `channel` with `isActive`, `hasProviderApiKey` and
+  `providerEnvironment`, and nothing else about the channel (no number, no webhook key, no provider key). So a person who manages
+  conversations needs no `OrganizationView` to be told why, or to see the sandbox note.
+- **One message per form.** Each drawn form carries a one-time id (`OneTimeSubmissions`), claimed for the signed-in user and the
+  conversation: a double click or a reload of the answer sends nothing the second time, and ids made up by one user cannot use up or
+  push out another user's. With JavaScript the button is also disabled while the form is on its way.
+- **Every refusal has its own Spanish wording**, chosen by the `code` (`SendFailure`), never the provider's text. The typed text stays in
+  the box so it can be corrected or tried again, with one exception: after `message_sent_not_recorded` the box is emptied, because the
+  customer already has the message. `provider_unavailable` says the outcome is unknown and to check the phone first;
+  `provider_limit_reached` explains the 25 requests of a sandbox key.
+- **Only the codes of the table below are expected.** The Web's API client carries a `code` only when the call declared it
+  (`SendFailure.SendCodes` for a send, `provider_credentials_unavailable` for the key). Any other `422`, `500` or `503`, with or without
+  a `code`, is an unexpected failure: logged, reported and shown with its error code like on every other page.
+- **A send without a usable answer is "unknown" too.** If the Web times out, the connection drops, or a gateway or the API fails
+  (`502`, `504`, an unexpected `500`), the request may still have reached 360dialog: the composer shows the same "no se sabe si el mensaje
+  salió, verifica en el teléfono" wording as `provider_unavailable`, keeps the text, and the failure is still reported with its error
+  code. Nothing is retried.
+- **The Web waits longer for a send than for anything else:** `Api:SendTimeoutSeconds` (60) instead of `Api:TimeoutSeconds` (10). It
+  must outlast `Dialog360:TimeoutSeconds` (15) plus `Messaging:RecordTimeoutSeconds` (30); a test guards the defaults. If you raise
+  either API setting, raise this one too, or the Web gives up on messages the API is still sending.
+- **A Sandbox number shows a note above the composer** (only the number tied to the key receives the messages; 25 requests in total).
+  The Web does not count the requests used.
+- The composer is one component (`Components/Conversations/MessageComposer.razor`) that owns its form; the page decides its state
+  (`ComposerState`) and makes the call.
 
 ## Credentials model
 
