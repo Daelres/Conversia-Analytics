@@ -1,4 +1,5 @@
 using Conversia.Domain.Common;
+using Conversia.Domain.Enums;
 using Conversia.Domain.Exceptions;
 
 namespace Conversia.Domain.Entities;
@@ -12,6 +13,9 @@ public class Contact : BaseEntity
 
     public static readonly string WaIdRuleMessage =
         $"El identificador de WhatsApp debe tener entre {MinWaIdLength} y {MaxWaIdLength} dígitos (con un '+' inicial opcional).";
+
+    public const string AgeRangeInvalidMessage = "El rango de edad no es válido.";
+    public const string GenderInvalidMessage = "El género no es válido.";
 
     public static readonly string DisplayNameRuleMessage = $"El nombre del contacto {TextRules.RuleText(DisplayNameMaxLength, required: false)}.";
 
@@ -35,6 +39,119 @@ public class Contact : BaseEntity
 
     /// <summary>True for a customer simulated by the internal sandbox (docs/SANDBOX.md). Set at creation by ingestion, from the delivery; never changed.</summary>
     public bool IsSandbox { get; private set; }
+
+    /// <summary>The coarse age range the customer stated; null = not stated. Never an exact age (data minimization).</summary>
+    public AgeRange? AgeRange { get; private set; }
+
+    /// <summary>Who set <see cref="AgeRange"/>; null while it was never set.</summary>
+    public FieldSource? AgeRangeSource { get; private set; }
+
+    /// <summary>The gender the customer stated; <see cref="Enums.Gender.Undetermined"/> unless stated.</summary>
+    public Gender Gender { get; private set; } = Gender.Undetermined;
+
+    /// <summary>Who set <see cref="Gender"/>; null while it was never set.</summary>
+    public FieldSource? GenderSource { get; private set; }
+
+    /// <summary>The classifier behind the last automatic profile write (only the LLM extracts a profile); null = none.</summary>
+    public ClassifierProvider? ProfileClassifiedBy { get; private set; }
+
+    /// <summary>When the profile last changed (automatically or by a person); null while it never did.</summary>
+    public DateTime? ProfileChangedAt { get; private set; }
+
+    /// <summary>The user who last set, confirmed or reverted a profile field; null when the last change was automatic. An id only.</summary>
+    public Guid? ProfileChangedBy { get; private set; }
+
+    /// <summary>
+    /// The profile an LLM read in the conversation. A field is written only when it was determined (a range, a gender other than
+    /// undetermined) and a person has not set it: extraction never erases what is known and never overrides a person. Returns whether
+    /// anything changed.
+    /// </summary>
+    public bool ApplyExtractedProfile(AgeRange? ageRange, Gender gender, DateTime now)
+    {
+        if (ageRange is { } range && !Enum.IsDefined(range))
+        {
+            throw new DomainException(AgeRangeInvalidMessage);
+        }
+
+        if (!Enum.IsDefined(gender))
+        {
+            throw new DomainException(GenderInvalidMessage);
+        }
+
+        var changed = false;
+        if (ageRange is not null && AgeRangeSource != FieldSource.Manual && (AgeRange != ageRange || AgeRangeSource is null))
+        {
+            AgeRange = ageRange;
+            AgeRangeSource = FieldSource.Auto;
+            changed = true;
+        }
+
+        if (gender != Gender.Undetermined && GenderSource != FieldSource.Manual && (Gender != gender || GenderSource is null))
+        {
+            Gender = gender;
+            GenderSource = FieldSource.Auto;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            ProfileClassifiedBy = ClassifierProvider.Llm;
+            ProfileChangedAt = UtcTime.Normalize(now);
+            ProfileChangedBy = null;
+        }
+
+        return changed;
+    }
+
+    /// <summary>A person sets the age range (null: not stated). Saving it, even unchanged, pins it <see cref="FieldSource.Manual"/>.</summary>
+    public void SetManualAgeRange(AgeRange? ageRange, DateTime now, Guid? changedBy = null)
+    {
+        if (ageRange is { } range && !Enum.IsDefined(range))
+        {
+            throw new DomainException(AgeRangeInvalidMessage);
+        }
+
+        AgeRange = ageRange;
+        AgeRangeSource = FieldSource.Manual;
+        RecordProfileChange(now, changedBy);
+    }
+
+    /// <summary>A person sets the gender (undetermined included) and pins it <see cref="FieldSource.Manual"/>.</summary>
+    public void SetManualGender(Gender gender, DateTime now, Guid? changedBy = null)
+    {
+        if (!Enum.IsDefined(gender))
+        {
+            throw new DomainException(GenderInvalidMessage);
+        }
+
+        Gender = gender;
+        GenderSource = FieldSource.Manual;
+        RecordProfileChange(now, changedBy);
+    }
+
+    /// <summary>A person hands a profile field back to extraction: its source becomes <see cref="FieldSource.Auto"/>, its value stays.</summary>
+    public void RevertProfileFieldToAuto(ProfileField field, DateTime now, Guid? changedBy = null)
+    {
+        switch (field)
+        {
+            case ProfileField.AgeRange:
+                AgeRangeSource = FieldSource.Auto;
+                break;
+            case ProfileField.Gender:
+                GenderSource = FieldSource.Auto;
+                break;
+            default:
+                throw new DomainException("El campo no es válido.");
+        }
+
+        RecordProfileChange(now, changedBy);
+    }
+
+    private void RecordProfileChange(DateTime now, Guid? changedBy)
+    {
+        ProfileChangedAt = UtcTime.Normalize(now);
+        ProfileChangedBy = changedBy;
+    }
 
     // Required by EF Core for materialization.
     private Contact()

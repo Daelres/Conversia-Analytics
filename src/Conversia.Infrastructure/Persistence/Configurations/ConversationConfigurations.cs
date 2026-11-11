@@ -1,4 +1,5 @@
 using Conversia.Domain.Entities;
+using Conversia.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -23,6 +24,15 @@ public class ContactConfiguration : IEntityTypeConfiguration<Contact>
         builder.Property(c => c.FirstSeenAt).IsRequired();
         builder.Property(c => c.DisplayNameAt);
         builder.Property(c => c.IsSandbox).IsRequired().HasDefaultValue(false);
+
+        // The profile an LLM extracts (or a person sets), with per-field provenance. Only the coarse range is stored, never an exact age.
+        builder.Property(c => c.AgeRange).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(c => c.AgeRangeSource).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(c => c.Gender).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(Gender.Undetermined);
+        builder.Property(c => c.GenderSource).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(c => c.ProfileClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(c => c.ProfileChangedAt);
+        builder.Property(c => c.ProfileChangedBy);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.UpdatedAt);
 
@@ -57,6 +67,7 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.ClassificationRequestedAt);
         builder.Property(c => c.ClassificationFailures).IsRequired();
         builder.Property(c => c.ClassificationAttemptedAt);
+        builder.Property(c => c.LlmFailures).IsRequired().HasDefaultValue(0);
         builder.Property(c => c.IsSandbox).IsRequired().HasDefaultValue(false);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.UpdatedAt);
@@ -152,6 +163,18 @@ public class OpportunityConfiguration : IEntityTypeConfiguration<Opportunity>
         builder.Property(o => o.ClassifiedAt);
         builder.Property(o => o.ClassificationConfidence).HasPrecision(3, 2);
         builder.Property(o => o.ClassificationRules).HasMaxLength(Opportunity.ClassificationRulesMaxLength);
+
+        // Per-field provenance (docs/CLASSIFICATION.md): who set each descriptive field, and which classifier wrote it last. Existing rows get
+        // Auto sources and NULL producers (unknown, read as Rules: never protected as LLM-sourced).
+        builder.Property(o => o.ServiceInterestSource).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(FieldSource.Auto);
+        builder.Property(o => o.InterestReasonSource).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(FieldSource.Auto);
+        builder.Property(o => o.ObjectionSource).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(FieldSource.Auto);
+        builder.Property(o => o.ServiceInterestClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.InterestReasonClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.ObjectionClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.ClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.DetailsChangedAt);
+        builder.Property(o => o.DetailsChangedBy);
         builder.Property(o => o.CreatedAt).IsRequired();
         builder.Property(o => o.UpdatedAt);
 

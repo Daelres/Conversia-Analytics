@@ -64,6 +64,12 @@ public class Conversation : BaseEntity
     public DateTime? ClassificationAttemptedAt { get; private set; }
 
     /// <summary>
+    /// Consecutive LLM answers that could not be used (refused, cut off, or not in the expected shape) since the last request or the last
+    /// LLM success. Transport failures (timeouts, rate limits, outages) are not counted here. Independent of <see cref="ClassificationFailures"/>.
+    /// </summary>
+    public int LlmFailures { get; private set; }
+
+    /// <summary>
     /// True for a conversation of the internal sandbox (docs/SANDBOX.md): it was opened by a simulated delivery. Set at creation, never
     /// changed. The metrics count it only while the company is in sandbox mode, and nothing is ever sent to the provider for it.
     /// </summary>
@@ -169,15 +175,57 @@ public class Conversation : BaseEntity
         ClassificationRequestedAt = UtcTime.Normalize(now);
         ClassificationFailures = 0;
         ClassificationAttemptedAt = null;
+        LlmFailures = 0;
     }
 
-    /// <summary>The worker classified the conversation: nothing is pending.</summary>
+    /// <summary>
+    /// The worker classified the conversation: nothing is pending. <see cref="LlmFailures"/> is left alone (a rules reading, or one where the
+    /// LLM was not admitted, says nothing about the LLM).
+    /// </summary>
     public void CompleteClassification(DateTime now)
     {
         ClassificationDirty = false;
         ClassificationFailures = 0;
         ClassificationAttemptedAt = UtcTime.Normalize(now);
     }
+
+    /// <summary>The LLM read the conversation and its reading was applied: nothing is pending and the LLM failures start over.</summary>
+    public void CompleteLlmClassification(DateTime now)
+    {
+        CompleteClassification(now);
+        LlmFailures = 0;
+    }
+
+    /// <summary>
+    /// The rules reading was applied because the LLM failed or was deferred. <paramref name="countAsLlmFailure"/> (an answer that could not be
+    /// used) adds one to <see cref="LlmFailures"/>; the conversation stays flagged while <see cref="LlmFailures"/> is at most
+    /// <paramref name="maxFallbackRetries"/> (the retries after the first attempt) and is cleared, with the rules standing, beyond it. An
+    /// uncounted fallback (transport failure, open breaker) keeps it flagged without counting. <paramref name="attemptedAt"/> may lie in the
+    /// future to defer the next claim. Returns whether the conversation is still flagged.
+    /// </summary>
+    public bool CompleteWithRulesFallback(DateTime attemptedAt, bool countAsLlmFailure, int maxFallbackRetries)
+    {
+        if (maxFallbackRetries < 0)
+        {
+            throw new DomainException("El número de reintentos debe ser cero o mayor.");
+        }
+
+        ClassificationFailures = 0;
+        ClassificationAttemptedAt = UtcTime.Normalize(attemptedAt);
+        if (countAsLlmFailure)
+        {
+            LlmFailures++;
+        }
+
+        ClassificationDirty = !countAsLlmFailure || LlmFailures <= maxFallbackRetries;
+        return ClassificationDirty;
+    }
+
+    /// <summary>
+    /// Flags the conversation again without resetting any counter or time (the contact profile could not be written after the commit): the
+    /// worker reads it again once the retry delay since <see cref="ClassificationAttemptedAt"/> has passed.
+    /// </summary>
+    public void RequeueClassification() => ClassificationDirty = true;
 
     public void ApplyTimeline(ConversationTimeline timeline)
     {
