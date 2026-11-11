@@ -106,6 +106,10 @@ public class ExceptionHandlingMiddleware
         {
             await WriteMessagingProblemAsync(context, ex);
         }
+        catch (SandboxException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.SandboxRefusedTitle, ex.Message, ("code", ex.Code));
+        }
         catch (SecretProtectionException ex)
         {
             // An operations problem (no master key, or a stored key it cannot open), not a defect of the request: logged by its kind only.
@@ -146,7 +150,8 @@ public class ExceptionHandlingMiddleware
         var status = exception.Problem switch
         {
             MessagingProblem.ConversationClosed or MessagingProblem.ChannelInactive or MessagingProblem.CredentialsMissing
-                or MessagingProblem.InvalidCredentials => StatusCodes.Status409Conflict,
+                or MessagingProblem.InvalidCredentials or MessagingProblem.SandboxConversation
+                or MessagingProblem.SandboxModeActive or MessagingProblem.SandboxDataDeleted => StatusCodes.Status409Conflict,
             MessagingProblem.RecipientNotAllowed or MessagingProblem.Rejected => StatusCodes.Status422UnprocessableEntity,
             MessagingProblem.LimitReached => StatusCodes.Status429TooManyRequests,
             MessagingProblem.ProviderUnavailable => StatusCodes.Status503ServiceUnavailable,

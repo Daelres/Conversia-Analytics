@@ -30,6 +30,12 @@ public interface IPlatformAdminService
     /// <summary>Throws <see cref="Exceptions.TenantNotFoundException"/> or <see cref="Exceptions.LineQuotaBelowActiveException"/>.</summary>
     Task<TenantSummaryResponse> SetLineQuotaAsync(Guid adminId, Guid tenantId, SetLineQuotaRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Switches the internal sandbox of the company on or off (docs/SANDBOX.md). The reason is required. Idempotent: asking for what it
+    /// already is writes nothing. Throws <see cref="Exceptions.TenantNotFoundException"/>.
+    /// </summary>
+    Task<TenantSummaryResponse> SetSandboxModeAsync(Guid adminId, Guid tenantId, SetSandboxModeRequest request, CancellationToken cancellationToken = default);
+
     /// <summary>Switches a line of the company off. Idempotent. Throws <see cref="Exceptions.TenantNotFoundException"/> or <see cref="Exceptions.ChannelNotFoundException"/>.</summary>
     Task<TenantLineResponse> DeactivateChannelAsync(Guid adminId, Guid tenantId, Guid channelId, CancellationToken cancellationToken = default);
 

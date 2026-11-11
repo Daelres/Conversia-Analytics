@@ -29,6 +29,7 @@ public class TenantService : ITenantService
             MaxActiveLines = tenant.MaxActiveLines,
             ActiveLines = usage.Active,
             RegisteredLines = usage.Registered,
+            SandboxMode = tenant.SandboxMode,
         };
     }
 }

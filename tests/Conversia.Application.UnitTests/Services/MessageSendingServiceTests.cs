@@ -27,6 +27,7 @@ public class MessageSendingServiceTests
     private readonly Mock<IWhatsAppChannelRepository> _channels = new();
     private readonly Mock<IContactRepository> _contacts = new();
     private readonly Mock<IMessageRepository> _messages = new();
+    private readonly Mock<ITenantRepository> _tenants = new();
     private readonly FakeSender _sender = new();
     private readonly Guid _tenant = Guid.NewGuid();
     private readonly List<Message> _stored = [];
@@ -43,9 +44,12 @@ public class MessageSendingServiceTests
 
         public List<WhatsAppChannel> Resolved { get; } = [];
 
-        public IWhatsAppMessageSender Resolve(WhatsAppChannel channel)
+        public List<bool> ResolvedSandboxModes { get; } = [];
+
+        public IWhatsAppMessageSender Resolve(WhatsAppChannel channel, bool sandboxMode)
         {
             Resolved.Add(channel);
+            ResolvedSandboxModes.Add(sandboxMode);
             return this;
         }
 
@@ -71,11 +75,12 @@ public class MessageSendingServiceTests
     }
 
     private MessageSendingService CreateSut()
-        => new(_conversations.Object, _channels.Object, _contacts.Object, _messages.Object, _sender, new FixedTimeProvider(Now), _logger);
+        => new(_conversations.Object, _channels.Object, _contacts.Object, _messages.Object, _tenants.Object, _sender, new FixedTimeProvider(Now), _logger);
 
     /// <summary>An open conversation with one customer message, on an active channel that has credentials.</summary>
-    private void Arrange(bool active = true, bool credentials = true, bool closed = false)
+    private void Arrange(bool active = true, bool credentials = true, bool closed = false, bool sandboxConversation = false, bool sandboxMode = false)
     {
+        _tenants.Setup(r => r.GetSandboxModeAsync(_tenant, It.IsAny<CancellationToken>())).ReturnsAsync(sandboxMode);
         (_channel, _) = WhatsAppChannel.Create(_tenant, Guid.NewGuid(), "+57 300 555 0100");
         if (active)
         {
@@ -88,7 +93,7 @@ public class MessageSendingServiceTests
         }
 
         var contact = Contact.Create(_tenant, CustomerWaId, "Laura", Start);
-        _conversation = Conversation.Start(_tenant, contact.Id, _channel.Id, _channel.BranchId, Start, ConversationSource.Organic);
+        _conversation = Conversation.Start(_tenant, contact.Id, _channel.Id, _channel.BranchId, Start, ConversationSource.Organic, isSandbox: sandboxConversation);
         _locked = _conversation; // the row the repository hands over once it is locked
         if (closed)
         {
@@ -381,5 +386,135 @@ public class MessageSendingServiceTests
             Assert.Empty(EnglishLeaks.Find(message));
             Assert.True(EnglishLeaks.LooksSpanish(message), message);
         }
+    }
+
+    // ---- The internal sandbox (docs/SANDBOX.md) ------------------------------------------------
+
+    [Fact]
+    public async Task Send_OutsideSandboxMode_AsksForTheRealSenderOfTheChannel()
+    {
+        Arrange();
+
+        await SendAsync();
+
+        Assert.False(Assert.Single(_sender.ResolvedSandboxModes));
+    }
+
+    [Fact]
+    public async Task Send_InSandboxMode_IntoASandboxConversation_UsesTheSandboxSender_AndNeedsNoProviderKey()
+    {
+        Arrange(credentials: false, sandboxConversation: true, sandboxMode: true);
+        _sender.Result = WhatsAppSendResult.Sent("sandbox.out.1");
+
+        var response = await SendAsync();
+
+        Assert.True(Assert.Single(_sender.ResolvedSandboxModes));
+        var message = Assert.Single(_stored);
+        Assert.Equal("sandbox.out.1", message.ProviderMessageId);
+        Assert.Equal(MessageDirection.Outbound, message.Direction);
+        Assert.Equal(message.Id, response.Id);
+        Assert.True(_locked.ClassificationDirty);
+        Assert.Equal(Now, _locked.FirstResponseAt);
+    }
+
+    [Fact]
+    public async Task Send_IntoASandboxConversation_WhileSandboxModeIsOff_IsRefused_AndNothingIsSent()
+    {
+        Arrange(sandboxConversation: true, sandboxMode: false);
+
+        var exception = await Assert.ThrowsAsync<MessagingException>(() => SendAsync());
+
+        Assert.Equal(MessagingProblem.SandboxConversation, exception.Problem);
+        Assert.Equal("sandbox_conversation", exception.Code);
+        Assert.Empty(_sender.Resolved);
+        Assert.Empty(_sender.Sent);
+        Assert.Empty(_stored);
+    }
+
+    [Fact]
+    public async Task Send_IntoARealConversation_WhileSandboxModeIsOn_IsRefused_SoNoFakeMessageLandsInRealData()
+    {
+        Arrange(sandboxConversation: false, sandboxMode: true);
+
+        var exception = await Assert.ThrowsAsync<MessagingException>(() => SendAsync());
+
+        Assert.Equal(MessagingProblem.SandboxModeActive, exception.Problem);
+        Assert.Equal("sandbox_mode_active", exception.Code);
+        Assert.Empty(_sender.Resolved);
+        Assert.Empty(_sender.Sent);
+        Assert.Empty(_stored);
+    }
+
+    [Theory]
+    [InlineData(true, false, MessagingProblem.ConversationClosed)]
+    [InlineData(false, true, MessagingProblem.ChannelInactive)]
+    public async Task Send_InSandboxMode_StillRefusesAClosedConversationAndAnInactiveChannel(bool closed, bool inactive, MessagingProblem expected)
+    {
+        Arrange(active: !inactive, closed: closed, sandboxConversation: true, sandboxMode: true);
+
+        var exception = await Assert.ThrowsAsync<MessagingException>(() => SendAsync());
+
+        Assert.Equal(expected, exception.Problem);
+        Assert.Empty(_sender.Sent);
+    }
+
+    [Fact]
+    public async Task Send_InSandboxMode_WhenTheSandboxDataWasDeletedMeanwhile_SaysSo_InsteadOfSentNotRecorded()
+    {
+        Arrange(credentials: false, sandboxConversation: true, sandboxMode: true);
+        _conversations
+            .Setup(r => r.ChangeSerializedWithIngestionAsync(_tenant, _conversation.Id, It.IsAny<Func<Conversation, Task>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false); // the row is gone: the company deleted its sandbox data while the message was on its way
+
+        var exception = await Assert.ThrowsAsync<MessagingException>(() => SendAsync());
+
+        Assert.Equal(MessagingProblem.SandboxDataDeleted, exception.Problem);
+        Assert.Equal("sandbox_data_deleted", exception.Code);
+        Assert.Empty(_stored);
+    }
+
+    [Fact]
+    public async Task Send_InSandboxMode_WhenTheRecordFailsBecauseTheConversationIsGone_SaysTheDataWasDeleted()
+    {
+        Arrange(credentials: false, sandboxConversation: true, sandboxMode: true);
+        _conversations
+            .Setup(r => r.ChangeSerializedWithIngestionAsync(_tenant, _conversation.Id, It.IsAny<Func<Conversation, Task>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (Guid _, Guid _, Func<Conversation, Task> _, CancellationToken _) =>
+            {
+                // The delete won between the check and the insert: the read that follows finds no conversation.
+                _conversations.Setup(r => r.GetByIdAsync(_conversation.Id, It.IsAny<CancellationToken>())).ReturnsAsync((Conversation?)null);
+                await Task.Yield();
+                throw new InvalidOperationException("23503: insert violates foreign key constraint");
+            });
+
+        var exception = await Assert.ThrowsAsync<MessagingException>(() => SendAsync());
+
+        Assert.Equal(MessagingProblem.SandboxDataDeleted, exception.Problem);
+    }
+
+    [Fact]
+    public async Task Send_InSandboxMode_WhenTheRecordFailsAndTheConversationIsStillThere_IsStillSentNotRecorded()
+    {
+        Arrange(credentials: false, sandboxConversation: true, sandboxMode: true);
+        _conversations
+            .Setup(r => r.ChangeSerializedWithIngestionAsync(_tenant, _conversation.Id, It.IsAny<Func<Conversation, Task>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("database is down"));
+
+        var exception = await Assert.ThrowsAsync<MessagingException>(() => SendAsync());
+
+        Assert.Equal(MessagingProblem.SentNotRecorded, exception.Problem);
+    }
+
+    [Fact]
+    public async Task Send_OutsideSandboxMode_WhenTheConversationDisappears_IsStillSentNotRecorded_BecauseTheCustomerHasTheMessage()
+    {
+        Arrange();
+        _conversations
+            .Setup(r => r.ChangeSerializedWithIngestionAsync(_tenant, _conversation.Id, It.IsAny<Func<Conversation, Task>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var exception = await Assert.ThrowsAsync<MessagingException>(() => SendAsync());
+
+        Assert.Equal(MessagingProblem.SentNotRecorded, exception.Problem);
     }
 }

@@ -8,6 +8,7 @@ using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Messages;
 using Conversia.Application.DTOs.Metrics;
 using Conversia.Application.DTOs.Organization;
+using Conversia.Application.DTOs.Sandbox;
 using Conversia.Application.DTOs.Tenants;
 using Conversia.Application.DTOs.Users;
 using System.Net.Sockets;
@@ -142,6 +143,15 @@ public sealed class ApiClient : IApiClient
     public Task<ApiResult<ChannelResponse>> RemoveProviderCredentialsAsync(string token, Guid id, CancellationToken cancellationToken = default)
         => SendAsync<ChannelResponse>(HttpMethod.Delete, $"api/channels/{id}/provider-credentials", token, body: null, isUsable: null, cancellationToken, SendFailure.CredentialCodes);
 
+    public Task<ApiResult<SandboxMessageAcceptedResponse>> StartSandboxConversationAsync(string token, StartSandboxConversationRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<SandboxMessageAcceptedResponse>(HttpMethod.Post, "api/sandbox/conversations", token, request, response => !string.IsNullOrEmpty(response.CustomerWaId), cancellationToken, SandboxFailure.Codes);
+
+    public Task<ApiResult<SandboxMessageAcceptedResponse>> SendSandboxCustomerMessageAsync(string token, Guid id, SandboxCustomerMessageRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<SandboxMessageAcceptedResponse>(HttpMethod.Post, $"api/sandbox/conversations/{id}/customer-messages", token, request, response => !string.IsNullOrEmpty(response.CustomerWaId), cancellationToken, SandboxFailure.Codes);
+
+    public Task<ApiResult<SandboxDataDeletedResponse>> DeleteSandboxDataAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<SandboxDataDeletedResponse>(HttpMethod.Delete, "api/sandbox/data", token, body: null, isUsable: null, cancellationToken);
+
     public Task<ApiResult<TenantInfoResponse>> GetTenantAsync(string token, CancellationToken cancellationToken = default)
         => SendAsync<TenantInfoResponse>(HttpMethod.Get, "api/tenant", token, body: null, response => !string.IsNullOrEmpty(response.Name), cancellationToken);
 
@@ -159,6 +169,9 @@ public sealed class ApiClient : IApiClient
 
     public Task<ApiResult<TenantSummaryResponse>> SetTenantLineQuotaAsync(string token, Guid id, SetLineQuotaRequest request, CancellationToken cancellationToken = default)
         => SendAsync<TenantSummaryResponse>(HttpMethod.Put, $"api/admin/tenants/{id}/line-quota", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<TenantSummaryResponse>> SetTenantSandboxModeAsync(string token, Guid id, SetSandboxModeRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<TenantSummaryResponse>(HttpMethod.Put, $"api/admin/tenants/{id}/sandbox-mode", token, request, isUsable: null, cancellationToken);
 
     public Task<ApiResult<TenantLineResponse>> DeactivateTenantLineAsync(string token, Guid id, Guid channelId, CancellationToken cancellationToken = default)
         => SendAsync<TenantLineResponse>(HttpMethod.Post, $"api/admin/tenants/{id}/channels/{channelId}/deactivate", token, body: null, isUsable: null, cancellationToken);

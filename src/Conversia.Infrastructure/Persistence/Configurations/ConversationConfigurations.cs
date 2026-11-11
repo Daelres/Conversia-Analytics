@@ -22,6 +22,7 @@ public class ContactConfiguration : IEntityTypeConfiguration<Contact>
         builder.Property(c => c.DisplayName).HasMaxLength(Contact.DisplayNameMaxLength);
         builder.Property(c => c.FirstSeenAt).IsRequired();
         builder.Property(c => c.DisplayNameAt);
+        builder.Property(c => c.IsSandbox).IsRequired().HasDefaultValue(false);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.UpdatedAt);
 
@@ -56,6 +57,7 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.ClassificationRequestedAt);
         builder.Property(c => c.ClassificationFailures).IsRequired();
         builder.Property(c => c.ClassificationAttemptedAt);
+        builder.Property(c => c.IsSandbox).IsRequired().HasDefaultValue(false);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.UpdatedAt);
 
@@ -82,6 +84,10 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         // The classification worker looks for the flagged conversations of every tenant at once: only those are indexed.
         builder.HasIndex(c => c.LastMessageAt, "IX_Conversations_LastMessageAt_ClassificationDirty")
             .HasFilter("\"ClassificationDirty\"");
+
+        // The sandbox rows of a tenant (docs/SANDBOX.md): few or none, so only they are indexed. Serves the clean-up and the sandbox-mode metrics.
+        builder.HasIndex(c => c.TenantId, "IX_Conversations_TenantId_Sandbox")
+            .HasFilter("\"IsSandbox\"");
 
         builder.HasOne<Tenant>().WithMany().HasForeignKey(c => c.TenantId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Contact>().WithMany().HasForeignKey(c => c.ContactId).OnDelete(DeleteBehavior.Restrict);
@@ -180,6 +186,7 @@ public class WebhookEventConfiguration : IEntityTypeConfiguration<WebhookEvent>
         builder.Property(e => e.StatusCount);
         builder.Property(e => e.StoredMessageCount);
         builder.Property(e => e.DuplicateMessageCount);
+        builder.Property(e => e.IsSandbox).IsRequired().HasDefaultValue(false);
         builder.Property(e => e.CreatedAt).IsRequired();
         builder.Property(e => e.UpdatedAt);
 

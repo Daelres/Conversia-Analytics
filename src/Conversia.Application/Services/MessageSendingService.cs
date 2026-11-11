@@ -29,19 +29,21 @@ public class MessageSendingService : IMessageSendingService
     private readonly IWhatsAppChannelRepository _channels;
     private readonly IContactRepository _contacts;
     private readonly IMessageRepository _messages;
+    private readonly ITenantRepository _tenants;
     private readonly IWhatsAppMessageSenderResolver _senders;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<MessageSendingService> _logger;
 
     public MessageSendingService(
         IConversationRepository conversations, IWhatsAppChannelRepository channels, IContactRepository contacts, IMessageRepository messages,
-        IWhatsAppMessageSenderResolver senders, TimeProvider timeProvider, ILogger<MessageSendingService> logger)
+        ITenantRepository tenants, IWhatsAppMessageSenderResolver senders, TimeProvider timeProvider, ILogger<MessageSendingService> logger)
     {
         _logger = logger;
         _conversations = conversations;
         _channels = channels;
         _contacts = contacts;
         _messages = messages;
+        _tenants = tenants;
         _senders = senders;
         _timeProvider = timeProvider;
     }
@@ -57,6 +59,14 @@ public class MessageSendingService : IMessageSendingService
             throw new MessagingException(MessagingProblem.ConversationClosed);
         }
 
+        // The internal sandbox (docs/SANDBOX.md) and the real data never mix: a sandbox conversation takes messages only in sandbox mode
+        // (and then nothing reaches the provider), a real one only outside it.
+        var sandboxMode = await _tenants.GetSandboxModeAsync(conversation.TenantId, cancellationToken) ?? false;
+        if (conversation.IsSandbox != sandboxMode)
+        {
+            throw new MessagingException(conversation.IsSandbox ? MessagingProblem.SandboxConversation : MessagingProblem.SandboxModeActive);
+        }
+
         // A conversation always has its channel and its contact (foreign keys, same tenant); a missing one would be a defect, not a 404.
         var channel = await _channels.GetByIdAsync(conversation.ChannelId, cancellationToken)
             ?? throw new InvalidOperationException("The channel of the conversation no longer exists.");
@@ -65,7 +75,8 @@ public class MessageSendingService : IMessageSendingService
             throw new MessagingException(MessagingProblem.ChannelInactive);
         }
 
-        if (!channel.HasProviderApiKey)
+        // The internal sender calls no provider, so it needs no key.
+        if (!sandboxMode && !channel.HasProviderApiKey)
         {
             throw new MessagingException(MessagingProblem.CredentialsMissing);
         }
@@ -73,7 +84,7 @@ public class MessageSendingService : IMessageSendingService
         var contact = await _contacts.GetByIdAsync(conversation.ContactId, cancellationToken)
             ?? throw new InvalidOperationException("The contact of the conversation no longer exists.");
 
-        var result = await _senders.Resolve(channel).SendTextAsync(new WhatsAppTextMessage(channel, contact.WaId, text), cancellationToken);
+        var result = await _senders.Resolve(channel, sandboxMode).SendTextAsync(new WhatsAppTextMessage(channel, contact.WaId, text), cancellationToken);
         if (result.Status != WhatsAppSendStatus.Sent)
         {
             throw new MessagingException(ProblemOf(result.Status));
@@ -89,7 +100,31 @@ public class MessageSendingService : IMessageSendingService
         }
         catch (Exception ex) when (ex is not MessagingException)
         {
+            // In sandbox mode nothing left the server. If the record failed because the company deleted its sandbox data meanwhile (the
+            // conversation is gone, whether the lookup under the lock found no row or the insert hit its foreign key), there is no message
+            // anywhere to verify or to keep: that is a conflict to tell the person about, not "sent but not recorded".
+            if (sandboxMode && (ex is ConversationGoneException || await ConversationIsGoneAsync(conversation.Id)))
+            {
+                throw new MessagingException(MessagingProblem.SandboxDataDeleted, ex);
+            }
+
             throw new MessagingException(MessagingProblem.SentNotRecorded, ex);
+        }
+    }
+
+    /// <summary>The conversation row was not there any more when the record step locked it.</summary>
+    private sealed class ConversationGoneException() : InvalidOperationException("The conversation disappeared while its sent message was being recorded.");
+
+    // Never the reason to hide the original failure: a lookup that fails too leaves the answer as "sent but not recorded".
+    private async Task<bool> ConversationIsGoneAsync(Guid conversationId)
+    {
+        try
+        {
+            return await _conversations.GetByIdAsync(conversationId, CancellationToken.None) is null;
+        }
+        catch (Exception)
+        {
+            return false;
         }
     }
 
@@ -120,7 +155,7 @@ public class MessageSendingService : IMessageSendingService
 
         if (!found || recorded is null)
         {
-            throw new InvalidOperationException("The conversation disappeared while its sent message was being recorded.");
+            throw new ConversationGoneException();
         }
 
         return MessageResponse.From(recorded);

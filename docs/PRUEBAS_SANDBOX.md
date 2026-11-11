@@ -6,6 +6,8 @@ Convenciones: `<ENTRE_ANGULOS>` es un valor que debes reemplazar. Los comandos s
 
 Estado de verificación de esta guía (22 de octubre de 2026): todo lo que ocurre dentro de Conversia (pasos 2, 3, 5 en parte, 7 y la lista de aceptación) se ejecutó contra una instalación real en Docker, emulando las entregas de 360dialog con cargas en formato Cloud API. Lo que depende de 360dialog, de tu teléfono o de un túnel público (pasos 1, 4 y el envío real del paso 5) **solo puedes ejecutarlo tú**; cada uno está marcado con **[Externo]**.
 
+> **Para pruebas repetidas, usa el modo sandbox interno.** Esta guía valida la conexión real con 360dialog, que tiene límites (25 solicitudes de envío y 200 mensajes por llave, y solo tu propio número). Para probar el producto de punta a punta tantas veces como quieras (cliente simulado, respuestas del asesor, clasificación, métricas y panel), **sin 360dialog, sin túnel y sin gastar la llave**, pide al administrador de la plataforma que active el **modo sandbox** de tu empresa y sigue `docs/SANDBOX.md`. Ese modo no reemplaza esta guía: no comprueba nada de 360dialog. Sus datos quedan marcados como «Sandbox», no entran en las métricas reales y se eliminan desde `/organizacion`.
+
 ## 0. Qué vamos a probar y qué no
 
 **Qué probamos**
@@ -357,6 +359,8 @@ Una **misma entrega idéntica** reenviada (mismo cuerpo exacto) no crea otra fil
 | Se acabaron los mensajes del sandbox | Límite de 200 por llave (`429` de la API del sandbox) | Pide otra llave con `START` (revoca la anterior). |
 
 ## 7. Reiniciar la prueba desde cero y limpiar datos de prueba
+
+Si lo que quieres borrar son los datos creados con el **modo sandbox interno** (`docs/SANDBOX.md`), no uses los comandos de esta sección: en `/organizacion`, tarjeta «Datos de prueba (sandbox)», la opción «Eliminar los datos de prueba» borra solo lo marcado como «Sandbox» de tu empresa y no toca nada más.
 
 **Borrar solo los mensajes y conversaciones** (conserva empresa, sucursales, líneas y secretos). Esto borra los datos de **todas** las empresas de esta base de pruebas; usa solo en un entorno de pruebas:
 

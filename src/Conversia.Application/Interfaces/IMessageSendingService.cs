@@ -7,7 +7,8 @@ public interface IMessageSendingService
 {
     /// <summary>
     /// Sends the text to the customer of the conversation through its channel and, once the provider accepted it, stores it as an
-    /// Outbound message the way ingestion would. Throws <see cref="Exceptions.ConversationNotFoundException"/> for a missing or
+    /// Outbound message the way ingestion would. While the company is in sandbox mode the "provider" is the internal sender and only
+    /// sandbox conversations take messages (docs/SANDBOX.md). Throws <see cref="Exceptions.ConversationNotFoundException"/> for a missing or
     /// other-tenant conversation, <see cref="Domain.Exceptions.DomainException"/> for a text that cannot be sent, and
     /// <see cref="Exceptions.MessagingException"/> for everything else that keeps the message from being sent or recorded.
     /// </summary>

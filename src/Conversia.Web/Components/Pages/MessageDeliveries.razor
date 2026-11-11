@@ -133,7 +133,7 @@ else if (!Redirected)
                             <tbody>
                                 @foreach (var item in _page.Items)
                                 {
-                                    <tr data-testid="delivery-row" data-event-id="@item.Id" data-status="@item.Status" data-outcome="@item.OutcomeCode">
+                                    <tr data-testid="delivery-row" data-event-id="@item.Id" data-status="@item.Status" data-outcome="@item.OutcomeCode" data-sandbox="@(item.IsSandbox ? "true" : "false")">
                                         <th scope="row" data-label="Llegó">
                                             <time datetime="@item.ReceivedAt.ToString("O")">@Stamp(item.ReceivedAt)</time>
                                             <span class="muted conversation__phone">@ConversationFormat.Age(item.ReceivedAt, _nowUtc)</span>
@@ -141,6 +141,10 @@ else if (!Redirected)
                                         <td data-label="Línea">
                                             <span data-testid="delivery-line">@item.Line.DisplayPhoneNumber</span>
                                             <span class="muted conversation__phone">@(item.Line.BranchName ?? MetricsFormat.NoData)</span>
+                                            @if (item.IsSandbox)
+                                            {
+                                                <Chip Tone="ChipTone.Warning" IconName="zap" data-testid="sandbox-chip">Sandbox</Chip>
+                                            }
                                         </td>
                                         <td data-label="Estado"><Chip Tone="StatusTone(item.Status)" data-testid="status-chip">@StatusLabel(item.Status)</Chip></td>
                                         <td data-label="Resultado"><DeliveryOutcomeChip Event="item" /></td>

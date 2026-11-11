@@ -33,7 +33,10 @@ internal static partial class TestHelpers
         public IReadOnlyList<(Guid ChannelId, string RecipientWaId, string Text, string? ProviderMessageId)> SentBy(Guid channelId)
             => _sent.Where(s => s.ChannelId == channelId).ToList();
 
-        public IWhatsAppMessageSender Resolve(WhatsAppChannel channel) => this;
+            // A company in sandbox mode never reaches the provider, so it never reaches its stand-in either: the real internal sender answers.
+        public IWhatsAppMessageSender Resolve(WhatsAppChannel channel, bool sandboxMode) => sandboxMode ? SandboxSender : this;
+
+        private static readonly Conversia.Infrastructure.Messaging.SandboxMessageSender SandboxSender = new();
 
         public Task<WhatsAppSendResult> SendTextAsync(WhatsAppTextMessage message, CancellationToken cancellationToken = default)
         {

@@ -17,7 +17,12 @@ public interface IWhatsAppMessageSender
 /// </summary>
 public interface IWhatsAppMessageSenderResolver
 {
-    IWhatsAppMessageSender Resolve(WhatsAppChannel channel);
+    /// <param name="channel">The line the message leaves from.</param>
+    /// <param name="sandboxMode">
+    /// Whether the channel's company is in sandbox mode (docs/SANDBOX.md). While it is, the sender is the internal one: it reaches no
+    /// provider and needs no credentials.
+    /// </param>
+    IWhatsAppMessageSender Resolve(WhatsAppChannel channel, bool sandboxMode);
 }
 
 /// <summary>A plain-text message for one customer of a channel. A class with its own <c>ToString</c>: a record would print the number and the text.</summary>

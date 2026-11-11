@@ -142,6 +142,9 @@ public class ConversationListItem
 
     public int MessageCount { get; set; }
 
+    /// <summary>True for a conversation of the internal sandbox (docs/SANDBOX.md): a simulated customer, never a real one.</summary>
+    public bool IsSandbox { get; set; }
+
     public OpportunityResponse Opportunity { get; set; } = new();
 }
 

@@ -140,7 +140,15 @@ public sealed class WebhookEventRunner(
             return;
         }
 
-        var webhookEvent = await db.WebhookEvents.SingleAsync(e => e.Id == claimed.EventId, budget.Token);
+        var webhookEvent = await db.WebhookEvents.SingleOrDefaultAsync(e => e.Id == claimed.EventId, budget.Token);
+        if (webhookEvent is null)
+        {
+            // Deleted between the claim and now: the company removed its sandbox data (docs/SANDBOX.md), which takes this same lock and
+            // deletes the sandbox deliveries still in the queue. There is nothing to process and nothing failed.
+            logger.LogInformation("Webhook event {EventId} was deleted before it could be processed; nothing to do.", claimed.EventId);
+            return;
+        }
+
         if (webhookEvent.Status != WebhookEventStatus.Pending)
         {
             return; // finished meanwhile by another worker whose lease on it had expired

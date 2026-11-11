@@ -128,6 +128,11 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("FirstSeenAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("IsSandbox")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 
@@ -201,6 +206,11 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("FirstResponseAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("IsSandbox")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<DateTime>("LastMessageAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -253,6 +263,9 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.HasIndex(new[] { "LastMessageAt" }, "IX_Conversations_LastMessageAt_Open")
                         .HasFilter("\"Status\" = 'Open'");
+
+                    b.HasIndex(new[] { "TenantId" }, "IX_Conversations_TenantId_Sandbox")
+                        .HasFilter("\"IsSandbox\"");
 
                     b.ToTable("Conversations", null, t =>
                         {
@@ -626,6 +639,11 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<bool>("SandboxMode")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -756,6 +774,11 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.Property<int?>("DuplicateMessageCount")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("IsSandbox")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<string>("LastError")
                         .HasMaxLength(1000)

@@ -22,9 +22,17 @@ public static class AuditFormat
                 $"Cambió el cupo de líneas: {Text(details, "from") ?? MetricsFormat.NoData} → {Text(details, "to") ?? MetricsFormat.NoData}", null),
             PlatformAuditLog.Actions.ChannelDeactivated => new AuditText(
                 "Desactivó una línea", Text(details, "displayPhoneNumber") is { Length: > 0 } number ? $"Número: {number}" : null),
+            PlatformAuditLog.Actions.TenantSandboxModeChanged => new AuditText(
+                Flag(details, "to") == true ? "Activó el modo sandbox" : "Desactivó el modo sandbox",
+                Text(details, "reason") is { Length: > 0 } sandboxReason ? $"Motivo: {sandboxReason}" : null),
             _ => new AuditText($"Cambio registrado ({entry.Action})", null),
         };
     }
+
+    private static bool? Flag(JsonElement details, string name)
+        => details.ValueKind == JsonValueKind.Object && details.TryGetProperty(name, out var value)
+            ? value.ValueKind switch { JsonValueKind.True => true, JsonValueKind.False => false, _ => null }
+            : null;
 
     // Numbers and strings alike come back as text; anything else (or a body that is not an object) is "absent".
     private static string? Text(JsonElement details, string name)

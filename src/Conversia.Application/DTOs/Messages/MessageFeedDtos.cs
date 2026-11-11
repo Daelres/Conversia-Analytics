@@ -84,6 +84,9 @@ public class RecentMessageItem
     public LineReference Line { get; set; } = new();
 
     public MessageContact Contact { get; set; } = new();
+
+    /// <summary>True when the message belongs to a conversation of the internal sandbox (docs/SANDBOX.md). The feed shows both kinds.</summary>
+    public bool IsSandbox { get; set; }
 }
 
 /// <summary>What <c>GET /api/messages/summary</c> says about the arrival of messages, to answer "is it arriving?" at a glance.</summary>
@@ -179,4 +182,7 @@ public class WebhookEventItem
 
     /// <summary>The last failure, already sanitized (secrets redacted, long numbers masked); null when there was none. Never the raw error.</summary>
     public string? LastError { get; set; }
+
+    /// <summary>True for a delivery written by the internal sandbox's simulated customer instead of the provider (docs/SANDBOX.md).</summary>
+    public bool IsSandbox { get; set; }
 }

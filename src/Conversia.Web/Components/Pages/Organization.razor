@@ -276,12 +276,31 @@ else if (!Redirected)
                     </div>
                 </div>
             </Card>
+
+            @if (_loaded && _canManage)
+            {
+                <Card Title="Datos de prueba (sandbox)" Subtitle="Lo que se creó con el modo sandbox de Conversia: conversaciones y clientes simulados." IconName="zap" id="sandbox" data-testid="sandbox-card">
+                    <div class="stack">
+                        <dl class="kv">
+                            <div>
+                                <dt>Modo sandbox</dt>
+                                <dd><Chip Tone="@(_sandboxMode ? ChipTone.Warning : ChipTone.Neutral)" IconName="@(_sandboxMode ? "zap" : "minus")" data-testid="sandbox-mode" data-enabled="@(_sandboxMode ? "true" : "false")">@(_sandboxMode ? "Activo" : "Inactivo")</Chip></dd>
+                            </div>
+                        </dl>
+                        <p class="muted" data-testid="sandbox-note">El modo sandbox lo activa y lo desactiva el equipo de Conversia. Los datos de prueba llevan la etiqueta «Sandbox» y nunca se mezclan con las métricas de tus datos reales. Puedes eliminarlos cuando ya no los necesites.</p>
+                        <div class="form-actions">
+                            <a class="btn btn--danger-ghost" href="/organizacion/sandbox/eliminar-datos" data-testid="sandbox-delete-link"><Icon Name="trash" />Eliminar los datos de prueba</a>
+                        </div>
+                    </div>
+                </Card>
+            }
     </div>
 }
 
 @code {
     private bool _loaded;
     private bool _canManage;
+    private bool _sandboxMode;
     private string _submissionId = OneTimeSubmissions.NewId();
     private IReadOnlyList<BranchResponse> _branches = [];
     private IReadOnlyList<AdvisorResponse> _advisors = [];
@@ -371,6 +390,7 @@ else if (!Redirected)
         _advisors = advisorsTask.Result.Value!;
         _channels = channelsTask.Result.Value!;
         _tenant = tenantTask.Result.Value!;
+        _sandboxMode = _tenant.SandboxMode;
         _loaded = true;
     }
 

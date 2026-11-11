@@ -45,6 +45,7 @@ public static class MessagingServiceCollectionExtensions
             })
             .RemoveAllLoggers();
 
+        services.AddSingleton<SandboxMessageSender>();
         services.AddScoped<IWhatsAppMessageSenderResolver, WhatsAppMessageSenderResolver>();
         services.AddScoped<IMessageSendingService, MessageSendingService>();
         return services;

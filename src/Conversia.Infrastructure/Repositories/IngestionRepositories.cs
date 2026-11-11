@@ -25,10 +25,10 @@ public class WebhookEventRepository(ApplicationDbContext dbContext, TimeProvider
         {
             var inserted = await dbContext.Database.ExecuteSqlAsync($"""
                 INSERT INTO "WebhookEvents"
-                    ("Id", "TenantId", "ChannelId", "BodyHash", "RawPayload", "ReceivedAt", "Status", "Attempts", "NextAttemptAt", "CreatedAt")
+                    ("Id", "TenantId", "ChannelId", "BodyHash", "RawPayload", "ReceivedAt", "Status", "Attempts", "NextAttemptAt", "CreatedAt", "IsSandbox")
                 VALUES
                     ({webhookEvent.Id}, {webhookEvent.TenantId}, {webhookEvent.ChannelId}, {webhookEvent.BodyHash}, {webhookEvent.RawPayload}::jsonb,
-                     {webhookEvent.ReceivedAt}, {status}, {webhookEvent.Attempts}, {webhookEvent.NextAttemptAt}, {createdAt})
+                     {webhookEvent.ReceivedAt}, {status}, {webhookEvent.Attempts}, {webhookEvent.NextAttemptAt}, {createdAt}, {webhookEvent.IsSandbox})
                 ON CONFLICT ("ChannelId", "BodyHash") DO NOTHING
                 """, cancellationToken);
             return inserted > 0;

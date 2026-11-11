@@ -1,0 +1,172 @@
+@page "/admin/empresas/{Id:guid}/sandbox/{Action}"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Application.DTOs.Admin
+@using Conversia.Domain.Entities
+@using Conversia.Web.Authentication
+@inherits AdminPageBase
+
+<PageTitle>@Title - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+@if (Enable is null || CompanyMissing)
+{
+    <CompanyNotFoundView />
+}
+else if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="admin-sandbox-action" data-action="@Action" data-company-id="@Id">
+        <PageHeader Eyebrow="Empresa" EyebrowIcon="building" Title="@Title" Description="@(_company?.Name)">
+            <a class="btn btn--secondary" href="/admin/empresas/@Id"><Icon Name="arrow-left" />Volver a la empresa</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_company is not null && !Applies)
+        {
+            <Alert Kind="AlertKind.Warning" data-testid="not-allowed">Esta acción no aplica ahora: el modo sandbox de la empresa ya está @(_company.SandboxMode ? "activado" : "desactivado"). Vuelve a la empresa para ver lo que puedes hacer.</Alert>
+        }
+
+        @* Always rendered (hidden when it does not apply): a POST can only be dispatched to a form that exists in the render tree,
+           and a forged one must still reach the API and be refused there. *@
+        <div hidden="@(!ShowForm)">
+            <Card Title="@Question" IconName="zap" data-testid="sandbox-confirm">
+                <div class="stack">
+                    <dl class="kv">
+                        <div>
+                            <dt>Modo sandbox ahora</dt>
+                            <dd>@(_company is null ? MetricsFormat.NoData : _company.SandboxMode ? "Activado" : "Desactivado")</dd>
+                        </div>
+                        <div>
+                            <dt>Quedará</dt>
+                            <dd>@(Enable == true ? "Activado" : "Desactivado")</dd>
+                        </div>
+                    </dl>
+                    <p class="muted" data-testid="confirm-effect">@Effect</p>
+                    <EditForm Model="Input" FormName="sandbox-action" OnValidSubmit="RunAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="sandbox-action-form">
+                        <DataAnnotationsValidator />
+                        <FormField TValue="string" For="() => Input.Reason" Id="reason" Label="Motivo"
+                                   Hint="Obligatorio. Queda en el registro de auditoría. No incluyas datos personales de clientes. Hasta 200 caracteres." ApiErrors="_errors" Context="field">
+                            <textarea id="reason" name="@($"{nameof(Input)}.{nameof(SandboxModeInput.Reason)}")" class="input" rows="3" maxlength="@Tenant.SandboxModeReasonMaxLength" @attributes="field">@Input.Reason</textarea>
+                        </FormField>
+                        <ApiFieldErrors Errors="_errors" KnownFields="@(["Reason"])" />
+                        <div class="form-actions">
+                            @if (ShowForm)
+                            {
+                                <button type="submit" class="btn btn--primary" data-testid="sandbox-action-submit"><Icon Name="zap" />@Confirm</button>
+                            }
+                            <a class="btn btn--ghost" href="/admin/empresas/@Id">Cancelar</a>
+                        </div>
+                    </EditForm>
+                </div>
+            </Card>
+        </div>
+    </div>
+}
+
+@code {
+    public const string EnableRoute = "activar";
+    public const string DisableRoute = "desactivar";
+
+    private TenantDetailResponse? _company;
+    private IReadOnlyDictionary<string, string[]>? _errors;
+    private SandboxModeInput? _input;
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [Parameter]
+    public string Action { get; set; } = string.Empty;
+
+    [SupplyParameterFromForm(FormName = "sandbox-action")]
+    private SandboxModeInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    /// <summary>What the address asks for; null for an address that is neither.</summary>
+    private bool? Enable => Action switch
+    {
+        EnableRoute => true,
+        DisableRoute => false,
+        _ => null,
+    };
+
+    private string Title => Enable == false ? "Desactivar el modo sandbox" : "Activar el modo sandbox";
+
+    private string Question => Enable == false ? "¿Desactivar el modo sandbox de esta empresa?" : "¿Activar el modo sandbox de esta empresa?";
+
+    private string Confirm => Enable == false ? "Sí, desactivar el modo sandbox" : "Sí, activar el modo sandbox";
+
+    private string Effect => Enable == false
+        ? "La empresa vuelve a operar con datos reales: sus mensajes salen por 360dialog y su panel muestra solo conversaciones reales. Los datos de prueba no se borran: quedan marcados como «Sandbox», fuera de las métricas, hasta que la empresa los elimine."
+        : "Ningún mensaje de la empresa saldrá por 360dialog: lo que sus asesores escriban se registra y no llega a ningún teléfono. La empresa podrá simular clientes, y su panel mostrará solo datos de prueba. Los mensajes reales que lleguen por el webhook se siguen guardando, fuera de las métricas mientras dure el modo.";
+
+    // The page offers the form only when it would change something; the API accepts the same value again and writes nothing.
+    private bool Applies => _company is not null && Enable is { } enable && _company.SandboxMode != enable;
+
+    private bool ShowForm => Applies && !Redirected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Enable is null)
+        {
+            NotFoundInPlace();
+            return;
+        }
+
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Api.GetAdminTenantAsync(Token!, Id);
+        if (await TryFailAsync(result))
+        {
+            return;
+        }
+
+        _company = result.Value;
+    }
+
+    private async Task RunAsync()
+    {
+        var enable = Enable!.Value;
+        var result = await Api.SetTenantSandboxModeAsync(Token!, Id, Input.ToRequest(enable));
+        if (result.IsSuccess)
+        {
+            RedirectTo(AdminNotice.Url(Id, enable ? AdminNotice.SandboxOn : AdminNotice.SandboxOff));
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.ValidationFailed)
+        {
+            _errors = result.ValidationErrors;
+            SetStatusCode(StatusCodes.Status400BadRequest);
+        }
+        else
+        {
+            await TryFailAsync(result);
+        }
+
+        if (!Redirected && !Denied && !CompanyMissing)
+        {
+            await LoadAsync();
+        }
+    }
+}

@@ -32,6 +32,18 @@ public enum MessagingProblem
 
     /// <summary>The provider accepted the message but it could not be stored: it must not be sent again.</summary>
     SentNotRecorded,
+
+    /// <summary>The conversation is sandbox data and the company is not in sandbox mode: nothing real is ever sent into it.</summary>
+    SandboxConversation,
+
+    /// <summary>The company is in sandbox mode and the conversation is real: nothing is sent, and no simulated message is stored in real data.</summary>
+    SandboxModeActive,
+
+    /// <summary>
+    /// The sandbox conversation was deleted (the company removed its sandbox data) while the message was being sent. Nothing left the
+    /// server in sandbox mode, so there is nothing to verify and nothing to keep.
+    /// </summary>
+    SandboxDataDeleted,
 }
 
 /// <summary>
@@ -62,6 +74,9 @@ public class MessagingException : Exception
         MessagingProblem.Rejected => "provider_rejected",
         MessagingProblem.ProviderUnavailable => "provider_unavailable",
         MessagingProblem.SentNotRecorded => "message_sent_not_recorded",
+        MessagingProblem.SandboxConversation => "sandbox_conversation",
+        MessagingProblem.SandboxModeActive => "sandbox_mode_active",
+        MessagingProblem.SandboxDataDeleted => "sandbox_data_deleted",
         _ => throw new ArgumentOutOfRangeException(nameof(problem)),
     };
 
@@ -76,6 +91,9 @@ public class MessagingException : Exception
         MessagingProblem.Rejected => "El proveedor de WhatsApp no aceptó el mensaje.",
         MessagingProblem.ProviderUnavailable => "El proveedor de WhatsApp no respondió o falló, y no se sabe si el mensaje salió. Verifica en el teléfono si llegó antes de enviarlo de nuevo.",
         MessagingProblem.SentNotRecorded => "El mensaje se envió, pero no se pudo registrar en la conversación. No lo envíes de nuevo.",
+        MessagingProblem.SandboxConversation => "Esta conversación es de prueba (modo sandbox) y solo admite mensajes mientras el modo sandbox está activo.",
+        MessagingProblem.SandboxDataDeleted => "Esta conversación de prueba se eliminó mientras se enviaba el mensaje. El mensaje no se guardó ni se envió a ningún teléfono.",
+        MessagingProblem.SandboxModeActive => "El modo sandbox está activo y no se envían mensajes reales. Esta conversación es real: no admite mensajes hasta que se desactive el modo sandbox.",
         _ => throw new ArgumentOutOfRangeException(nameof(problem)),
     };
 }

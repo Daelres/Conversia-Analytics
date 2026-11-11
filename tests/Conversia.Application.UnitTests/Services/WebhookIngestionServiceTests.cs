@@ -152,4 +152,30 @@ public class WebhookIngestionServiceTests
 
         Assert.Equal(WebhookStoreResult.Stored, await CreateSut().StoreAsync(Access(), Encoding.UTF8.GetBytes(body)));
     }
+
+    // ---- The internal sandbox: only the caller of StoreAsync can mark a delivery, never the webhook ---------------------------
+
+    [Fact]
+    public async Task Authenticate_NeverYieldsASandboxAccess()
+    {
+        var (channel, secret) = StoredChannel();
+
+        var access = await CreateSut().AuthenticateAsync(channel.ChannelKey, secret);
+
+        Assert.False(access!.IsSandbox);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Store_MarksTheEventWithTheOriginOfTheAccess(bool sandbox)
+    {
+        WebhookEvent? saved = null;
+        _events.Setup(r => r.AddIfNewAsync(It.IsAny<WebhookEvent>(), It.IsAny<CancellationToken>()))
+            .Callback<WebhookEvent, CancellationToken>((e, _) => saved = e).ReturnsAsync(true);
+
+        await CreateSut().StoreAsync(new WebhookChannelAccess(Guid.NewGuid(), Guid.NewGuid(), sandbox), "{}"u8.ToArray());
+
+        Assert.Equal(sandbox, saved!.IsSandbox);
+    }
 }

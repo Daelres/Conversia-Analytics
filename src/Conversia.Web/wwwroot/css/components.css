@@ -347,6 +347,25 @@ a.card--link:hover {
 .alert--warning { color: var(--warning); background: var(--warning-soft); border-color: var(--warning-border); }
 .alert--info { color: var(--info); background: var(--info-soft); border-color: var(--info-border); }
 
+/* The internal sandbox mode (docs/SANDBOX.md): on every page of a company that is in it, above the content. */
+.sandbox-banner {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  align-items: start;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 2px dashed var(--warning-border);
+  border-radius: var(--radius-md);
+  color: var(--warning);
+  background: var(--warning-soft);
+  font-size: 0.95rem;
+}
+
+.sandbox-banner p {
+  margin: 0;
+}
+
 .alert a {
   color: inherit;
   font-weight: 700;

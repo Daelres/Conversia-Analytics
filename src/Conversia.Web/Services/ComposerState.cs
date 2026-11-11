@@ -12,6 +12,12 @@ public enum ComposerAvailability
     ConversationClosed,
     ChannelInactive,
     CredentialsMissing,
+
+    /// <summary>A sandbox conversation while the company is not in sandbox mode: nothing real is ever sent into it.</summary>
+    SandboxConversation,
+
+    /// <summary>A real conversation while the company is in sandbox mode: nothing real is sent, and nothing made up is stored in it.</summary>
+    SandboxModeActive,
 }
 
 /// <summary>
@@ -19,7 +25,8 @@ public enum ComposerAvailability
 /// checks every one of these again on each send.
 /// </summary>
 /// <param name="Sandbox">The line sends through the provider's sandbox, which has limits a person must know before writing.</param>
-public sealed record ComposerState(ComposerAvailability Availability, bool Sandbox = false)
+/// <param name="Internal">The company is in the internal sandbox mode (docs/SANDBOX.md): the message is recorded and reaches nobody.</param>
+public sealed record ComposerState(ComposerAvailability Availability, bool Sandbox = false, bool Internal = false)
 {
     public static readonly ComposerState Unknown = new(ComposerAvailability.Unknown);
 
@@ -31,11 +38,16 @@ public sealed record ComposerState(ComposerAvailability Availability, bool Sandb
         ComposerAvailability.ConversationClosed => "Esta conversación está cerrada y ya no admite mensajes.",
         ComposerAvailability.ChannelInactive => "El número de WhatsApp de esta conversación está desactivado. Actívalo en Organización para poder enviar mensajes.",
         ComposerAvailability.CredentialsMissing => "El número de WhatsApp de esta conversación no tiene clave de API del proveedor. Configúrala en Organización para poder enviar mensajes.",
+        ComposerAvailability.SandboxConversation => SendFailure.Describe(SendFailure.SandboxConversation),
+        ComposerAvailability.SandboxModeActive => SendFailure.Describe(SendFailure.SandboxModeActive),
         _ => null,
     };
 
     /// <param name="channel">What the conversation says about its line; null (an answer without it) hides nothing.</param>
-    public static ComposerState For(bool canManage, string? conversationStatus, ConversationChannelState? channel)
+    /// <param name="sandboxMode">The company is in the internal sandbox mode.</param>
+    /// <param name="sandboxConversation">The conversation is sandbox data.</param>
+    public static ComposerState For(
+        bool canManage, string? conversationStatus, ConversationChannelState? channel, bool sandboxMode = false, bool sandboxConversation = false)
     {
         if (!canManage)
         {
@@ -47,6 +59,17 @@ public sealed record ComposerState(ComposerAvailability Availability, bool Sandb
             return new(ComposerAvailability.ConversationClosed);
         }
 
+        if (sandboxConversation != sandboxMode)
+        {
+            return new(sandboxConversation ? ComposerAvailability.SandboxConversation : ComposerAvailability.SandboxModeActive);
+        }
+
+        if (sandboxMode)
+        {
+            // The internal sender reaches no provider: no key is needed and the limits of the provider's own sandbox do not apply.
+            return channel is { IsActive: false } ? new(ComposerAvailability.ChannelInactive) : new(ComposerAvailability.Available, Internal: true);
+        }
+
         return channel switch
         {
             { IsActive: false } => new(ComposerAvailability.ChannelInactive),
@@ -55,3 +78,17 @@ public sealed record ComposerState(ComposerAvailability Availability, bool Sandb
         };
     }
 }
+
+/// <summary>
+/// Whether "write as the customer" is offered on a conversation (docs/SANDBOX.md): only on an open sandbox conversation of an active
+/// line while the company is in sandbox mode, to a person who may write. On anything else the control is not drawn at all (it is not
+/// part of a real conversation's page), and the API refuses a forged post.
+/// </summary>
+public static class CustomerComposer
+{
+    public static ComposerState For(bool canManage, string? conversationStatus, ConversationChannelState? channel, bool sandboxMode, bool sandboxConversation)
+        => canManage && sandboxMode && sandboxConversation && conversationStatus == nameof(ConversationStatus.Open) && channel is not { IsActive: false }
+            ? new ComposerState(ComposerAvailability.Available, Internal: true)
+            : ComposerState.Unknown;
+}
+

@@ -10,5 +10,8 @@ public interface ITenantRepository
     /// <summary>The status of the company, or null when it does not exist. Untracked projection of one column: run on every authenticated request.</summary>
     Task<TenantStatus?> GetStatusAsync(Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>Whether the company is in sandbox mode (docs/SANDBOX.md), or null when it does not exist. Untracked projection of one column.</summary>
+    Task<bool?> GetSandboxModeAsync(Guid id, CancellationToken cancellationToken = default);
+
     Task AddAsync(Tenant tenant, CancellationToken cancellationToken = default);
 }

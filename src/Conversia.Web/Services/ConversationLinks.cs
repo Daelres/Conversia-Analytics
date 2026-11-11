@@ -8,6 +8,9 @@ public static class ConversationLinks
 {
     public const string ListPath = "/conversaciones";
 
+    /// <summary>The page that starts a simulated conversation (only useful while the company is in sandbox mode, docs/SANDBOX.md).</summary>
+    public const string Simulate = ListPath + "/simular";
+
     public static string Detail(Guid id) => $"{ListPath}/{id}";
 
     /// <summary>The list, filtered. <paramref name="range"/> is in local dates, <c>To</c> exclusive, as the API takes them.</summary>

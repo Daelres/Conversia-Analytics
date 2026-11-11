@@ -24,6 +24,7 @@ POST /api/conversations/{id}/messages
 | [Sandbox limits](#sandbox-limits) | 25 requests, your own number only |
 | [Recording and echoes](#recording-and-echoes) | Locks, idempotency, what is not verified |
 | [Configuration](#configuration) | Settings and the master key |
+| [Internal sandbox mode](#internal-sandbox-mode) | When nothing goes to 360dialog at all |
 
 ## Endpoints
 
@@ -110,6 +111,9 @@ ever returned or logged.
 | `409` | `channel_inactive` | The channel is switched off |
 | `409` | `provider_credentials_missing` | The channel has no API key |
 | `409` | `provider_credentials_invalid` | 360dialog answered `401`: it does not recognize the key |
+| `409` | `sandbox_conversation` | The conversation is sandbox data and the company is not in sandbox mode: nothing real is ever sent into it ([SANDBOX.md](SANDBOX.md)) |
+| `409` | `sandbox_mode_active` | The company is in sandbox mode and the conversation is real: nothing is sent, and nothing made up is stored in it |
+| `409` | `sandbox_data_deleted` | In sandbox mode, the company deleted its sandbox data while the message was being recorded. Nothing was stored and nothing left the server |
 | `422` | `recipient_not_allowed` | 360dialog answered `403`: this key may not write to this number |
 | `422` | `provider_rejected` | Any other `4xx` of 360dialog (for example a free-form text outside WhatsApp's 24-hour window) |
 | `429` | `provider_limit_reached` | 360dialog answered `429`: the quota of the key is used up. No `Retry-After` |
@@ -195,6 +199,23 @@ API at startup** with a message that names the setting and never prints its valu
 
 ## Extending
 
-`IWhatsAppMessageSender` (Application) is the port; `Dialog360MessageSender` (Infrastructure) is the only adapter and the only
-class that knows the 360dialog call. The sender is chosen **per channel, per call** by `IWhatsAppMessageSenderResolver`, so another
-way of sending is a new adapter plus a case in `WhatsAppMessageSenderResolver`, with no change to the use case.
+`IWhatsAppMessageSender` (Application) is the port. `Dialog360MessageSender` (Infrastructure) is the only class that knows the
+360dialog call; `SandboxMessageSender` is the internal adapter of a company in sandbox mode (below). The sender is chosen **per
+channel, per call** by `IWhatsAppMessageSenderResolver`, so another way of sending is a new adapter plus a case in
+`WhatsAppMessageSenderResolver`, with no change to the use case.
+
+## Internal sandbox mode
+
+While a company is in the internal sandbox mode ([SANDBOX.md](SANDBOX.md)), this endpoint does not reach 360dialog:
+
+- `MessageSendingService` reads the mode of the conversation's company and asks the resolver for the sender with it;
+  the resolver returns `SandboxMessageSender`: **no network call**, the channel's key is never read, the message is accepted at once
+  with an id that starts with `sandbox.out.`.
+- **No provider key is needed**: `provider_credentials_missing` does not apply, and neither does the master key (`503`).
+- Everything else is the same: the conversation must be open and its channel active, the rate limits apply, and the message is
+  recorded as Outbound through the same locks and domain paths (timeline, first response, classification request).
+- Only **sandbox conversations** take messages in sandbox mode, and only **real** ones outside it; the other two combinations are the
+  two `409`s above. So no real message ever goes to a made-up number, and no made-up message lands in real data.
+
+With the mode off, none of this is in the path: the checks and the 360dialog call are what they were before the mode existed.
+In the Web, the composer of a sandbox conversation is offered without a key and without the 360dialog sandbox note.

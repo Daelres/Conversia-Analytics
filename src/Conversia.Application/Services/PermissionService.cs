@@ -11,9 +11,11 @@ public class PermissionService : IPermissionService
 {
     private readonly IUserRepository _userRepository;
     private readonly IUserPermissionRepository _userPermissionRepository;
+    private readonly ITenantRepository _tenantRepository;
 
-    public PermissionService(IUserRepository userRepository, IUserPermissionRepository userPermissionRepository)
+    public PermissionService(IUserRepository userRepository, IUserPermissionRepository userPermissionRepository, ITenantRepository tenantRepository)
     {
+        _tenantRepository = tenantRepository;
         _userRepository = userRepository;
         _userPermissionRepository = userPermissionRepository;
     }
@@ -30,7 +32,8 @@ public class PermissionService : IPermissionService
             UserId = user.Id,
             TenantId = user.TenantId,
             IsOwner = user.IsOwner,
-            Permissions = permissions
+            Permissions = permissions,
+            TenantSandboxMode = await _tenantRepository.GetSandboxModeAsync(user.TenantId, cancellationToken) ?? false,
         };
     }
 

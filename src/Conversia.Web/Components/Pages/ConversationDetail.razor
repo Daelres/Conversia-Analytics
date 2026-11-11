@@ -57,6 +57,10 @@ else if (!Redirected)
             <ul class="cluster conversation__chips" aria-label="Resumen de la conversación" data-testid="conversation-summary">
                 <li><StageChip Stage="@_conversation.Opportunity.Stage" /></li>
                 <li><SourceChip Source="@_conversation.Source" /></li>
+                @if (_conversation.IsSandbox)
+                {
+                    <li><Chip Tone="ChipTone.Warning" IconName="zap" data-testid="sandbox-chip">Sandbox</Chip></li>
+                }
                 <li><Chip IconName="@(_conversation.Status == "Open" ? "message" : "check")" data-testid="status-chip" data-status="@_conversation.Status">@ConversationLabels.Status(_conversation.Status)</Chip></li>
                 <li><Chip IconName="building" data-testid="branch-chip">@(_conversation.BranchName ?? MetricsFormat.NoData)</Chip></li>
                 <li><Chip IconName="user" data-testid="advisor-chip">@(_conversation.AdvisorName ?? "Sin asignar")</Chip></li>
@@ -78,6 +82,13 @@ else if (!Redirected)
                 }
 
                 <MessageComposer State="_composer" SubmissionId="@_submissionId" Error="@_sendError" ApiErrors="_sendErrors" OnSend="SendAsync" OnInvalid="LoadAsync" />
+
+                @* The second composer of a sandbox conversation: one person plays both sides. In a scope of its own, so that its form is
+                   not the advisor's. Always in the render tree (hidden unless offered): a forged post reaches the API and is refused there. *@
+                <FormMappingScope Name="@MessageComposer.CustomerScope">
+                    <MessageComposer Customer="true" State="_customerComposer" SubmissionId="@_customerSubmissionId" Error="@_customerError" ApiErrors="_customerErrors"
+                                     OnSend="SendAsCustomerAsync" OnInvalid="LoadAsync" />
+                </FormMappingScope>
             </div>
 
             <div class="stack conversation-side">
@@ -203,6 +214,10 @@ else if (!Redirected)
     private ComposerState _composer = ComposerState.Unknown;
     private string _submissionId = OneTimeSubmissions.NewId();
     private string? _sendError;
+    private ComposerState _customerComposer = ComposerState.Unknown;
+    private string _customerSubmissionId = OneTimeSubmissions.NewId();
+    private string? _customerError;
+    private IReadOnlyDictionary<string, string[]>? _customerErrors;
 
     private AssignAdvisorInput? _assign;
     private OutcomeInput? _outcome;
@@ -295,7 +310,10 @@ else if (!Redirected)
         CanManage = profileTask.Result.Value!.Can(Permission.ConversationsManage);
 
         // The conversation itself says whether its line can send, so a person who may write needs no access to the organization.
-        _composer = ComposerState.For(CanManage, _conversation!.Status, _conversation.Channel);
+        // In sandbox mode (docs/SANDBOX.md) a sandbox conversation needs no provider key, and a real one takes no message; outside it, the reverse.
+        var sandboxMode = profileTask.Result.Value!.TenantSandboxMode;
+        _composer = ComposerState.For(CanManage, _conversation!.Status, _conversation.Channel, sandboxMode, _conversation.IsSandbox);
+        _customerComposer = CustomerComposer.For(CanManage, _conversation.Status, _conversation.Channel, sandboxMode, _conversation.IsSandbox);
 
         // Choosing an advisor needs to see them: without OrganizationView the list is simply empty (the current advisor is still named).
         _advisors = advisorsTask.Result.IsSuccess ? advisorsTask.Result.Value : null;
@@ -375,6 +393,55 @@ else if (!Redirected)
         if (!Redirected && !_missing && !Denied)
         {
             await LoadAsync();
+        }
+    }
+
+    // The simulated customer writes: the API puts the message in the ingestion queue, so it shows up a moment later, not in this answer.
+    private async Task SendAsCustomerAsync(SendMessageInput input)
+    {
+        var sender = HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+        if (!Submissions.TryClaim(sender, $"{Id:N}-customer", input.SubmissionId))
+        {
+            _customerError = SandboxFailure.AlreadySubmitted;
+            await LoadAsync();
+            return;
+        }
+
+        var result = await Api.SendSandboxCustomerMessageAsync(Token!, Id, new() { Text = input.Text?.Trim() });
+        if (result.IsSuccess)
+        {
+            RedirectTo(ConversationsNotice.Url(Id, ConversationsNotice.CustomerMessageQueued));
+            return;
+        }
+
+        switch (result.Status)
+        {
+            case ApiResultStatus.ValidationFailed:
+                _customerErrors = result.ValidationErrors;
+                SetStatusCode(StatusCodes.Status400BadRequest);
+                break;
+            case ApiResultStatus.RateLimited:
+                _customerError = SandboxFailure.TooManyMessages(result.RetryAfterSeconds);
+                SetStatusCode(StatusCodes.Status429TooManyRequests);
+                break;
+            case ApiResultStatus.Conflict:
+                _customerError = SandboxFailure.Describe(result.ProblemCode) ?? result.Detail ?? UiMessages.Unavailable;
+                SetStatusCode(StatusCodes.Status409Conflict);
+                break;
+            default:
+                await TryFailAsync(result);
+                break;
+        }
+
+        if (!Redirected && !_missing && !Denied)
+        {
+            await LoadAsync();
+
+            // A refusal must stay readable even when the composer is no longer offered (the mode went off, the conversation closed).
+            if (_customerError is not null && _customerComposer.Availability == ComposerAvailability.Unknown)
+            {
+                Message = _customerError;
+            }
         }
     }
 

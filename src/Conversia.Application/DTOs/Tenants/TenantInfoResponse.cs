@@ -23,4 +23,10 @@ public class TenantInfoResponse
 
     /// <summary>Every line the company has registered, active or not.</summary>
     public int RegisteredLines { get; set; }
+
+    /// <summary>
+    /// Whether the company is in the internal sandbox mode (docs/SANDBOX.md): nothing goes to the WhatsApp provider and the metrics show
+    /// sandbox data only. Only the platform administrator changes it.
+    /// </summary>
+    public bool SandboxMode { get; set; }
 }

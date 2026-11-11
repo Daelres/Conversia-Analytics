@@ -40,6 +40,14 @@ public class AdminTenantsController : ControllerBase
     public async Task<ActionResult<TenantSummaryResponse>> SetLineQuota(Guid id, SetLineQuotaRequest request, CancellationToken cancellationToken)
         => Ok(await _admin.SetLineQuotaAsync(AdminId, id, request, cancellationToken));
 
+    /// <summary>
+    /// Switches the internal sandbox of a company on or off (docs/SANDBOX.md); the reason is required and audited. Idempotent. This is the
+    /// only way the mode changes: no endpoint of a company's own API can.
+    /// </summary>
+    [HttpPut("tenants/{id:guid}/sandbox-mode")]
+    public async Task<ActionResult<TenantSummaryResponse>> SetSandboxMode(Guid id, SetSandboxModeRequest request, CancellationToken cancellationToken)
+        => Ok(await _admin.SetSandboxModeAsync(AdminId, id, request, cancellationToken));
+
     /// <summary>Forces a line off whatever the company wants. Idempotent.</summary>
     [HttpPost("tenants/{id:guid}/channels/{channelId:guid}/deactivate")]
     public async Task<ActionResult<TenantLineResponse>> DeactivateChannel(Guid id, Guid channelId, CancellationToken cancellationToken)

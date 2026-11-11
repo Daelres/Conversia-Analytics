@@ -19,7 +19,8 @@ public sealed record TenantAdminSummary(
     DateTime RegisteredAt,
     DateTime? LastActivityAt,
     DateTime? StatusChangedAt,
-    string? StatusReason);
+    string? StatusReason,
+    bool SandboxMode = false);
 
 /// <summary>A WhatsApp line of a company: the number, its branch and whether it is switched on. No customer data.</summary>
 public sealed record TenantAdminLine(Guid ChannelId, string DisplayPhoneNumber, string? BranchName, bool IsActive);

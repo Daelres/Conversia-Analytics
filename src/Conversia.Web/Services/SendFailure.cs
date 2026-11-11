@@ -17,6 +17,9 @@ public static class SendFailure
     public const string ProviderUnavailable = "provider_unavailable";
     public const string CredentialsUnavailable = "provider_credentials_unavailable";
     public const string SentNotRecorded = "message_sent_not_recorded";
+    public const string SandboxConversation = "sandbox_conversation";
+    public const string SandboxModeActive = "sandbox_mode_active";
+    public const string SandboxDataDeleted = "sandbox_data_deleted";
 
     public const string CredentialsUnavailableMessage =
         "Las credenciales del proveedor no están disponibles en este momento. No depende de tu cuenta: contacta al equipo de Conversia.";
@@ -32,7 +35,8 @@ public static class SendFailure
     public static readonly IReadOnlySet<string> SendCodes = new HashSet<string>(StringComparer.Ordinal)
     {
         ConversationClosed, ChannelInactive, CredentialsMissing, CredentialsInvalid, RecipientNotAllowed, ProviderRejected,
-        ProviderLimitReached, ProviderUnavailable, CredentialsUnavailable, SentNotRecorded,
+        ProviderLimitReached, ProviderUnavailable, CredentialsUnavailable, SentNotRecorded, SandboxConversation, SandboxModeActive,
+        SandboxDataDeleted,
     };
 
     /// <summary>The one code the provider-credentials endpoints may answer with: the installation has no usable master key.</summary>
@@ -54,6 +58,9 @@ public static class SendFailure
         ProviderUnavailable => "360dialog no respondió o falló, y no se sabe si el mensaje salió. Verifica en el teléfono de la línea si el mensaje llegó antes de enviarlo de nuevo.",
         CredentialsUnavailable => CredentialsUnavailableMessage,
         SentNotRecorded => "El mensaje se envió al cliente, pero no se pudo registrar en esta conversación. No lo envíes de nuevo.",
+        SandboxConversation => "Esta conversación es de prueba (sandbox) y solo admite mensajes mientras el modo sandbox de tu empresa está activo.",
+        SandboxDataDeleted => "Esta conversación de prueba se eliminó mientras escribías. El mensaje no se guardó ni se envió a ningún teléfono.",
+        SandboxModeActive => "Tu empresa está en modo sandbox y no se envían mensajes reales. Esta conversación es real: podrás escribir en ella cuando el modo sandbox se desactive.",
         _ => null,
     };
 

@@ -15,6 +15,12 @@ public class Contact : BaseEntity
 
     public static readonly string DisplayNameRuleMessage = $"El nombre del contacto {TextRules.RuleText(DisplayNameMaxLength, required: false)}.";
 
+    /// <summary>
+    /// What every simulated customer's number starts with. No E.164 country code begins with 0, so a number that does can never be a
+    /// real subscriber, and a person recognizes it at a glance. The mark of sandbox data is <see cref="IsSandbox"/>, never this prefix.
+    /// </summary>
+    public const string SandboxWaIdPrefix = "00000";
+
     public Guid TenantId { get; private set; }
 
     /// <summary>The WhatsApp id with digits only (no '+', spaces or separators).</summary>
@@ -27,12 +33,15 @@ public class Contact : BaseEntity
     /// <summary>The time of the message whose profile name <see cref="DisplayName"/> is, so an older delivery cannot overwrite a newer name.</summary>
     public DateTime? DisplayNameAt { get; private set; }
 
+    /// <summary>True for a customer simulated by the internal sandbox (docs/SANDBOX.md). Set at creation by ingestion, from the delivery; never changed.</summary>
+    public bool IsSandbox { get; private set; }
+
     // Required by EF Core for materialization.
     private Contact()
     {
     }
 
-    public static Contact Create(Guid tenantId, string waId, string? displayName, DateTime firstSeenAt)
+    public static Contact Create(Guid tenantId, string waId, string? displayName, DateTime firstSeenAt, bool isSandbox = false)
     {
         var name = TextRules.Optional(displayName, DisplayNameMaxLength, DisplayNameRuleMessage);
         var seen = UtcTime.Normalize(firstSeenAt);
@@ -43,6 +52,7 @@ public class Contact : BaseEntity
             DisplayName = name,
             DisplayNameAt = name is null ? null : seen,
             FirstSeenAt = seen,
+            IsSandbox = isSandbox,
         };
     }
 
@@ -91,4 +101,19 @@ public class Contact : BaseEntity
 
         return id.Length is >= MinWaIdLength and <= MaxWaIdLength && id.All(char.IsAsciiDigit) ? id : null;
     }
+
+    /// <summary>A new simulated customer's number: <see cref="SandboxWaIdPrefix"/> and random digits up to <see cref="MaxWaIdLength"/>.</summary>
+    public static string NewSandboxWaId(Random random)
+    {
+        var digits = new char[MaxWaIdLength - SandboxWaIdPrefix.Length];
+        for (var i = 0; i < digits.Length; i++)
+        {
+            digits[i] = (char)('0' + random.Next(10));
+        }
+
+        return SandboxWaIdPrefix + new string(digits);
+    }
+
+    /// <summary>Whether the number is in the range the sandbox hands out. For display and for refusing to hand out anything else, not for classifying stored data.</summary>
+    public static bool IsSandboxWaId(string? waId) => waId is not null && waId.StartsWith(SandboxWaIdPrefix, StringComparison.Ordinal);
 }

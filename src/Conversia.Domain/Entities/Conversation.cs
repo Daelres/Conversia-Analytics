@@ -63,13 +63,20 @@ public class Conversation : BaseEntity
 
     public DateTime? ClassificationAttemptedAt { get; private set; }
 
+    /// <summary>
+    /// True for a conversation of the internal sandbox (docs/SANDBOX.md): it was opened by a simulated delivery. Set at creation, never
+    /// changed. The metrics count it only while the company is in sandbox mode, and nothing is ever sent to the provider for it.
+    /// </summary>
+    public bool IsSandbox { get; private set; }
+
     // Required by EF Core for materialization.
     private Conversation()
     {
     }
 
     public static Conversation Start(
-        Guid tenantId, Guid contactId, Guid channelId, Guid branchId, DateTime startedAt, ConversationSource source, string? sourceReference = null)
+        Guid tenantId, Guid contactId, Guid channelId, Guid branchId, DateTime startedAt, ConversationSource source, string? sourceReference = null,
+        bool isSandbox = false)
     {
         if (!Enum.IsDefined(source))
         {
@@ -87,6 +94,7 @@ public class Conversation : BaseEntity
             SourceReference = TextRules.Optional(sourceReference, SourceReferenceMaxLength, SourceReferenceRuleMessage),
             StartedAt = started,
             LastMessageAt = started,
+            IsSandbox = isSandbox,
         };
     }
 

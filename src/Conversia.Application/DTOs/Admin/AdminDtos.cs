@@ -76,6 +76,18 @@ public class SetLineQuotaRequest
     public int? MaxActiveLines { get; set; }
 }
 
+/// <summary>Body of <c>PUT /api/admin/tenants/{id}/sandbox-mode</c>: switch the internal sandbox of a company on or off, and why.</summary>
+public class SetSandboxModeRequest
+{
+    [Display(Name = "Modo sandbox")]
+    [Required(ErrorMessage = ValidationMessages.Required)]
+    public bool? Enabled { get; set; }
+
+    [Display(Name = "Motivo")]
+    [TrimmedText(Tenant.SandboxModeReasonMaxLength)]
+    public string? Reason { get; set; }
+}
+
 /// <summary>A company in the administrator's listing.</summary>
 public class TenantSummaryResponse
 {
@@ -103,6 +115,9 @@ public class TenantSummaryResponse
 
     public string? StatusReason { get; set; }
 
+    /// <summary>Whether the company is in the internal sandbox mode (docs/SANDBOX.md).</summary>
+    public bool SandboxMode { get; set; }
+
     public static TenantSummaryResponse From(TenantAdminSummary s) => new()
     {
         Id = s.Id,
@@ -116,6 +131,7 @@ public class TenantSummaryResponse
         LastActivityAt = s.LastActivityAt,
         StatusChangedAt = s.StatusChangedAt,
         StatusReason = s.StatusReason,
+        SandboxMode = s.SandboxMode,
     };
 }
 

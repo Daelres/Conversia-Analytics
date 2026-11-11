@@ -89,6 +89,7 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
             FirstResponseAt = item.FirstResponseAt,
             ClosedAt = item.ClosedAt,
             MessageCount = item.MessageCount,
+            IsSandbox = item.IsSandbox,
             Opportunity = item.Opportunity,
             Messages = messages,
         };
@@ -213,6 +214,7 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
         FirstResponseAt = row.Conversation.FirstResponseAt,
         ClosedAt = row.Conversation.ClosedAt,
         MessageCount = row.MessageCount,
+        IsSandbox = row.Conversation.IsSandbox,
         Opportunity = OpportunityResponse.From(row.Opportunity),
     };
 }

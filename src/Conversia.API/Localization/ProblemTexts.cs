@@ -24,6 +24,7 @@ public static class ProblemTexts
     public const string MessageNotSentTitle = "Mensaje no enviado";
     public const string MessageNotRecordedTitle = "Mensaje enviado sin registrar";
     public const string CredentialsUnavailableTitle = "Credenciales no disponibles";
+    public const string SandboxRefusedTitle = "Mensaje simulado no aceptado";
 
     public const string UnexpectedTitle = "Ocurrió un error inesperado";
     public const string UnexpectedDetail = "Ocurrió un error inesperado. Inténtalo de nuevo más tarde.";

@@ -39,6 +39,11 @@ adapted to PostgreSQL and rewritten around this product.
   `/admin` lists the companies, `/admin/empresas/{id}` approves, suspends and sets the line
   quota of one, and `/admin/auditoria` shows every change
   ([`docs/PLATFORM_ADMIN.md`](docs/PLATFORM_ADMIN.md)).
+- **Internal sandbox mode** — the platform administrator can put a company in a test mode
+  that leaves 360dialog out: a simulated customer writes through the real ingestion
+  pipeline, the advisor's messages are recorded without reaching any phone, and the
+  dashboard shows only that test data, which is marked and never mixed with real numbers
+  ([`docs/SANDBOX.md`](docs/SANDBOX.md)).
 - **Data separation** — every record belongs to a company (tenant); access is controlled
   per company and per permission. The design takes the Colombian data-protection law
   (Ley 1581 de 2012) into account; the project makes no certification claim.
@@ -299,6 +304,7 @@ policy in their own tenant.
 | POST | `/api/admin/auth/login` | anonymous, rate limited | `200` platform administrator token (60 min, own audience) | `400`, `401`, `429` |
 | GET | `/api/admin/tenants`, `/api/admin/tenants/{id}`, `/api/admin/audit` | platform administrator only | `200` companies (filter by status and name), one company with its lines and recent audit, the audit trail | `400`, `401`, `403`, `404` |
 | PUT | `/api/admin/tenants/{id}/status`, `/line-quota` | platform administrator only | `200` the company | `400`, `401`, `404`, `409` invalid transition / quota below the active lines |
+| PUT | `/api/admin/tenants/{id}/sandbox-mode` | platform administrator only | `200` the company; `{enabled, reason}` switches the internal sandbox mode, reason required (`docs/SANDBOX.md`) | `400`, `401`, `404` |
 | POST | `/api/admin/tenants/{id}/channels/{channelId}/deactivate` | platform administrator only | `200` the line, off | `401`, `404` |
 | GET | `/api/users/me` | any authenticated user, in every status | `200` profile (id, tenant, owner flag, permissions) | `401`, `404` |
 | GET | `/api/users` | `UsersView` | `200` users of the caller's tenant | `401`, `403` |
@@ -321,16 +327,18 @@ policy in their own tenant.
 | GET | `/api/conversations/{id}` | `ConversationsView` | `200` conversation + opportunity (stage, outcome source, service, reason, objection, loss reason, classifier confidence and rule codes, `stageChangedBy`) + `advisorAssignedBy`/`advisorAssignedAt` (user ids only; null when the system did it) + `channel` (`isActive`, `hasProviderApiKey`, `providerEnvironment`: whether a message can leave through its number, nothing else about it) + messages (text included) | `401`, `403`, `404` unknown or other-tenant conversation |
 | PUT | `/api/conversations/{id}/advisor` | `ConversationsManage` | `200` conversation (`{"advisorId": null}` unassigns); records who did it (`advisorAssignedBy`, `advisorAssignedAt`) | `400` unknown/other-tenant/inactive advisor or one from another branch, `401`, `403`, `404` |
 | PUT | `/api/conversations/{id}/opportunity` | `ConversationsManage` | `200` opportunity; a manual `Won`, `Lost` (needs `lossReason`) or `InFollowUp`, which the classifier never overwrites; records who decided (`stageChangedBy`) | `400`, `401`, `403`, `404` |
-| POST | `/api/conversations/{id}/messages` | `ConversationsManage` | `201` the stored Outbound message; a person sends a plain text (1 to 4096 characters) to the customer through 360dialog. Manual, not a bot (`docs/MESSAGING.md`) | `400`, `401`, `403`, `404`, `409` closed / inactive channel / no or invalid key, `422` recipient not allowed or rejected, `429`, `500` sent but not recorded, `503` outcome unknown: verify before resending |
+| POST | `/api/conversations/{id}/messages` | `ConversationsManage` | `201` the stored Outbound message; a person sends a plain text (1 to 4096 characters) to the customer through 360dialog. Manual, not a bot (`docs/MESSAGING.md`) | `400`, `401`, `403`, `404`, `409` closed / inactive channel / no or invalid key / sandbox and real data do not mix (`sandbox_conversation`, `sandbox_mode_active`, `sandbox_data_deleted`), `422` recipient not allowed or rejected, `429`, `500` sent but not recorded, `503` outcome unknown: verify before resending |
+| POST | `/api/sandbox/conversations`, `/api/sandbox/conversations/{id}/customer-messages` | `ConversationsManage`; only while the company is in sandbox mode; rate limited like sending | `202` a simulated customer's message is in the ingestion queue (`docs/SANDBOX.md`) | `400`, `401`, `403`, `404`, `409` `sandbox_mode_off` / `not_sandbox_conversation` / `conversation_closed` / `channel_inactive`, `429` |
+| DELETE | `/api/sandbox/data` | `OrganizationManage` | `200` how many sandbox conversations, messages, contacts and deliveries were deleted; nothing real is touched | `401`, `403` |
 | GET | `/api/metrics/summary`, `/conversion`, `/first-response`, `/loss-reasons`, `/volume`, `/alerts` | `MetricsView` | `200` the numbers of `docs/METRICS.md` for `from`/`to` (local dates between 2015-01-01 and today + 366 days, `to` exclusive, at most 366 days, default the last 30) and the filters `branchId`, `advisorId`, `unassigned`, `source` | `400`, `401`, `403`, `429` (per-user limit), `503` (a query ran out of time) |
 | POST | `/api/webhooks/360dialog/{channelKey}` | anonymous; the channel's secret in the header `X-Webhook-Secret` or as the password of `Authorization: Basic` (never in the URL); rate limited (`docs/WEBHOOKS.md`) | `200` (also for a body already received) | `400` not a JSON object, `401` unknown/inactive channel, wrong secret or malformed `Authorization` (same answer), `413`, `429` |
 | GET | `/health` | anonymous | `200` `Healthy` / `Degraded`, `503` `Unhealthy` (webhook queue; status word only) | |
 | POST | `/api/diagnostics/errors` | header `X-Error-Report-Key`, rate limited; off without `ErrorLogging:ReportKey` | `201` `{code,persisted}` | `400`, `401`, `404` (off), `413` over 64 KB, `429` (`Retry-After`) |
 
 The Web exposes `/`, `/login`, `/register`, `/cuenta-pendiente`, `/users`, `/panel`, `/conversaciones`,
-`/conversaciones/{id}`, `/mensajes` and `/mensajes/eventos` (the messages the service stored and the webhook deliveries it received), `/organizacion` (and `/organizacion/canales/{id}/{activar|desactivar|rotar-secreto}`), `POST /logout` and the form endpoints
+`/conversaciones/{id}`, `/conversaciones/simular` (sandbox mode), `/mensajes` and `/mensajes/eventos` (the messages the service stored and the webhook deliveries it received), `/organizacion` (and `/organizacion/canales/{id}/{activar|desactivar|rotar-secreto}`, `/organizacion/sandbox/eliminar-datos`), `POST /logout` and the form endpoints
 `POST /users/permissions/grant` and `POST /users/permissions/revoke`. The platform administrator has its own pages: `/admin/login`, `/admin`,
-`/admin/empresas/{id}` (with `/estado/{accion}` and `/lineas/{id}/desactivar`), `/admin/auditoria` and `POST /admin/logout`, with a session of its own
+`/admin/empresas/{id}` (with `/estado/{accion}`, `/sandbox/{activar|desactivar}` and `/lineas/{id}/desactivar`), `/admin/auditoria` and `POST /admin/logout`, with a session of its own
 (`docs/PLATFORM_ADMIN.md`).
 Details and the full error contract: `docs/USERS_TENANTS_PERMISSIONS.md`.
 
@@ -358,6 +366,7 @@ Docker smoke test.
 - `docs/PLATFORM_ADMIN.md` — the platform administrator: company approval, per-line quota, admin API and Web area, sessions, bootstrap, security model, runbook.
 - `docs/WEBHOOKS.md` — the 360dialog webhook: endpoint, mapping, retries, closing of conversations.
 - `docs/MESSAGING.md` — sending a message by hand through 360dialog: endpoints, per-channel encrypted keys, errors, sandbox limits.
+- `docs/SANDBOX.md` — the internal sandbox mode: how it is switched, what is simulated and what is real, the data rules, and how it differs from the 360dialog sandbox and the webhook simulator.
 - `docs/METRICS.md` — the exact definition of every dashboard metric, the alerts and their settings.
 - `docs/CLASSIFICATION.md` — the rule-based classifier and how to plug in another one.
 - `docs/DOCKER.md` — the three images (api, migrator, web): build, variables, health checks, troubleshooting.

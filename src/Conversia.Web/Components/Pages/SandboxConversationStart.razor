@@ -1,0 +1,200 @@
+@page "/conversaciones/simular"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Organization
+@using Conversia.Domain.Entities
+@using Conversia.Domain.Enums
+@inherits AuthenticatedPageBase
+@inject OneTimeSubmissions Submissions
+
+<PageTitle>Simular una conversación - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="sandbox-start">
+        <PageHeader Eyebrow="Modo sandbox" EyebrowIcon="zap" Title="Simular una conversación"
+                    Description="Un cliente de prueba escribe por primera vez a uno de tus números. Entra a Conversia por el mismo camino que un mensaje real de WhatsApp.">
+            <a class="btn btn--secondary" href="/conversaciones"><Icon Name="arrow-left" />Volver a conversaciones</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_loaded && !_sandboxMode)
+        {
+            <Alert Kind="AlertKind.Info" data-testid="sandbox-off">El modo sandbox no está activo para tu empresa, así que no hay cliente simulado. Solo el equipo de Conversia puede activarlo.</Alert>
+        }
+        else if (_loaded && !_canSeeChannels)
+        {
+            <Alert Kind="AlertKind.Info" data-testid="sandbox-no-channels-access">Para elegir el número necesitas el permiso «@PermissionLabels.For(Permission.OrganizationView)». Pídelo a la persona propietaria de tu empresa.</Alert>
+        }
+        else if (_loaded && ActiveChannels.Count == 0)
+        {
+            <Alert Kind="AlertKind.Info" data-testid="sandbox-no-channels">
+                <ChildContent>Tu empresa no tiene ningún número de WhatsApp activo. Registra y activa uno para poder simular conversaciones en él.</ChildContent>
+                <Actions>
+                    <a class="btn btn--secondary btn--sm" href="/organizacion#numeros"><Icon Name="building" Class="icon--sm" />Ir a organización</a>
+                </Actions>
+            </Alert>
+        }
+
+        @if (_error is not null)
+        {
+            <Alert Kind="AlertKind.Danger" data-testid="sandbox-start-error">@_error</Alert>
+        }
+
+        @* Always rendered (hidden when it does not apply): a POST can only be dispatched to a form that exists in the render tree, and a
+           forged one must still reach the API and be refused there. *@
+        <div hidden="@(!ShowForm)">
+            <Card Title="Cliente simulado" Subtitle="El número del cliente lo inventa Conversia, en un rango que ningún teléfono real puede tener." IconName="user" data-testid="sandbox-start-card">
+                <EditForm Model="Input" FormName="start-sandbox-conversation" OnValidSubmit="StartAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="sandbox-start-form" data-submit-once>
+                    <DataAnnotationsValidator />
+                    <input type="hidden" name="@($"{nameof(Input)}.{nameof(StartSandboxConversationInput.SubmissionId)}")" value="@_submissionId" />
+                    <FormField TValue="string" For="() => Input.ChannelId" Id="sandbox-channel" Label="Número de WhatsApp" IconName="phone"
+                               Hint="El número de tu negocio al que escribe el cliente. Solo aparecen los números activos." ApiErrors="_errors" Context="field">
+                        <InputSelect id="sandbox-channel" class="input" name="@($"{nameof(Input)}.{nameof(StartSandboxConversationInput.ChannelId)}")" @bind-Value="Input.ChannelId" @attributes="field">
+                            <option value="">Elige un número</option>
+                            @foreach (var channel in ActiveChannels)
+                            {
+                                <option value="@channel.Id">@channel.DisplayPhoneNumber</option>
+                            }
+                        </InputSelect>
+                    </FormField>
+                    <FormField TValue="string" For="() => Input.CustomerName" Id="sandbox-name" Label="Nombre del cliente" IconName="user"
+                               Hint="Como aparecería en su perfil de WhatsApp. Usa un nombre inventado, no el de una persona real." ApiErrors="_errors" Context="field">
+                        <TextInput id="sandbox-name" class="input" autocomplete="off" maxlength="@Contact.DisplayNameMaxLength" name="@($"{nameof(Input)}.{nameof(StartSandboxConversationInput.CustomerName)}")" @bind-Value="Input.CustomerName" @attributes="field" Invalid="field.Invalid" />
+                    </FormField>
+                    <FormField TValue="string" For="() => Input.Text" Id="sandbox-text" Label="Primer mensaje" ApiErrors="_errors"
+                               Hint="Lo que el cliente escribe al abrir el chat. Texto sin formato." Context="field">
+                        <InputTextArea id="sandbox-text" class="input" rows="4" maxlength="@SendMessageInput.MaxLength" name="@($"{nameof(Input)}.{nameof(StartSandboxConversationInput.Text)}")" @bind-Value="Input.Text" @attributes="field" />
+                    </FormField>
+                    <ApiFieldErrors Errors="_errors" KnownFields="@(["ChannelId", "CustomerName", "Text"])" />
+                    <div class="form-actions">
+                        @if (ShowForm)
+                        {
+                            <button type="submit" class="btn btn--primary" data-testid="sandbox-start-submit"><Icon Name="plus" />Iniciar conversación simulada</button>
+                        }
+                        <a class="btn btn--ghost" href="/conversaciones">Cancelar</a>
+                    </div>
+                </EditForm>
+            </Card>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loaded;
+    private bool _sandboxMode;
+    private bool _canManage;
+    private bool _canSeeChannels;
+    private IReadOnlyList<ChannelResponse> _channels = [];
+    private IReadOnlyDictionary<string, string[]>? _errors;
+    private string? _error;
+    private string _submissionId = OneTimeSubmissions.NewId();
+    private StartSandboxConversationInput? _input;
+
+    [SupplyParameterFromForm(FormName = "start-sandbox-conversation")]
+    private StartSandboxConversationInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    private IReadOnlyList<ChannelResponse> ActiveChannels => _channels.Where(channel => channel.IsActive).ToList();
+
+    private bool ShowForm => _loaded && _sandboxMode && _canManage && ActiveChannels.Count > 0 && !Redirected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        var channelsTask = Api.GetChannelsAsync(Token!);
+        await Task.WhenAll(profileTask, channelsTask);
+
+        if (await TryFailAsync(profileTask.Result))
+        {
+            return;
+        }
+
+        var profile = profileTask.Result.Value!;
+        Shell.Remember(profile);
+        _canManage = profile.Can(Permission.ConversationsManage);
+        if (!_canManage)
+        {
+            Deny();
+            return;
+        }
+
+        // Listing the numbers needs to see the organization; without it the page says so instead of offering an empty list.
+        _canSeeChannels = channelsTask.Result.IsSuccess;
+        if (!_canSeeChannels && channelsTask.Result.Status != ApiResultStatus.Forbidden && await TryFailAsync(channelsTask.Result))
+        {
+            return;
+        }
+
+        _channels = channelsTask.Result.Value ?? [];
+        _sandboxMode = profile.TenantSandboxMode;
+        _loaded = true;
+    }
+
+    private async Task StartAsync()
+    {
+        var sender = HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+        if (!Submissions.TryClaim(sender, "sandbox-start", Input.SubmissionId))
+        {
+            _error = "Este formulario ya se envió. Revisa la lista de conversaciones antes de enviarlo otra vez.";
+            await LoadAsync();
+            return;
+        }
+
+        var result = await Api.StartSandboxConversationAsync(Token!, Input.ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo(ConversationsNotice.ListUrl(ConversationsNotice.SandboxConversationQueued));
+            return;
+        }
+
+        switch (result.Status)
+        {
+            case ApiResultStatus.ValidationFailed:
+                _errors = result.ValidationErrors;
+                SetStatusCode(StatusCodes.Status400BadRequest);
+                break;
+            case ApiResultStatus.RateLimited:
+                _error = SandboxFailure.TooManyMessages(result.RetryAfterSeconds);
+                SetStatusCode(StatusCodes.Status429TooManyRequests);
+                break;
+            case ApiResultStatus.Conflict:
+                _error = SandboxFailure.Describe(result.ProblemCode) ?? result.Detail ?? UiMessages.Unavailable;
+                SetStatusCode(StatusCodes.Status409Conflict);
+                break;
+            case ApiResultStatus.NotFound:
+                // The number was removed, or was never this company's.
+                _errors = new Dictionary<string, string[]> { ["ChannelId"] = ["Elige un número de la lista."] };
+                SetStatusCode(StatusCodes.Status400BadRequest);
+                break;
+            default:
+                await TryFailAsync(result);
+                break;
+        }
+
+        if (!Redirected && !Denied)
+        {
+            await LoadAsync();
+        }
+    }
+}
