@@ -93,8 +93,30 @@ only engagement; if a later advisor message says `quedó agendada para el sábad
 ### A person always wins
 
 `PUT /api/conversations/{id}/opportunity` marks the stage `Manual`. From then on `ApplyClassification` leaves the stage, the loss reason and
-`ClosedAt` alone; the descriptive fields (service, reason, objection) keep following the classifier. The worker and the endpoint take the
-lock of the conversation row before touching its opportunity, so they cannot interleave.
+`ClosedAt` alone. The worker and the endpoint take the lock of the conversation row before touching its opportunity, so they cannot interleave.
+
+**Per-field provenance.** Each descriptive field carries its own source and producer (migration `AddExtractionProvenance`):
+
+| Field | Source (who set it) | Producer (which classifier wrote it last) |
+|---|---|---|
+| `Opportunities.ServiceInterest` | `ServiceInterestSource`: `Auto` / `Manual` | `ServiceInterestClassifiedBy`: `Rules` / `Llm` / NULL |
+| `Opportunities.InterestReason` | `InterestReasonSource` | `InterestReasonClassifiedBy` |
+| `Opportunities.Objection` | `ObjectionSource` | `ObjectionClassifiedBy` |
+| `Contacts.AgeRange`, `Contacts.Gender` (extracted profile, LLM only) | `AgeRangeSource`, `GenderSource` (NULL = never set) | `ProfileClassifiedBy` |
+
+`Opportunities.ClassifiedBy` records which classifier made the last automatic stage/loss-reason write (diagnostics only).
+
+- A `Manual` field is never overwritten by any classifier. Saving a field, even unchanged, pins it `Manual`; reverting it to `Auto` keeps
+  the value until the next classification (`SetManualServiceInterest`, `SetManualInterestReason`, `SetManualObjection`, `RevertDetailToAuto`;
+  `SetManualAgeRange`, `SetManualGender`, `RevertProfileFieldToAuto`). `DetailsChangedAt/By` and `ProfileChangedAt/By` record who did it.
+- Every automatic write records its producer per field. An **explicit rules fallback** (`ClassificationUpdate.IsRulesFallback`: the LLM was
+  meant to read the conversation and failed or was not admitted) never overwrites a non-empty value the LLM produced; stage, loss reason and
+  confidence still come from the rules (an accepted mix). A plain `Provider=Rules` run is not a fallback: it overwrites `Auto` fields as it
+  always did, so rolling back to the rules leaves no stale LLM values. Rows older than the columns have a NULL producer, read as `Rules`.
+- The extracted profile (`Contact.ApplyExtractedProfile`) only fills fields that were stated and that no person set; it never erases a value.
+- `Conversations.LlmFailures` counts LLM answers that could not be used (refused, cut off, malformed), independently of `ClassificationFailures`;
+  a new message (`RequestClassification`) or an LLM success resets it. `CompleteWithRulesFallback` and `RequeueClassification` are the paths the
+  LLM runner will use; with `Provider=Rules` nothing calls them.
 
 ## The rule-based classifier
 
@@ -138,7 +160,7 @@ deployment; per-tenant dictionaries would need a table and are not built.
 | Key | Default | Meaning |
 |---|---|---|
 | `Classification:Enabled` | `true` | Starts the background worker. `false`: conversations stay flagged. |
-| `Classification:Provider` | `Rules` | The only provider implemented; any other value stops the API at startup. |
+| `Classification:Provider` | `Rules` | The only provider wired; any other value stops the API at startup. |
 | `Classification:RulesPath` | *(embedded Spanish rules)* | Path of a JSON file with the dictionaries. |
 | `Classification:DebounceSeconds` | `60` | A conversation is read once its classification request (the arrival of the last message) is at least this old. 0 to 86400. |
 | `Classification:PollIntervalMilliseconds` | `2000` | Pause of the worker when nothing is due. |
@@ -183,6 +205,83 @@ The rules are a stopgap, and honest about it:
 - A refusal after a confirmed booking is not read (`ya no me interesa` to a reminder is not a cancellation); `ya no voy a poder ir` and `cancelar la cita` are.
 - Several objections in one message: the order of the rules decides (price, timing, location, trust, pain, other); across messages, the latest wins.
 - Echoes of messages sent from the WhatsApp Business app are **unverified** against a real 360dialog sandbox (`docs/WEBHOOKS.md`): without them the business side of every chat is missing and `Won` by advisor confirmation cannot happen.
+
+## Preparing a conversation for the LLM (saving tokens)
+
+The LLM provider is being built (design `llm-extraction`); its pure pieces live in `Conversia.Application/Classification/Llm` and nothing runs
+them yet (`Classification:Provider` still accepts only `Rules`). Before any text leaves the process the conversation goes through:
+
+```
+real snapshot ──► RuleBasedConversationClassifier ──► WonGuard (the rules have the last word on Won, both ways)
+      │
+      └──► Pseudonymizer ──► ConversationPreprocessor ──► LlmPromptBuilder ──► model ──► LlmResultMapper (strict) ──► WonGuard
+```
+
+The rules classifier and the `WonGuard` always read the **full real** snapshot; the preprocessor only changes what the model is sent.
+
+**Masking comes before any cap.** On the LLM path the snapshot is read 64 characters beyond the 1,000-character cap
+(`ConversationClassificationRunner.ReadCharactersPerMessage`), the `Pseudonymizer` masks the whole text, and only then the preprocessor applies
+the cap, dropping a word cut in half at the end: a number straddling the cap can never leave a few of its digits behind. The Rules path reads
+exactly what it read before (two queries, 1,000 characters); the known names and numbers are one more query, only on the LLM path.
+
+**Canonical text.** Both the `Pseudonymizer` and `PromptTextNeutralizer` first run `TextSanitizer`: NFKC (fullwidth `３` and `｜` become `3`
+and `|`), every decimal digit of any script to ASCII, format characters removed (zero-width spaces and joiners, soft hyphens, bidi marks) and
+every Unicode space to an ASCII space. Look-alike or invisible characters cannot slip a phone number or a delimiter past the patterns.
+
+### What the preprocessor removes, and why
+
+| Step | Example | Why |
+|---|---|---|
+| Messages without text are dropped | media without caption, blank | Nothing to read; their number is simply skipped. |
+| White space collapsed; a character repeated more than 3 times keeps 3; a run of emoji keeps 3; a message of only symbols keeps 3 | `siiiiii` → `siii`, `!!!!!!` → `!!!`, `👍👍👍👍👍` → `👍👍👍` | Emphasis survives, the repetition costs tokens. A thumbs-up alone is kept: it can be a confirmation. |
+| Links become `[URL]` (already masked ones stay) | `https://…?utm=…` → `[URL]` | A link carries no extraction value and is token-heavy. |
+| An advisor message identical to an earlier one (ignoring case, accents, punctuation, emoji, spacing) becomes `=n` | a price list sent again → `9 A: =3` | Templates, price lists and greetings are re-sent constantly. Only exact copies: a list with a different price is not a copy. |
+| A long advisor message keeps its beginning, its end and every clause holding a phrase the rules read in a business message, around `[...]` | catalogue boilerplate between a greeting and `quedó agendada…` | The confirmation usually sits at the end; services, days and booking statements are never cut. |
+| Consecutive messages of one side share a line | `1 C: hola \| quiero info \|4 ¿cuánto vale?` | One prefix instead of three. Each segment keeps its number (implicit when consecutive, `\|4` when not). |
+| Over the token budget the oldest middle lines are left out and marked | `[... 37 messages omitted]` | Long chats; the first customer message (origin, interest) and the latest lines are always kept. A back-reference to a message the budget left out shows that message's text instead. |
+
+The line format is `n C: text` / `n A: text`, where `n` is the message's position in the snapshot, so a line the model cites
+(`WonEvidenceIndex`) maps straight back to the message; the mapper rejects a cited line that is not shown in the block (a dropped message or
+one the budget left out). `PromptTextNeutralizer` guarantees no message text can break a line, imitate a prefix (`9 A:` becomes `9 A;`,
+`[#9][A]` becomes `(#9)(A)`), use the segment separator (`|` becomes `/`), fake a back-reference (`=3` becomes `= 3`), imitate the gap marker
+(`[... 3 messages omitted]` becomes `(... 3 messages omitted)`) or close the block (`</conversation>` becomes `[tag]`). The markers are ASCII
+(`[...]`), because NFKC turns `…` into `...`.
+
+### What it never removes
+
+- Customer messages are never collapsed as repeats and never cut beyond the existing 1,000-character cap.
+- No phrase the rules classifier relies on: `PreprocessorQualityGuardTests` runs the pseudonymizer and the preprocessor over the golden set,
+  4,000 generated chats and 200 long synthetic chats and checks, **in the same message** (back-references resolved), that every phrase of the
+  rules file that the classifier reads on that side (all of them for the customer; services, proposals, days and hours, confirmations for the
+  business) and that appears in the pseudonymized message still appears in what is shown for it. A phrase lost from one message fails even if it
+  survives in another. Messages left out by the budget are reported separately (none in that corpus).
+
+### Measured reduction
+
+Estimated tokens are characters / 3, rounded up (conservative for Spanish); "before" is the same messages as one `[#n][C] text` line each.
+
+| Corpus | Characters before → after | Estimated tokens before → after | Reduction |
+|---|---|---|---|
+| Golden set (111 short chats) | 63.8 → 58.7 | 21.6 → 19.9 | 7.9% |
+| Long synthetic chats (200, 30 to 90 messages, re-sent price lists, emoji, media, links) | 5,238 → 1,847 | 1,746 → 616 | 64.7% |
+| Whole corpus (4,311 chats) | 394.7 → 220.8 | 131.9 → 73.9 | 44.1% |
+
+Short chats gain little (the compact line prefix and merged lines); the savings are in long chats with templates. All chats are synthetic;
+measure again on pilot data before tuning the defaults.
+
+### Configuration
+
+The preprocessor's settings (`ConversationPreprocessorOptions`) are validated at construction, naming the key and its range. They are wired
+to configuration together with the provider, in the next step.
+
+| Key | Default | Range | Meaning |
+|---|---|---|---|
+| `Classification:Llm:Preprocessing:AdvisorMaxCharacters` | `400` | 120 to 1000 | Longest advisor message kept whole. |
+| `Classification:Llm:Preprocessing:TokenBudget` | `4000` | 300 to 50,000 | Estimated tokens of the conversation block. |
+| `Classification:Llm:Preprocessing:KeepLastLines` | `6` | 1 to 50 | Latest lines always kept. |
+
+`ConversationPreprocessor.Version` is part of the prompt version (`LlmPromptBuilder.PromptVersion`), and the settings' fingerprint is an input of
+the snapshot hash (`SnapshotHasher`): changing either invalidates the reuse of stored results.
 
 ## Adding an LLM provider
 

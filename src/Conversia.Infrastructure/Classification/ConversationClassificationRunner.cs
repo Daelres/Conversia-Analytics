@@ -40,6 +40,9 @@ public sealed class ConversationClassificationRunner(
     /// <summary>The most characters of a message that are read from the database (the first ones): a message is bounded too.</summary>
     public const int MaxCharactersPerMessage = 1000;
 
+    /// <summary>What the LLM path reads per message: a margin beyond the cap, so a number straddling it is masked before the cap is applied.</summary>
+    public const int ReadCharactersPerMessage = MaxCharactersPerMessage + 64;
+
     /// <summary>Returns true when a conversation was claimed (classified, or its failure recorded), false when none was due.</summary>
     public async Task<bool> ProcessNextAsync(CancellationToken cancellationToken = default)
     {
@@ -68,7 +71,7 @@ public sealed class ConversationClassificationRunner(
             tenantId = conversation.TenantId;
             scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(conversation.TenantId);
 
-            var snapshot = await ReadSnapshotAsync(db, conversation, budget.Token);
+            var snapshot = await ReadSnapshotAsync(db, conversation, includeKnownValues: false, budget.Token);
             var opportunity = await db.Opportunities.SingleAsync(o => o.ConversationId == conversation.Id, budget.Token);
             var result = await scope.ServiceProvider.GetRequiredService<IConversationClassifier>().ClassifyAsync(snapshot, budget.Token);
 
@@ -116,15 +119,24 @@ public sealed class ConversationClassificationRunner(
         return claimed.FirstOrDefault();
     }
 
-    private static async Task<ConversationSnapshot> ReadSnapshotAsync(ApplicationDbContext db, Conversation conversation, CancellationToken cancellationToken)
+    /// <summary>
+    /// The latest messages (with their ids) and the branch: exactly what the rules classifier read before, in two queries. With
+    /// <paramref name="includeKnownValues"/> (the LLM path) each message is read <see cref="ReadCharactersPerMessage"/> long (a number
+    /// straddling the cap is masked before the cap is applied), and one more query reads what the system already knows: the contact's
+    /// display name and WhatsApp id, the assigned advisor's name and the channel number. Those values are only used to mask them before any
+    /// text leaves the process and as inputs of the snapshot hash; they are never logged. Runs under the tenant's query filters (the caller
+    /// sets the tenant first).
+    /// </summary>
+    internal static async Task<ConversationSnapshot> ReadSnapshotAsync(ApplicationDbContext db, Conversation conversation, bool includeKnownValues, CancellationToken cancellationToken)
     {
         // The latest messages, then put back in conversation order. SentAt has a resolution of one second, so the tie-breakers (arrival,
         // then id) only make the order stable.
+        var characters = includeKnownValues ? ReadCharactersPerMessage : MaxCharactersPerMessage;
         var messages = await db.Messages.AsNoTracking()
             .Where(m => m.ConversationId == conversation.Id)
             .OrderByDescending(m => m.SentAt).ThenByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id)
             .Take(MaxMessagesPerConversation)
-            .Select(m => new SnapshotMessage(m.Direction, m.Type, m.Text == null ? null : m.Text.Substring(0, MaxCharactersPerMessage), m.SentAt))
+            .Select(m => new SnapshotMessage(m.Direction, m.Type, m.Text == null ? null : m.Text.Substring(0, characters), m.SentAt, m.Id))
             .ToListAsync(cancellationToken);
         messages.Reverse();
 
@@ -133,8 +145,32 @@ public sealed class ConversationClassificationRunner(
             .Select(b => b.Name)
             .FirstOrDefaultAsync(cancellationToken);
 
+        if (!includeKnownValues)
+        {
+            return new ConversationSnapshot(
+                conversation.Id, branchName, conversation.StartedAt, conversation.FirstInboundAt, conversation.FirstResponseAt, messages, conversation.TenantId);
+        }
+
+        var known = await db.Conversations.AsNoTracking()
+            .Where(c => c.Id == conversation.Id)
+            .Select(c => new
+            {
+                ContactName = db.Contacts.Where(x => x.Id == c.ContactId).Select(x => x.DisplayName).FirstOrDefault(),
+                ContactWaId = db.Contacts.Where(x => x.Id == c.ContactId).Select(x => x.WaId).FirstOrDefault(),
+                AdvisorName = db.Advisors.Where(a => a.Id == c.AdvisorId).Select(a => a.Name).FirstOrDefault(),
+                ChannelNumber = db.WhatsAppChannels.Where(w => w.Id == c.ChannelId).Select(w => w.DisplayPhoneNumber).FirstOrDefault(),
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var knownNames = new[] { known?.ContactName, known?.AdvisorName, branchName }
+            .Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n!).Distinct(StringComparer.Ordinal).ToList();
+        var knownNumbers = new[] { known?.ContactWaId, known?.ChannelNumber }
+            .Select(n => n is null ? string.Empty : new string([.. n.Where(char.IsAsciiDigit)]))
+            .Where(n => n.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+
         return new ConversationSnapshot(
-            conversation.Id, branchName, conversation.StartedAt, conversation.FirstInboundAt, conversation.FirstResponseAt, messages);
+            conversation.Id, branchName, conversation.StartedAt, conversation.FirstInboundAt, conversation.FirstResponseAt, messages,
+            conversation.TenantId, knownNames, knownNumbers, known?.ContactName, known?.AdvisorName);
     }
 
     /// <summary>What the opportunity stores of a result. The rule codes are joined within the column; the outcome becomes the stage (Undetermined: none).</summary>
