@@ -50,7 +50,7 @@ In the Web: `/admin/empresas/{id}`, card "Modo sandbox", then the confirmation p
 | | In sandbox mode | |
 |---|---|---|
 | A customer writes | **Simulated.** The API builds the delivery 360dialog would have posted (Cloud API envelope, one text message) and hands it to `IWebhookIngestionService.StoreAsync` | Everything after that call is the real path |
-| Queue, worker, parser, de-duplication, contacts, conversations, classification request, classifier, close by inactivity | Real | Same code, same tables, same locks |
+| Queue, worker, parser, de-duplication, contacts, conversations, classification request, classifier, close by inactivity | Real | Same code, same tables, same locks. With `Classification:Provider=Llm` (Development) sandbox conversations go through the LLM too, unless `Classification:Llm:IncludeSandbox=false`; each call's log line says `Sandbox=True`, so test usage never mixes with real usage (docs/CLASSIFICATION.md) |
 | An advisor sends a message | **Simulated transport.** `WhatsAppMessageSenderResolver` returns `SandboxMessageSender`: no network call, no provider key, accepted at once with an id that starts with `sandbox.out.` | `MessageSendingService` checks and records exactly as for 360dialog |
 | Metrics, dashboard, alerts | Real queries, over sandbox data only | See [Data rules](#data-rules) |
 | The webhook (`POST /api/webhooks/360dialog/{channelKey}`) | Real and unchanged: same authentication, same limits | What arrives is stored as real data |

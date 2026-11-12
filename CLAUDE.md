@@ -97,6 +97,7 @@ WhatsApp ─► 360dialog ─► Webhook (API .NET) ─► Cola / procesamiento 
 Conversia.slnx
 global.json, .editorconfig, .config/dotnet-tools.json   # dotnet-ef 10.0.11 como herramienta local
 docker-compose.yml, docker-compose.simulator.yml, .env.example, .dockerignore
+docker-compose.llm-dev.yml, docker-compose.llm-real.yml   # solo desarrollo: clasificador con IA sobre Replay (sin clave) o contra la API real (docs/DOCKER.md)
 .github/workflows/tests.yml
 README.md                    # README del proyecto (en inglés): qué es, arranque con Docker, configuración, API
 docs/
@@ -105,7 +106,7 @@ docs/
   PLATFORM_ADMIN.md          # administrador de plataforma: aprobación de empresas, cupo de líneas activas, API /api/admin, arranque, modelo de seguridad y runbook
   WEBHOOKS.md                # ingesta del webhook de 360dialog (endpoint, mapeo, reintentos, cierre de conversaciones, formato no verificado)
   MESSAGING.md               # envío manual de mensajes por 360dialog: endpoints, pantallas de la Web, clave de API por canal cifrada, errores y límites del sandbox
-  CLASSIFICATION.md          # clasificador de conversaciones (reglas en español; cómo conectar un LLM)
+  CLASSIFICATION.md          # clasificador de conversaciones: reglas en español y proveedor LLM (Claude Haiku 5.5, solo Development por ahora; opciones, costos, fallos)
   METRICS.md                 # definición exacta de cada métrica del tablero, alertas y configuración
   SANDBOX.md                 # modo sandbox interno por empresa: quién lo activa, qué se simula y qué es real, reglas de datos y métricas, límites
   SIMULATOR.md               # simulador de webhooks (solo desarrollo): uso, seguridad y cómo probar con el sandbox de 360dialog

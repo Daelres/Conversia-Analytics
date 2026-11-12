@@ -14,7 +14,8 @@ public sealed record ClassificationOptions(
     int MaxFailures,
     int RetryDelaySeconds,
     int ProcessingTimeoutSeconds,
-    string? RulesPath)
+    string? RulesPath,
+    LlmOptions? Llm = null)
 {
     public const string SectionName = "Classification";
     public const string EnabledKey = SectionName + ":Enabled";
@@ -27,8 +28,17 @@ public sealed record ClassificationOptions(
     public const string ProcessingTimeoutSecondsKey = SectionName + ":ProcessingTimeoutSeconds";
     public const string RulesPathKey = SectionName + ":RulesPath";
 
-    /// <summary>The only provider so far: the rule-based Spanish classifier. A future LLM adapter would add its own name here.</summary>
+    /// <summary>The rule-based Spanish classifier: the default, and the rollback of every LLM stage.</summary>
     public const string RulesProvider = "Rules";
+
+    /// <summary>The LLM provider (<see cref="Llm"/> holds its settings). Development only until the release gate is lifted.</summary>
+    public const string LlmProvider = "Llm";
+
+    /// <summary>Rules and LLM side by side (design PR 3): not available yet; rejected at startup.</summary>
+    public const string ShadowProvider = "Shadow";
+
+    /// <summary>The quiet period the claim waits for: the LLM's own, longer one when the provider is the LLM.</summary>
+    public TimeSpan EffectiveDebounce => Llm is null ? Debounce : Llm.Debounce;
 
     public static ClassificationOptions Default { get; } = new(
         Enabled: true, Provider: RulesProvider, DebounceSeconds: 60, PollIntervalMilliseconds: 2000, BatchSize: 20,

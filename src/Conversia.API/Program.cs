@@ -35,7 +35,7 @@ builder.Services.AddAdminLoginRateLimiting(builder.Configuration);
 builder.Services.AddErrorLogging(builder.Configuration);
 builder.Services.AddWebhookIngestion(builder.Configuration);
 builder.Services.AddConversations(builder.Configuration);
-builder.Services.AddClassification(builder.Configuration);
+builder.Services.AddClassification(builder.Configuration, builder.Environment);
 builder.Services.AddMetrics(builder.Configuration);
 builder.Services.AddMessaging(builder.Configuration);
 builder.Services.AddOptionalForwardedHeaders(builder.Configuration);

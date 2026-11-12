@@ -1,0 +1,28 @@
+# Overlay for validating the LLM classifier on your own machine with NO API key and NO network call (docs/DOCKER.md,
+# "Local LLM validation over Replay"; docs/CLASSIFICATION.md, "The LLM provider"):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.simulator.yml -f docker-compose.llm-dev.yml up -d --build
+#
+# DEVELOPMENT ONLY. It runs the API in the Development environment (OpenAPI on, developer error pages, sandbox included in the LLM path)
+# and approves the privacy switch for this local stack only. Never use it in production: the API refuses Provider=Llm and Client=Replay
+# outside Development anyway. The replay client answers every conversation with a fixed, valid reading (or a canned one from
+# Classification__Llm__ReplayPath); usage and cost are zero. To call the real API instead, add docker-compose.llm-real.yml after this file.
+services:
+  api:
+    # Development mode serves OpenAPI and developer error pages: publish on loopback only. `!override` REPLACES the base mapping (a plain
+    # list would be merged with the base 0.0.0.0 one); needs Docker Compose 2.24 or later. Check with `docker compose ... config`.
+    ports: !override
+      - "127.0.0.1:${API_PORT:-5030}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Classification__Provider: Llm
+      Classification__Llm__Client: Replay
+      # Local only: records that sending pseudonymized conversations to a provider was approved (docs/decisiones.md). Replay sends nothing.
+      Classification__Llm__PrivacyApproved: "true"
+      # Stage A limits (design D4): one attempt, at most 8 s, inside the claim transaction.
+      Classification__Llm__TimeoutSeconds: "8"
+      Classification__Llm__MaxRetries: "0"
+
+  web:
+    ports: !override
+      - "127.0.0.1:${WEB_PORT:-5112}:8080"

@@ -134,6 +134,56 @@ It builds the three images with a throwaway tag (`smoke-<random>`), starts its o
 
 It only creates and removes resources of its own project (`down -v --rmi local` plus its own tags) and never reads the repository's `.env`. CI runs it as the `docker` job of `.github/workflows/tests.yml`.
 
+## Local LLM validation over Replay
+
+> **Development only. Never in production.** The overlay runs the API in the `Development` environment (OpenAPI, developer error pages,
+> sandbox conversations included in the LLM path) and approves the LLM privacy switch for this local stack. The API itself refuses
+> `Classification:Provider=Llm` and `Classification:Llm:Client=Replay` in any other environment. Because Development exposes OpenAPI and
+> developer error pages, the overlay publishes the API and the Web on **127.0.0.1 only**: it replaces the base port mappings with
+> `ports: !override` (a plain `ports:` list would be merged with the base `0.0.0.0` mapping; needs Docker Compose 2.24+). Check with
+> `docker compose -f docker-compose.yml -f docker-compose.simulator.yml -f docker-compose.llm-dev.yml config | grep -A3 ports`.
+
+`docker-compose.llm-dev.yml` turns on the LLM classifier (docs/CLASSIFICATION.md, "The LLM provider") over the **replay** client: no API key,
+no network call, zero cost. Every conversation gets a fixed, valid reading (or a canned one from `Classification__Llm__ReplayPath`), so the
+whole path runs end to end: pseudonymizer, preprocessor, prompt, mapper, Won guard, breaker, log line and the profile write.
+
+```bash
+cp .env.example .env    # if not done yet; fill in POSTGRES_PASSWORD and JWT_SIGNING_KEY
+docker compose -f docker-compose.yml -f docker-compose.simulator.yml -f docker-compose.llm-dev.yml up -d --build
+```
+
+Compose merges the `environment` maps: the simulator overlay shortens both debounces to 5 s (`Classification__DebounceSeconds`,
+`Classification__Llm__DebounceSeconds`; the LLM default is 300 s) and the LLM overlay sets `Provider=Llm`, `Client=Replay`,
+`PrivacyApproved=true`, `TimeoutSeconds=8`, `MaxRetries=0`. Then:
+
+1. Create a company and a line, and play conversations through the webhook with the simulator (docs/SIMULATOR.md), or turn on the company's
+   internal sandbox and start a simulated conversation from `/conversaciones/simular` (docs/SANDBOX.md).
+2. Wait for the debounce (about 5 s) and look for the call in the API log:
+   `docker compose logs api | grep "LLM classification"`. Each line carries the ids, `Sandbox`, provider, model (`replay`), status, the four
+   token counters, the estimated USD (0 with replay) and the preprocessor statistics, never text.
+3. Tear down: `docker compose -f docker-compose.yml -f docker-compose.simulator.yml -f docker-compose.llm-dev.yml down` (add `-v` to drop the data).
+
+### Against the real API
+
+`docker-compose.llm-real.yml` switches the same stack to the real Anthropic API. It **costs money and sends data** (pseudonymized
+conversations) to the provider: use synthetic conversations only. It always goes on top of `docker-compose.llm-dev.yml`, which keeps the ports
+on loopback. With the real client **only sandbox conversations** are sent (`Classification:Llm:AllowRealClientNonSandbox=false`, the
+default); simulator conversations arrive through the webhook as real ones, so they are read by the rules unless you set that switch, which is
+meant only for after the privacy review and the processor agreement. Sandbox text is typed by staff and may still contain real data: it goes
+through the pseudonymizer like everything else, but never paste a real customer chat into it. Put the key in your local `.env` (never in a file of the repository):
+
+```bash
+# .env
+ANTHROPIC_API_KEY=<your key>
+```
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.simulator.yml -f docker-compose.llm-dev.yml -f docker-compose.llm-real.yml up -d --build
+```
+
+Compose stops with a clear message if `ANTHROPIC_API_KEY` is empty. The overlay maps it to `Anthropic__ApiKey` and sets
+`Classification__Llm__Client=Anthropic`; the log line of each call then shows real tokens (cache reads included) and the estimated USD.
+
 ## Troubleshooting
 
 Start with the logs of the failing service: `docker compose logs --tail 50 api` (also `web`, `migrator`, `postgres`), and `docker compose ps -a` for the state and health of every container.

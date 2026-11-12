@@ -68,6 +68,10 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.ClassificationFailures).IsRequired();
         builder.Property(c => c.ClassificationAttemptedAt);
         builder.Property(c => c.LlmFailures).IsRequired().HasDefaultValue(0);
+        builder.Property(c => c.LastLlmSnapshotHash).HasMaxLength(Conversation.SnapshotHashLength).IsFixedLength();
+        builder.Property(c => c.ProfilePending).IsRequired().HasDefaultValue(false);
+        builder.Property(c => c.PendingAgeRange).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(c => c.PendingGender).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.IsSandbox).IsRequired().HasDefaultValue(false);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.UpdatedAt);

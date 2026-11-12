@@ -70,6 +70,47 @@ public class Conversation : BaseEntity
     public int LlmFailures { get; private set; }
 
     /// <summary>
+    /// The snapshot hash (SHA-256, 64 lower-case hex characters) of the LLM reading that is applied right now; null when what is applied is
+    /// not an LLM reading. A claimed conversation whose snapshot still has this hash is finished without calling the model (nothing it
+    /// reads changed). Only the digest is stored, never text.
+    /// </summary>
+    public string? LastLlmSnapshotHash { get; private set; }
+
+    /// <summary>
+    /// The LLM read a contact profile (age range, gender) that is not written to the contact yet. Set in the classification commit, cleared
+    /// once the profile is written in its own transaction; a crash in between leaves it set and the worker writes it later, without calling
+    /// the model again.
+    /// </summary>
+    public bool ProfilePending { get; private set; }
+
+    /// <summary>With <see cref="ProfilePending"/>: the age range read (null = not stated).</summary>
+    public AgeRange? PendingAgeRange { get; private set; }
+
+    /// <summary>With <see cref="ProfilePending"/>: the gender read.</summary>
+    public Gender? PendingGender { get; private set; }
+
+    /// <summary>Records the profile to write after the commit. Something must have been read: a stated range or a gender other than undetermined.</summary>
+    public void RecordPendingProfile(AgeRange? ageRange, Gender gender)
+    {
+        if ((ageRange is { } range && !Enum.IsDefined(range)) || !Enum.IsDefined(gender) || (ageRange is null && gender == Gender.Undetermined))
+        {
+            throw new DomainException("El perfil pendiente del contacto no es válido.");
+        }
+
+        ProfilePending = true;
+        PendingAgeRange = ageRange;
+        PendingGender = gender;
+    }
+
+    /// <summary>The pending profile was written (or its contact no longer exists).</summary>
+    public void ClearPendingProfile()
+    {
+        ProfilePending = false;
+        PendingAgeRange = null;
+        PendingGender = null;
+    }
+
+    /// <summary>
     /// True for a conversation of the internal sandbox (docs/SANDBOX.md): it was opened by a simulated delivery. Set at creation, never
     /// changed. The metrics count it only while the company is in sandbox mode, and nothing is ever sent to the provider for it.
     /// </summary>
@@ -187,14 +228,25 @@ public class Conversation : BaseEntity
         ClassificationDirty = false;
         ClassificationFailures = 0;
         ClassificationAttemptedAt = UtcTime.Normalize(now);
+        LastLlmSnapshotHash = null;
     }
 
     /// <summary>The LLM read the conversation and its reading was applied: nothing is pending and the LLM failures start over.</summary>
-    public void CompleteLlmClassification(DateTime now)
+    /// <param name="snapshotHash">The hash of the snapshot the reading came from (<see cref="LastLlmSnapshotHash"/>); null forgets it.</param>
+    public void CompleteLlmClassification(DateTime now, string? snapshotHash = null)
     {
+        if (snapshotHash is not null && (snapshotHash.Length != SnapshotHashLength || !snapshotHash.All(c => char.IsAsciiDigit(c) || c is >= 'a' and <= 'f')))
+        {
+            throw new DomainException("La huella de la conversación no es válida.");
+        }
+
         CompleteClassification(now);
         LlmFailures = 0;
+        LastLlmSnapshotHash = snapshotHash;
     }
+
+    /// <summary>Length of <see cref="LastLlmSnapshotHash"/>: SHA-256 as lower-case hex.</summary>
+    public const int SnapshotHashLength = 64;
 
     /// <summary>
     /// The rules reading was applied because the LLM failed or was deferred. <paramref name="countAsLlmFailure"/> (an answer that could not be
@@ -212,6 +264,7 @@ public class Conversation : BaseEntity
 
         ClassificationFailures = 0;
         ClassificationAttemptedAt = UtcTime.Normalize(attemptedAt);
+        LastLlmSnapshotHash = null;
         if (countAsLlmFailure)
         {
             LlmFailures++;
@@ -223,9 +276,14 @@ public class Conversation : BaseEntity
 
     /// <summary>
     /// Flags the conversation again without resetting any counter or time (the contact profile could not be written after the commit): the
-    /// worker reads it again once the retry delay since <see cref="ClassificationAttemptedAt"/> has passed.
+    /// worker reads it again once the retry delay since <see cref="ClassificationAttemptedAt"/> has passed. The stored snapshot hash is
+    /// forgotten, so that read calls the model again instead of skipping it.
     /// </summary>
-    public void RequeueClassification() => ClassificationDirty = true;
+    public void RequeueClassification()
+    {
+        ClassificationDirty = true;
+        LastLlmSnapshotHash = null;
+    }
 
     public void ApplyTimeline(ConversationTimeline timeline)
     {

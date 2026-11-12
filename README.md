@@ -264,7 +264,16 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Conversations:AutoCloseBatchSize` | API | `200` | Conversations closed per transaction. 1 to 5000. |
 | `Metrics:TimeZone` | API, Web | `America/Bogota` | IANA time zone of the business: date ranges of the conversation list and the metrics (`docs/METRICS.md`) are local dates of this zone, and days and hours are grouped in it. Must be known to the machine, otherwise the API (or the Web, which reads the same key to know what "today" is for the dashboard's periods) will not start. |
 | `Classification:Enabled` | API | `true` | Runs the background worker that classifies conversations (service, reason, objection, outcome). `false`: conversations stay flagged. See `docs/CLASSIFICATION.md`. |
-| `Classification:Provider` | API | `Rules` | The classifier behind the port: only `Rules` (rule-based Spanish) exists; any other value stops the API at startup. |
+| `Classification:Provider` | API | `Rules` | `Rules` (rule-based Spanish) or `Llm` (Claude Haiku 5.5 with the rules as fallback; Development only for now). Any other value stops the API at startup. See `docs/CLASSIFICATION.md`, "The LLM provider". |
+| `Classification:Llm:Client` | API | `Anthropic` | With `Provider=Llm`: `Anthropic` (real API, needs `Anthropic:ApiKey`) or `Replay` (canned answers, no key, Development only). |
+| `Anthropic:ApiKey` | API | *(none)* | Anthropic API key, required with `Provider=Llm` and `Client=Anthropic`. Environment (`Anthropic__ApiKey`) or Key Vault only; never logged. Docker: `ANTHROPIC_API_KEY` in `.env` with `docker-compose.llm-real.yml`. |
+| `Classification:Llm:PrivacyApproved` | API | `false` | Must be `true` with `Provider=Llm`: records the privacy approval (`docs/decisiones.md`). |
+| `Classification:Llm:DebounceSeconds` | API | `300` | Quiet period before the LLM reads a conversation (one call per burst of messages). 0 to 86400. |
+| `Classification:Llm:IncludeSandbox` | API | `true` in Development | Sandbox conversations go through the LLM too (their log lines say `Sandbox=True`). |
+| `Classification:Llm:AllowRealClientNonSandbox` | API | `false` | With the real client (`Anthropic`), only sandbox conversations are sent until this is `true` (only after the privacy review and the processor agreement). |
+| `Classification:Llm:HashKey` | API | *(none)* | Optional secret (base64, 32+ bytes) of the stored conversation hash (HMAC-SHA256). Unset: plain SHA-256 (Development). |
+| `Classification:Llm:BaseUrl` | API | `https://api.anthropic.com` | Endpoint of the real client, https only; `ANTHROPIC_BASE_URL` is never read. |
+| `Classification:Llm:*` (others) | API | see docs | Model, effort, thinking, timeout (Stage A: at most 8 s, no retry), breaker, age range (needs `AgeRangeLegalRef`), pricing, preprocessing: `docs/CLASSIFICATION.md`. |
 | `Classification:RulesPath` | API | *(embedded rules)* | Path of a JSON file with the classifier's dictionaries (another vertical or country). Validated at startup. |
 | `Classification:DebounceSeconds` | API | `60` | A conversation is classified once its classification request (the arrival of its last message) is at least this old. 0 to 86400. |
 | `Classification:PollIntervalMilliseconds` | API | `2000` | Pause of the classification worker when nothing is due. 10 to 600000. |

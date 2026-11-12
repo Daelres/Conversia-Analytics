@@ -4,7 +4,7 @@ using System.Text;
 namespace Conversia.Application.Classification.Llm;
 
 /// <summary>Everything besides the snapshot that changes what the model reads or how its answer is read.</summary>
-public sealed record SnapshotHashInputs(string PromptVersion, string ModelId, string SchemaVersion, bool ExtractAgeRange, string PreprocessingFingerprint);
+public sealed record SnapshotHashInputs(string PromptVersion, string ModelId, string SchemaVersion, bool ExtractAgeRange, string PreprocessingFingerprint, string RulesFingerprint = "");
 
 /// <summary>
 /// The snapshot hash (design D23): SHA-256, lower-case hex (64 characters), over a canonical serialization of the capped window (the latest
@@ -16,7 +16,7 @@ public sealed record SnapshotHashInputs(string PromptVersion, string ModelId, st
 /// </summary>
 public static class SnapshotHasher
 {
-    private const string Format = "conversia.snapshot-hash.v1";
+    private const string Format = "conversia.snapshot-hash.v2";
 
     public static string Compute(ConversationSnapshot snapshot, SnapshotHashInputs inputs)
     {
@@ -41,6 +41,7 @@ public static class SnapshotHasher
         Field(inputs.SchemaVersion);
         Field(inputs.ExtractAgeRange ? "age" : "no-age");
         Field(inputs.PreprocessingFingerprint);
+        Field(inputs.RulesFingerprint);
         Field(snapshot.BranchName);
         Field(snapshot.ContactName);
         Field(snapshot.AdvisorName);

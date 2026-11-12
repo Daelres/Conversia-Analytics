@@ -284,6 +284,13 @@ A review asked whether two ingestion workers that touch conversations A and B in
   wants the tenant lock (the manual outcome and the jobs never take it). `TenantIngestionLock` is the one definition of the key for both sides.
   Both waits are bounded by the transaction's `lock_timeout` and `statement_timeout` (`Messaging:RecordTimeoutSeconds`), so a stuck holder cannot hang the request.
 
+- **The LLM classifier** (`Classification:Provider=Llm`, Development only, docs/CLASSIFICATION.md) claims like the rules worker, but in Stage A it **calls the
+  model inside the claim transaction**, holding the conversation row for up to `Classification:Llm:TimeoutSeconds` (8 s, one attempt). Ingestion, a manual edit or
+  the auto-closer touching that conversation waits that long (an accepted Stage A limit; the hardening slice moves the call out of the transaction before the
+  gate is lifted). Ingestion takes the **contact row before the conversation row**; the classifier writes the contact profile **only after its commit**, in a
+  transaction of its own that takes the contact row alone, so it never holds the conversation while it waits for a contact (a deterministic two-session test,
+  `LlmClassificationTests.IngestionAndTheRunner_TakeContactAndConversationInAnOrderThatCannotDeadlock`, pins it).
+
 If a new code path ever locks several conversations and *waits* for them, it must either take the tenant lock first or lock them in `Id` order.
 
 ### Idempotency, in layers

@@ -394,4 +394,92 @@ public class ExtractionProvenanceTests
 
         Assert.Equal((true, 1, (DateTime?)T0.AddMinutes(1), (DateTime?)T0), (conversation.ClassificationDirty, conversation.LlmFailures, conversation.ClassificationAttemptedAt, conversation.ClassificationRequestedAt));
     }
+
+    // ---- Conversation: the snapshot hash of the LLM result that is applied (call reduction) ---------------------------
+
+    private static readonly string HashA = new('a', 64);
+
+    [Fact]
+    public void AnLlmSuccess_RemembersTheSnapshotHashOfTheResultItApplied()
+    {
+        var conversation = NewConversation();
+        conversation.RequestClassification(T0);
+
+        conversation.CompleteLlmClassification(T0.AddMinutes(1), HashA);
+
+        Assert.Equal(HashA, conversation.LastLlmSnapshotHash);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("abc")]
+    [InlineData("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")]
+    [InlineData("gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg")]
+    public void ASnapshotHash_IsSixtyFourLowerCaseHexCharacters(string hash)
+        => Assert.Throws<DomainException>(() => NewConversation().CompleteLlmClassification(T0, hash));
+
+    [Fact]
+    public void EveryOtherCompletion_ForgetsTheHash_BecauseTheAppliedResultIsNoLongerThatLlmReading()
+    {
+        // A rules result (plain or fallback) or a requeue replaces or invalidates what the hash stood for: the next claim must not skip the call.
+        var plain = NewConversation();
+        plain.CompleteLlmClassification(T0, HashA);
+        plain.CompleteClassification(T0.AddMinutes(1));
+
+        var fallback = NewConversation();
+        fallback.CompleteLlmClassification(T0, HashA);
+        fallback.CompleteWithRulesFallback(T0.AddMinutes(1), countAsLlmFailure: false, maxFallbackRetries: 2);
+
+        var requeued = NewConversation();
+        requeued.CompleteLlmClassification(T0, HashA);
+        requeued.RequeueClassification();
+
+        Assert.Equal(((string?)null, (string?)null, (string?)null), (plain.LastLlmSnapshotHash, fallback.LastLlmSnapshotHash, requeued.LastLlmSnapshotHash));
+    }
+
+    // ---- Conversation: a contact profile pending to be written after the commit (crash safety) -----------------------
+
+    [Fact]
+    public void APendingProfile_IsRecordedWithItsValues_AndClearedOnceWritten()
+    {
+        var conversation = NewConversation();
+
+        conversation.RecordPendingProfile(AgeRange.From25To34, Gender.Female);
+        Assert.Equal((true, (AgeRange?)AgeRange.From25To34, (Gender?)Gender.Female), (conversation.ProfilePending, conversation.PendingAgeRange, conversation.PendingGender));
+
+        conversation.ClearPendingProfile();
+        Assert.Equal((false, (AgeRange?)null, (Gender?)null), (conversation.ProfilePending, conversation.PendingAgeRange, conversation.PendingGender));
+    }
+
+    [Fact]
+    public void APendingProfile_SurvivesANewMessageAndAnotherCompletion()
+    {
+        // It is the reading the LLM already made; only writing it clears it (a later reading replaces it).
+        var conversation = NewConversation();
+        conversation.RecordPendingProfile(null, Gender.Male);
+
+        conversation.RequestClassification(T0.AddMinutes(1));
+        conversation.CompleteWithRulesFallback(T0.AddMinutes(2), countAsLlmFailure: false, maxFallbackRetries: 2);
+
+        Assert.Equal((true, (Gender?)Gender.Male), (conversation.ProfilePending, conversation.PendingGender));
+    }
+
+    [Fact]
+    public void AnEmptyOrUndefinedPendingProfile_IsRejected()
+    {
+        Assert.Throws<DomainException>(() => NewConversation().RecordPendingProfile(null, Gender.Undetermined));
+        Assert.Throws<DomainException>(() => NewConversation().RecordPendingProfile((AgeRange)42, Gender.Female));
+    }
+
+    [Fact]
+    public void ANewMessage_KeepsTheHash_SinceTheHashCoversTheMessages()
+    {
+        // A new message changes the hash of the next snapshot anyway; keeping the stored one costs nothing and lets an unchanged re-request skip the call.
+        var conversation = NewConversation();
+        conversation.CompleteLlmClassification(T0, HashA);
+
+        conversation.RequestClassification(T0.AddMinutes(1));
+
+        Assert.Equal(HashA, conversation.LastLlmSnapshotHash);
+    }
 }

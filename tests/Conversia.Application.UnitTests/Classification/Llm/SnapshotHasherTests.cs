@@ -56,6 +56,7 @@ public class SnapshotHasherTests
         { "schema version", Inputs with { SchemaVersion = "2" } },
         { "age extraction", Inputs with { ExtractAgeRange = true } },
         { "preprocessing", Inputs with { PreprocessingFingerprint = (ConversationPreprocessorOptions.Default with { TokenBudget = 5000 }).Fingerprint } },
+        { "rules file", Inputs with { RulesFingerprint = "another-rules-file" } },
     };
 
     [Theory]
