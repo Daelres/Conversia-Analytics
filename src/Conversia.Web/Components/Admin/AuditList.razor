@@ -17,7 +17,7 @@
                 <p class="audit__detail">@text.Detail</p>
             }
             <p class="audit__meta muted">
-                Por @(entry.AdminEmail ?? "un administrador")
+                Por @AuditFormat.Actor(entry)
                 @if (ShowCompany && entry.TenantId is { } tenantId)
                 {
                     <text> · Empresa: </text><a href="/admin/empresas/@tenantId">@CompanyName(tenantId)</a>

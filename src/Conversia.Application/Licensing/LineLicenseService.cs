@@ -74,6 +74,12 @@ public sealed class LineLicenseService : ILineLicenseService
         await using (var change = await _unitOfWork.BeginAsync(tenantId, cancellationToken) ?? throw new TenantNotFoundException())
         {
             tenantName = change.Tenant.Name;
+            if (change.Tenant.Status == TenantStatus.Cancelled)
+            {
+                // Its licences were released at the cancellation; a new one would outlive the company's data.
+                throw new TenantLifecycleConflictException(TenantLifecycleConflictException.Cancelled);
+            }
+
             license.AssignTo(tenantId, _time.GetUtcNow().UtcDateTime);
 
             // A line the company already registered with this number is linked now (an active one first); one already backed by another

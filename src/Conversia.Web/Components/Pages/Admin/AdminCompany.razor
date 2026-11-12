@@ -60,16 +60,60 @@ else if (!Redirected)
                                 <dd data-testid="status-reason">@_company.StatusReason</dd>
                             </div>
                         }
+                        @if (TenantStatusLabels.CauseLabel(_company.Status, _company.SuspensionCause) is { } cause)
+                        {
+                            <div>
+                                <dt>Causa de la suspensión</dt>
+                                <dd data-testid="suspension-cause" data-cause="@_company.SuspensionCause">@cause</dd>
+                            </div>
+                        }
+                        @if (_company.CancelledAt is { } cancelledAt)
+                        {
+                            <div>
+                                <dt>Cancelada el</dt>
+                                <dd data-testid="cancelled-at">@AdminFormat.Moment(TimeZone.ToLocal(cancelledAt))</dd>
+                            </div>
+                        }
+                        @if (_company.DataDeletionDueAt is { } dueAt && _company.DataDeletionStartedAt is null)
+                        {
+                            <div>
+                                <dt>Eliminación de los datos</dt>
+                                <dd data-testid="deletion-due-at">@AdminFormat.Moment(TimeZone.ToLocal(dueAt)) (puedes reactivarla antes)</dd>
+                            </div>
+                        }
                     </dl>
+                    @if (_company.DataDeletionStartedAt is { } startedAt)
+                    {
+                        <Alert Kind="AlertKind.Warning" data-testid="deletion-in-progress">La eliminación de los datos empezó el @AdminFormat.Moment(TimeZone.ToLocal(startedAt)) y se hace en segundo plano. La empresa ya no se puede reactivar.</Alert>
+                    }
                     <div class="cluster-md" data-testid="status-actions">
-                        @foreach (var action in TenantStatusLabels.ActionsFor(_company.Status))
+                        @foreach (var action in TenantStatusLabels.ActionsFor(_company))
                         {
                             <a class="@(action.Danger ? "btn btn--danger-ghost" : "btn btn--primary")" href="/admin/empresas/@Id/estado/@action.Route" data-action="@action.Route">
                                 <Icon Name="@(action.Danger ? "power" : "check-circle")" />@action.Button
                             </a>
                         }
+                        @if (_company.Status == TenantStatus.Cancelled && _company.DataDeletionStartedAt is null)
+                        {
+                            <a class="btn btn--danger-ghost" href="/admin/empresas/@Id/eliminar-datos" data-action="eliminar-datos"><Icon Name="trash" />Eliminar los datos ahora</a>
+                        }
                     </div>
                 </div>
+            </Card>
+
+            <Card Title="Historial de estados" Subtitle="Altas, pausas, suspensiones, cancelaciones y eliminación de datos, del registro de auditoría." IconName="clock" data-testid="lifecycle-card">
+                @if (_lifecycle is null)
+                {
+                    <p class="muted" data-testid="lifecycle-unavailable">No se pudo leer el historial ahora.</p>
+                }
+                else if (_lifecycle.Count == 0)
+                {
+                    <p class="muted" data-testid="lifecycle-empty">La empresa sigue como se registró.</p>
+                }
+                else
+                {
+                    <AuditList Entries="_lifecycle" Label="Historial de estados de la empresa" />
+                }
             </Card>
         }
 
@@ -386,6 +430,7 @@ else if (!Redirected)
     private IReadOnlyDictionary<string, string[]>? _quotaErrors;
     private QuotaInput? _quota;
     private TenantMonitoringResponse? _monitoring;
+    private IReadOnlyList<AuditEntryResponse>? _lifecycle;
     private AiQuotaInput? _aiQuota;
     private SendLimitInput? _sendLimit;
     private IReadOnlyDictionary<string, string[]>? _aiQuotaErrors;
@@ -451,15 +496,17 @@ else if (!Redirected)
     {
         var detailTask = Api.GetAdminTenantAsync(Token!, Id);
         var monitoringTask = Api.GetAdminTenantMonitoringAsync(Token!, Id);
-        await Task.WhenAll(detailTask, monitoringTask);
+        var lifecycleTask = Api.GetAdminTenantLifecycleAsync(Token!, Id);
+        await Task.WhenAll(detailTask, monitoringTask, lifecycleTask);
         if (await TryFailAsync(detailTask.Result))
         {
             return;
         }
 
         _company = detailTask.Result.Value;
-        // The monitoring is a section of the page: if it cannot be read, the rest still works.
+        // The monitoring and the history are sections of the page: if they cannot be read, the rest still works.
         _monitoring = monitoringTask.Result.IsSuccess ? monitoringTask.Result.Value : null;
+        _lifecycle = lifecycleTask.Result.IsSuccess ? lifecycleTask.Result.Value!.Items : null;
     }
 
     private async Task SaveAiQuotaAsync()

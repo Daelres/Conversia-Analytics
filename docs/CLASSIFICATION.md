@@ -464,8 +464,9 @@ that cannot be written is logged at Error with event id 4101 `AiUsageNotRecorded
 in the administrator's overview (`ai_usage_lost`); the classification goes on.
 
 **Retention.** The month rows stay (they are the evidence of what was spent). The distinct conversation sets are kept for the current and
-the previous month only (purged every 6 hours). A future suppression of a contact must also delete its conversation ids from them
-(docs/decisiones.md).
+the previous month only (purged every 6 hours). Suppressing a contact deletes its conversation ids from them (design D24;
+docs/USERS_TENANTS_PERMISSIONS.md, "Contact suppression"), and deleting a cancelled company deletes both tables' rows of it
+(docs/PLATFORM_ADMIN.md, "Deleting a company's data"); the month rows of a suppressed contact's company stay, since they hold counts only.
 
 **Known limits.** Admission is a read without a reservation: with N instances (and, after the hardening slice, N workers), a company can go
 over its quota by the calls in flight, and the deployment over its cap by those calls' cost (design D12). `NullAiUsageMeter` (admits every

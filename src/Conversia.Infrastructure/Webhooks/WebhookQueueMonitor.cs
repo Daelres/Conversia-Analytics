@@ -25,9 +25,10 @@ public sealed class WebhookQueueMonitor(IServiceScopeFactory scopeFactory, TimeP
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var lastHour = now.AddHours(-1);
 
-        // Waiting work that a worker will take: the events of a pending or suspended company wait on purpose and are not a backlog.
+        // Waiting work that a worker will take: the events of a company that does not receive (pending, manually suspended, cancelled) wait
+        // on purpose and are not a backlog.
         var pending = db.WebhookEvents.IgnoreQueryFilters().AsNoTracking()
-            .Where(e => e.Status == WebhookEventStatus.Pending && db.Tenants.Any(t => t.Id == e.TenantId && t.Status == TenantStatus.Active));
+            .Where(e => e.Status == WebhookEventStatus.Pending && db.Tenants.Where(TenantIngestion.AcceptsWebhooks).Any(t => t.Id == e.TenantId));
         var count = await pending.CountAsync(cancellationToken);
         var oldest = count == 0 ? null : await pending.MinAsync(e => (DateTime?)e.ReceivedAt, cancellationToken);
         var failed = await db.WebhookEvents.IgnoreQueryFilters().AsNoTracking()

@@ -168,7 +168,8 @@ public sealed class PlatformMonitoringQueries : IPlatformMonitoringQueries
 
     private async Task<BacklogCounts> BacklogAsync(Guid? tenantId, CancellationToken cancellationToken)
     {
-        // Platform-wide, only the work a worker will take (Active companies); for one company, whatever waits for it.
+        // Platform-wide, only the work a worker will take (deliveries: the companies that receive; classification: Active ones); for one
+        // company, whatever waits for it.
         var events = _db.WebhookEvents.IgnoreQueryFilters().AsNoTracking().Where(e => e.Status == WebhookEventStatus.Pending);
         var flagged = _db.Conversations.IgnoreQueryFilters().AsNoTracking().Where(c => c.ClassificationDirty);
         if (tenantId is { } id)
@@ -178,7 +179,7 @@ public sealed class PlatformMonitoringQueries : IPlatformMonitoringQueries
         }
         else
         {
-            events = events.Where(e => _db.Tenants.Any(t => t.Id == e.TenantId && t.Status == TenantStatus.Active));
+            events = events.Where(e => _db.Tenants.Where(TenantIngestion.AcceptsWebhooks).Any(t => t.Id == e.TenantId));
             flagged = flagged.Where(c => _db.Tenants.Any(t => t.Id == c.TenantId && t.Status == TenantStatus.Active));
         }
 
@@ -192,7 +193,15 @@ public sealed class PlatformMonitoringQueries : IPlatformMonitoringQueries
                 Stopped = g.Count(c => c.ClassificationFailures >= maxFailures),
             })
             .FirstOrDefaultAsync(cancellationToken);
-        return new BacklogCounts(pending?.Count ?? 0, pending?.Oldest, classification?.Waiting ?? 0, classification?.Oldest, classification?.Stopped ?? 0);
+        // A count only: which company is in the audit trail and the API log, never here.
+        var stuck = 0;
+        if (tenantId is null)
+        {
+            var dayAgo = DateTime.UtcNow.AddDays(-1);
+            stuck = await _db.TenantDeletions.AsNoTracking().CountAsync(d => d.CompletedAt == null && (d.StuckSince != null || d.StartedAt < dayAgo), cancellationToken);
+        }
+
+        return new BacklogCounts(pending?.Count ?? 0, pending?.Oldest, classification?.Waiting ?? 0, classification?.Oldest, classification?.Stopped ?? 0, stuck);
     }
 
     private async Task<DeliveryWindows> DeliveriesAsync(Guid? tenantId, DateTime now, CancellationToken cancellationToken)

@@ -116,9 +116,11 @@ public class AdminHelpersTests
     // ---- the moves of a status ----
 
     [Theory]
-    [InlineData(TenantStatus.Pending, new[] { "activar", "suspender" })]
-    [InlineData(TenantStatus.Active, new[] { "suspender" })]
-    [InlineData(TenantStatus.Suspended, new[] { "reactivar" })]
+    [InlineData(TenantStatus.Pending, new[] { "activar", "suspender", "cancelar" })]
+    [InlineData(TenantStatus.Active, new[] { "pausar", "suspender", "cancelar" })]
+    [InlineData(TenantStatus.Paused, new[] { "reanudar", "suspender", "cancelar" })]
+    [InlineData(TenantStatus.Suspended, new[] { "reactivar", "cancelar" })]
+    [InlineData(TenantStatus.Cancelled, new[] { "reactivar" })]
     public void The_moves_offered_follow_the_lifecycle_of_the_domain(TenantStatus current, string[] routes)
         => Assert.Equal(routes, TenantStatusLabels.ActionsFor(current).Select(a => a.Route));
 

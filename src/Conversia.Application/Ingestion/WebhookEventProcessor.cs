@@ -15,11 +15,15 @@ public class WebhookEventProcessor : IWebhookEventProcessor
     private readonly TimeProvider _timeProvider;
     private readonly WebhookIngestionLimits _limits;
     private readonly ILogger<WebhookEventProcessor> _logger;
+    private readonly IContactSuppressionRepository? _suppressions;
 
+    /// <param name="suppressions">The marks of suppressed contacts: their old messages are dropped (docs/USERS_TENANTS_PERMISSIONS.md, "Contact suppression").</param>
     public WebhookEventProcessor(
         IWhatsAppChannelRepository channels, IContactRepository contacts, IConversationRepository conversations,
-        IMessageRepository messages, TimeProvider timeProvider, WebhookIngestionLimits limits, ILogger<WebhookEventProcessor> logger)
+        IMessageRepository messages, TimeProvider timeProvider, WebhookIngestionLimits limits, ILogger<WebhookEventProcessor> logger,
+        IContactSuppressionRepository? suppressions = null)
     {
+        _suppressions = suppressions;
         _logger = logger;
         _limits = limits;
         _channels = channels;
@@ -45,6 +49,8 @@ public class WebhookEventProcessor : IWebhookEventProcessor
         }
 
         var crossedTheWall = new HashSet<Guid>(); // contacts whose messages were refused because their mark is not the delivery's
+        var suppressedUntil = new Dictionary<string, DateTime?>(StringComparer.Ordinal); // per number of the delivery, looked up once
+        var suppressed = 0;
         var stored = 0;
         var alreadyStored = 0;
         var skipped = parsed.SkippedCount;
@@ -58,6 +64,13 @@ public class WebhookEventProcessor : IWebhookEventProcessor
             if (IsAnotherNumber(message, channel))
             {
                 skipped++;
+            }
+            else if (await IsSuppressedAsync(channel.TenantId, message, suppressedUntil, cancellationToken))
+            {
+                // A message of a suppressed contact, sent before its suppression (a delivery still queued, or re-sent by the provider):
+                // storing it would bring the contact back. A message sent after it opens a new contact.
+                skipped++;
+                suppressed++;
             }
             else if (await _messages.ExistsAsync(channel.Id, message.ProviderMessageId, cancellationToken))
             {
@@ -94,7 +107,30 @@ public class WebhookEventProcessor : IWebhookEventProcessor
                 webhookEvent.Id, webhookEvent.TenantId, webhookEvent.ChannelId, webhookEvent.IsSandbox, string.Join(", ", crossedTheWall));
         }
 
-        return new WebhookProcessingResult(stored, alreadyStored, skipped, parsed.IgnoredCount, parsed.StatusCount);
+        if (suppressed > 0)
+        {
+            _logger.LogInformation(
+                "Webhook event {EventId} of tenant {TenantId} carried {Count} messages of suppressed contacts sent before their suppression; they were not stored.",
+                webhookEvent.Id, webhookEvent.TenantId, suppressed);
+        }
+
+        return new WebhookProcessingResult(stored, alreadyStored, skipped, parsed.IgnoredCount, parsed.StatusCount, suppressed);
+    }
+
+    private async Task<bool> IsSuppressedAsync(Guid tenantId, ParsedMessage message, Dictionary<string, DateTime?> cache, CancellationToken cancellationToken)
+    {
+        if (_suppressions is null)
+        {
+            return false;
+        }
+
+        if (!cache.TryGetValue(message.ContactWaId, out var until))
+        {
+            until = await _suppressions.GetSuppressedUntilAsync(tenantId, message.ContactWaId, cancellationToken);
+            cache[message.ContactWaId] = until;
+        }
+
+        return until is { } cutoff && message.SentAt <= cutoff;
     }
 
     // A delivery that names a different business number than the channel's is a misconfigured webhook; its messages are not ours.

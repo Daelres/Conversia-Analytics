@@ -3,6 +3,8 @@ using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Admin;
 using Conversia.Application.Exceptions;
 using Conversia.Application.Interfaces;
+using Conversia.Application.Privacy;
+using Conversia.Domain.Common;
 using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
 using Conversia.Domain.Exceptions;
@@ -21,14 +23,17 @@ public class PlatformAdminService : IPlatformAdminService
     private readonly PlatformLimitDefaults _defaults;
     private readonly ITenantSendRateLimits? _sendLimits;
     private readonly ILineLicenseRepository? _licenses;
+    private readonly TenantLifecycleService _lifecycle;
 
     /// <param name="defaults">The deployment defaults the company limits fall back to; the built-in ones when not given.</param>
     /// <param name="sendLimits">The send limiter of this instance, told at once of a new per-company limit.</param>
     /// <param name="licenses">The licence inventory, for the licences of a company in its detail.</param>
+    /// <param name="lifecycle">Cancelling and deleting a company (retention window, deletion job); the defaults when not given.</param>
     public PlatformAdminService(
         IPlatformAdminQueries queries, ITenantUnitOfWork unitOfWork, TimeProvider time, PlatformLimitDefaults? defaults = null,
-        ITenantSendRateLimits? sendLimits = null, ILineLicenseRepository? licenses = null)
+        ITenantSendRateLimits? sendLimits = null, ILineLicenseRepository? licenses = null, TenantLifecycleService? lifecycle = null)
     {
+        _lifecycle = lifecycle ?? new TenantLifecycleService(unitOfWork, time, new PrivacyHasher(PrivacyHashKeys.DevelopmentFallback()));
         _queries = queries;
         _unitOfWork = unitOfWork;
         _time = time;
@@ -64,6 +69,7 @@ public class PlatformAdminService : IPlatformAdminService
             RecentAudit = audit.Items.Select(AuditEntryResponse.From).ToList(),
             Limits = LimitsOf(detail.Summary),
             Licenses = licenses.Select(LineLicenseResponse.From).ToList(),
+            DeletionRetentionDays = _lifecycle.Settings.DeletionRetentionDays,
         };
         Copy(TenantSummaryResponse.From(detail.Summary), response);
         return response;
@@ -73,27 +79,98 @@ public class PlatformAdminService : IPlatformAdminService
         Guid adminId, Guid tenantId, ChangeTenantStatusRequest request, CancellationToken cancellationToken = default)
     {
         var newStatus = ParseStatus(request.Status) ?? throw new DomainException("El estado indicado no es válido.");
+        var reasonCode = AdminReasonCodes.Optional(request.ReasonCode);
 
         await using (var change = await _unitOfWork.BeginAsync(tenantId, cancellationToken) ?? throw new TenantNotFoundException())
         {
             var tenant = change.Tenant;
             var oldStatus = tenant.Status;
-            if (!Tenant.CanChangeStatus(oldStatus, newStatus))
+            var oldCause = tenant.SuspensionCause;
+            if (!Tenant.CanChangeStatus(oldStatus, tenant.SuspensionCause, newStatus))
             {
                 throw new TenantStatusConflictException(oldStatus, newStatus);
             }
 
-            tenant.ChangeStatus(newStatus, adminId, request.Reason, _time.GetUtcNow().UtcDateTime);
-            change.Record(PlatformAuditLog.Record(adminId, PlatformAuditLog.Actions.TenantStatusChanged, tenantId, new Dictionary<string, object?>
+            if (!Tenant.CanReactivate(tenant))
             {
-                ["from"] = oldStatus.ToString(),
-                ["to"] = newStatus.ToString(),
-                ["reason"] = tenant.StatusReason,
-            }));
+                throw new TenantLifecycleConflictException(TenantLifecycleConflictException.DeletionStarted);
+            }
+
+            if (newStatus == TenantStatus.Cancelled)
+            {
+                // Lines off, licences released, deletion scheduled: the same as the billing job's cancellation, audited with the administrator.
+                await _lifecycle.CancelLockedAsync(change, adminId, request.Reason, reasonCode, cancellationToken);
+            }
+            else
+            {
+                tenant.ChangeStatus(newStatus, adminId, request.Reason, _time.GetUtcNow().UtcDateTime);
+                change.Record(PlatformAuditLog.Record(adminId, PlatformAuditLog.Actions.TenantStatusChanged, tenantId, new Dictionary<string, object?>
+                {
+                    ["from"] = oldStatus.ToString(),
+                    ["to"] = tenant.Status.ToString(), // a pause resumed with an unpaid hold lands in the billing suspension
+                    ["reason"] = tenant.StatusReason,
+                    ["cause"] = tenant.SuspensionCause?.ToString(),
+                    ["previousCause"] = oldCause?.ToString(),
+                }, reasonCode));
+            }
+
             await change.CommitAsync(cancellationToken);
         }
 
         return await ReadSummaryAsync(tenantId, cancellationToken);
+    }
+
+    /// <summary>The audit actions that make up a company's lifecycle history.</summary>
+    public static readonly IReadOnlyList<string> LifecycleActions =
+    [
+        PlatformAuditLog.Actions.TenantStatusChanged,
+        PlatformAuditLog.Actions.TenantDataDeletionStarted,
+        PlatformAuditLog.Actions.TenantDataDeleted,
+    ];
+
+    public const string ConfirmNameMismatchMessage = "El nombre escrito no coincide con el nombre de la empresa. Escríbelo tal como aparece.";
+
+    public static readonly string DeletionReasonRuleMessage = $"El motivo {TextRules.RuleText(DeleteTenantDataRequest.ReasonMaxLength)}.";
+
+    public async Task<TenantSummaryResponse> RequestDataDeletionAsync(
+        Guid adminId, Guid tenantId, DeleteTenantDataRequest request, CancellationToken cancellationToken = default)
+    {
+        var reason = TextRules.Required(request.Reason, DeleteTenantDataRequest.ReasonMaxLength, DeletionReasonRuleMessage);
+        await using (var change = await _unitOfWork.BeginAsync(tenantId, cancellationToken) ?? throw new TenantNotFoundException())
+        {
+            var tenant = change.Tenant;
+            if (tenant.Status != TenantStatus.Cancelled)
+            {
+                throw new TenantLifecycleConflictException(TenantLifecycleConflictException.NotCancelled);
+            }
+
+            // The strong confirmation: the administrator types the name of the company whose data goes (case and outer spaces aside).
+            if (!string.Equals(request.ConfirmName?.Trim(), tenant.Name.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new DomainException(ConfirmNameMismatchMessage);
+            }
+
+            if (await _lifecycle.BeginDeletionLockedAsync(
+                    change, adminId, reason, TenantDeletionTrigger.Manual, ReasonCodes.DeletionRequestedByAdmin, cancellationToken))
+            {
+                await change.CommitAsync(cancellationToken);
+            }
+        }
+
+        _lifecycle.NotifyDeletionJob();
+        return await ReadSummaryAsync(tenantId, cancellationToken);
+    }
+
+    public async Task<PagedResponse<AuditEntryResponse>> ListLifecycleAsync(Guid tenantId, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var entries = await _queries.ListAuditAsync(tenantId, page, pageSize, cancellationToken, LifecycleActions);
+        return new PagedResponse<AuditEntryResponse>
+        {
+            Items = entries.Items.Select(AuditEntryResponse.From).ToList(),
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = entries.TotalCount,
+        };
     }
 
     public async Task<TenantSummaryResponse> SetLineQuotaAsync(
@@ -314,5 +391,10 @@ public class PlatformAdminService : IPlatformAdminService
         to.StatusReason = from.StatusReason;
         to.SandboxMode = from.SandboxMode;
         to.AiEnabled = from.AiEnabled;
+        to.SuspensionCause = from.SuspensionCause;
+        to.StatusReasonCode = from.StatusReasonCode;
+        to.CancelledAt = from.CancelledAt;
+        to.DataDeletionDueAt = from.DataDeletionDueAt;
+        to.DataDeletionStartedAt = from.DataDeletionStartedAt;
     }
 }

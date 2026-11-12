@@ -1,3 +1,4 @@
+using Conversia.Infrastructure.Contacts;
 using Conversia.API.HostedServices;
 using Conversia.API.RateLimiting;
 using Conversia.Application.Ingestion;
@@ -35,6 +36,11 @@ public static class WebhookServiceCollectionExtensions
 
         services.AddScoped<IWebhookEventRepository, WebhookEventRepository>();
         services.AddScoped<IContactRepository, ContactRepository>();
+        // Contact suppression (Ley 1581): the store deletes, and ingestion reads its marks so old messages never bring a contact back.
+        services.AddScoped<ContactSuppressionStore>();
+        services.AddScoped<IContactSuppressionStore>(sp => sp.GetRequiredService<ContactSuppressionStore>());
+        services.AddScoped<IContactSuppressionRepository>(sp => sp.GetRequiredService<ContactSuppressionStore>());
+        services.AddScoped<IContactSuppressionService, ContactSuppressionService>();
         services.AddScoped<IConversationRepository, ConversationRepository>();
         services.AddScoped<IMessageRepository, MessageRepository>();
         services.AddScoped<IWebhookIngestionService, WebhookIngestionService>();

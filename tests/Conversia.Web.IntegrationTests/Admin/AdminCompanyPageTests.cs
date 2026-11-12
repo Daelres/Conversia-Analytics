@@ -60,9 +60,9 @@ public class AdminCompanyPageTests
     }
 
     [Theory]
-    [InlineData("Norte", new[] { "activar", "suspender" })]
-    [InlineData("Aurora", new[] { "suspender" })]
-    [InlineData("Sur", new[] { "reactivar" })]
+    [InlineData("Norte", new[] { "activar", "suspender", "cancelar" })]
+    [InlineData("Aurora", new[] { "pausar", "suspender", "cancelar" })]
+    [InlineData("Sur", new[] { "reactivar", "cancelar" })]
     public async Task Only_the_moves_that_make_sense_for_the_status_are_offered(string company, string[] actions)
     {
         var id = company switch { "Norte" => AdminStub.Norte, "Aurora" => AdminStub.Aurora, _ => AdminStub.Sur };
@@ -377,7 +377,7 @@ public class AdminCompanyPageTests
 
             var start = (await session.GetAsync(Detail(owner.TenantId))).ShouldBe(HttpStatusCode.OK);
             Assert.Equal("Pendiente", start.Document.QuerySelector("[data-testid=company-status]")!.Plain().Trim());
-            Assert.Equal(["activar", "suspender"], start.Select("[data-testid=status-actions] a").Select(a => a.GetAttribute("data-action")));
+            Assert.Equal(["activar", "suspender", "cancelar"], start.Select("[data-testid=status-actions] a").Select(a => a.GetAttribute("data-action")));
 
             var confirm = (await session.GetAsync($"{Detail(owner.TenantId)}/estado/activar")).ShouldBe(HttpStatusCode.OK);
             (await session.SubmitAsync(FormModel.From(confirm, Form(confirm, "status-action-form")).Set("reason", "Acuerdo firmado"))).ShouldRedirectTo($"{Detail(owner.TenantId)}?aviso=estado");
@@ -388,7 +388,7 @@ public class AdminCompanyPageTests
             Assert.Equal("Activa", done.Document.QuerySelector("[data-testid=company-status]")!.Plain().Trim());
             Assert.Equal("Acuerdo firmado", done.Document.QuerySelector("[data-testid=status-reason]")!.Plain().Trim());
             Assert.Equal("Líneas activas 0 de 2", done.Document.QuerySelector("[data-testid=quota-card] .quota__title")!.Plain().Trim());
-            Assert.Equal(["suspender"], done.Select("[data-testid=status-actions] a").Select(a => a.GetAttribute("data-action")));
+            Assert.Equal(["pausar", "suspender", "cancelar"], done.Select("[data-testid=status-actions] a").Select(a => a.GetAttribute("data-action")));
             var trail = done.Select("[data-testid=audit-entry]").Select(e => e.Plain()).ToList();
             Assert.Contains(trail, t => t.Contains("Cambió el estado: Pendiente → Activa") && t.Contains("Motivo: Acuerdo firmado") && t.Contains(admin.Email));
             Assert.Contains(trail, t => t.Contains("Cambió el cupo de líneas: 0 → 2"));
@@ -413,7 +413,7 @@ public class AdminCompanyPageTests
             (await company.GetAsync("/organizacion")).ShouldRedirectTo("/cuenta-pendiente");
             var suspended = (await session.GetAsync(Detail(owner.TenantId))).ShouldBe(HttpStatusCode.OK);
             Assert.Equal("Suspendida", suspended.Document.QuerySelector("[data-testid=company-status]")!.Plain().Trim());
-            Assert.Equal(["reactivar"], suspended.Select("[data-testid=status-actions] a").Select(a => a.GetAttribute("data-action")));
+            Assert.Equal(["reactivar", "cancelar"], suspended.Select("[data-testid=status-actions] a").Select(a => a.GetAttribute("data-action")));
 
             var reactivate = (await session.GetAsync($"{Detail(owner.TenantId)}/estado/reactivar")).ShouldBe(HttpStatusCode.OK);
             (await session.SubmitAsync(FormModel.From(reactivate, Form(reactivate, "status-action-form")))).ShouldRedirectTo($"{Detail(owner.TenantId)}?aviso=estado");

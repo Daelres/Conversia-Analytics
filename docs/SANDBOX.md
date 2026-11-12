@@ -225,3 +225,6 @@ has nothing to do with this mode.
 - The clean-up has no undo and no partial form: it removes all the sandbox data of the company.
 - **Rolling back the migration** `AddSandboxMode` drops the marks: sandbox rows become indistinguishable from real ones and enter every
   metric. Delete the sandbox data of every company first.
+
+**AI usage rows.** Deleting the sandbox data also deletes the AI distinct-conversation rows (`AiUsageConversations`) of the sandbox
+conversations (design D24); the sandbox monthly totals (`AiUsageMonths` with `IsSandbox`) hold counts only and stay.

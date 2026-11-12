@@ -37,6 +37,13 @@ public sealed class SandboxDataStore(ApplicationDbContext db) : ISandboxDataStor
             WHERE o."TenantId" = {tenantId} AND c."Id" = o."ConversationId" AND c."TenantId" = {tenantId} AND c."IsSandbox"
             """, cancellationToken);
 
+        // The AI distinct-conversation rows of the sandbox conversations (design D24); the sandbox month totals hold counts only and stay.
+        await db.Database.ExecuteSqlAsync($"""
+            DELETE FROM "AiUsageConversations" u
+            USING "Conversations" c
+            WHERE u."TenantId" = {tenantId} AND c."Id" = u."ConversationId" AND c."TenantId" = {tenantId} AND c."IsSandbox"
+            """, cancellationToken);
+
         var conversations = await db.Database.ExecuteSqlAsync(
             $"""DELETE FROM "Conversations" WHERE "TenantId" = {tenantId} AND "IsSandbox" """, cancellationToken);
 

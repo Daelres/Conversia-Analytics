@@ -12,7 +12,7 @@
     private ChipTone Tone => Status switch
     {
         TenantStatus.Active => ChipTone.Success,
-        TenantStatus.Suspended => ChipTone.Danger,
+        TenantStatus.Suspended or TenantStatus.Cancelled => ChipTone.Danger,
         _ => ChipTone.Warning,
     };
 
@@ -20,6 +20,7 @@
     {
         TenantStatus.Active => "check-circle",
         TenantStatus.Suspended => "alert-circle",
+        TenantStatus.Cancelled => "x-circle",
         _ => "clock",
     };
 }

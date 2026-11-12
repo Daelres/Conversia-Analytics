@@ -76,3 +76,14 @@ public class MessageNotFoundException : Exception
     {
     }
 }
+
+/// <summary>A contact that does not exist, or exists in another tenant. The API layer maps this to 404.</summary>
+public class ContactNotFoundException : Exception
+{
+    public const string DefaultMessage = "Contacto no encontrado.";
+
+    public ContactNotFoundException()
+        : base(DefaultMessage)
+    {
+    }
+}

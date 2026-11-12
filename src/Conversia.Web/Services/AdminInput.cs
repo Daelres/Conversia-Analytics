@@ -35,8 +35,32 @@ public sealed class StatusReasonInput
     [StringLength(Tenant.StatusReasonMaxLength, ErrorMessage = "El motivo no puede superar los 500 caracteres.")]
     public string? Reason { get; set; }
 
+    /// <summary>One of <see cref="Conversia.Domain.Common.AdminReasonCodes.All"/>, or empty.</summary>
+    public string? ReasonCode { get; set; }
+
     public ChangeTenantStatusRequest ToRequest(string status)
-        => new() { Status = status, Reason = string.IsNullOrWhiteSpace(Reason) ? null : Reason.Trim() };
+        => new()
+        {
+            Status = status,
+            Reason = string.IsNullOrWhiteSpace(Reason) ? null : Reason.Trim(),
+            ReasonCode = string.IsNullOrWhiteSpace(ReasonCode) ? null : ReasonCode.Trim(),
+        };
+}
+
+/// <summary>The form of deleting a cancelled company's data now: the company's name, typed, and the reason (both required).</summary>
+public sealed class DeleteDataInput
+{
+    [Display(Name = "Nombre de la empresa")]
+    [Required(ErrorMessage = "Escribe el nombre de la empresa para confirmar.")]
+    [StringLength(200, ErrorMessage = "El nombre no puede superar los 200 caracteres.")]
+    public string? ConfirmName { get; set; }
+
+    [Display(Name = "Motivo")]
+    [Required(ErrorMessage = "El motivo es obligatorio.")]
+    [StringLength(DeleteTenantDataRequest.ReasonMaxLength, ErrorMessage = "El motivo no puede superar los 200 caracteres.")]
+    public string? Reason { get; set; }
+
+    public DeleteTenantDataRequest ToRequest() => new() { ConfirmName = ConfirmName?.Trim(), Reason = Reason?.Trim() };
 }
 
 /// <summary>The confirmation form of switching a line off: it carries nothing (the page address says which line).</summary>

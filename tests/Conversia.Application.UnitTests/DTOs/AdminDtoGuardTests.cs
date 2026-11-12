@@ -15,7 +15,7 @@ public class AdminDtoGuardTests
 {
     private static readonly HashSet<Type> Scalars =
     [
-        typeof(string), typeof(bool), typeof(int), typeof(long), typeof(decimal), typeof(Guid), typeof(DateTime), typeof(TenantStatus),
+        typeof(string), typeof(bool), typeof(int), typeof(long), typeof(decimal), typeof(Guid), typeof(DateTime), typeof(TenantStatus), typeof(SuspensionCause),
         typeof(JsonElement), // the audit entry's small JSON of old and new values (ids, statuses, numbers, the administrator's reason)
     ];
 

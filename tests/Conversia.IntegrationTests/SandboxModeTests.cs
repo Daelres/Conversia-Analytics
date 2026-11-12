@@ -844,4 +844,28 @@ public partial class SandboxModeTests
         // Not one request went to the provider in the whole exercise.
         Assert.Empty(_host.Wire.WithKey(key));
     }
+
+    [Fact]
+    public async Task DeletingTheSandboxData_AlsoDeletesTheAiUsageRowsOfTheSandboxConversations_AndKeepsTheRealOnes()
+    {
+        var (f, owner, admin) = await StartAsync();
+        using var _ = admin;
+        var sandbox = await SeedConversationAsync(_factory.Services, f, DateTime.UtcNow.AddHours(-3), [In(0)], sandbox: true);
+        var real = await SeedConversationAsync(_factory.Services, f, DateTime.UtcNow.AddHours(-3), [In(0)]);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<ApplicationDbContext>().Database.ExecuteSqlAsync($"""
+                INSERT INTO "AiUsageConversations" ("TenantId", "Month", "ConversationId")
+                VALUES ({f.TenantId}, DATE '2026-11-01', {sandbox.ConversationId}), ({f.TenantId}, DATE '2026-11-01', {real.ConversationId})
+                """);
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await owner.DeleteAsync(DataUrl)).StatusCode);
+
+        using var check = _factory.Services.CreateScope();
+        var left = await check.ServiceProvider.GetRequiredService<ApplicationDbContext>().AiUsageConversations.IgnoreQueryFilters().AsNoTracking()
+            .Where(u => u.TenantId == f.TenantId).Select(u => u.ConversationId).ToListAsync();
+        Assert.Equal([real.ConversationId], left);
+    }
 }
+

@@ -24,7 +24,11 @@ public interface IPlatformAdminService
     /// <summary>Throws <see cref="Exceptions.TenantNotFoundException"/>.</summary>
     Task<TenantDetailResponse> GetTenantAsync(Guid tenantId, CancellationToken cancellationToken = default);
 
-    /// <summary>Throws <see cref="Exceptions.TenantNotFoundException"/> or <see cref="Exceptions.TenantStatusConflictException"/>.</summary>
+    /// <summary>
+    /// Throws <see cref="Exceptions.TenantNotFoundException"/>, <see cref="Exceptions.TenantStatusConflictException"/> or, to reactivate a
+    /// company whose data deletion started, <see cref="Exceptions.TenantLifecycleConflictException"/>. Cancelling switches the lines off,
+    /// releases the licences and schedules the deletion of the data (docs/PLATFORM_ADMIN.md, "Lifecycle of a company").
+    /// </summary>
     Task<TenantSummaryResponse> ChangeStatusAsync(Guid adminId, Guid tenantId, ChangeTenantStatusRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>Throws <see cref="Exceptions.TenantNotFoundException"/> or <see cref="Exceptions.LineQuotaBelowActiveException"/>.</summary>
@@ -52,6 +56,16 @@ public interface IPlatformAdminService
     Task<TenantLineResponse> DeactivateChannelAsync(Guid adminId, Guid tenantId, Guid channelId, CancellationToken cancellationToken = default);
 
     Task<PagedResponse<AuditEntryResponse>> ListAuditAsync(AdminAuditQuery query, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes a cancelled company's data now (the deletion job does it in the background): the typed name must be the company's and the
+    /// reason is required. Idempotent once started. Throws <see cref="Exceptions.TenantNotFoundException"/>,
+    /// <see cref="Exceptions.TenantLifecycleConflictException"/> (not cancelled) or a domain error (name, reason).
+    /// </summary>
+    Task<TenantSummaryResponse> RequestDataDeletionAsync(Guid adminId, Guid tenantId, DeleteTenantDataRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>The company's lifecycle history from the audit trail (status changes, data deletion), newest first.</summary>
+    Task<PagedResponse<AuditEntryResponse>> ListLifecycleAsync(Guid tenantId, int page, int pageSize, CancellationToken cancellationToken = default);
 }
 
 /// <summary>The platform's line licence inventory (docs/PLATFORM_ADMIN.md, "Line licences"). Every change is audited.</summary>

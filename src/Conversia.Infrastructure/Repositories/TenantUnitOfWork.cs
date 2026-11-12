@@ -84,6 +84,8 @@ public sealed class TenantUnitOfWork : ITenantUnitOfWork
 
         public void Record(PlatformAuditLog entry) => _dbContext.PlatformAuditLogs.Add(entry);
 
+        public void AddDeletionRecord(TenantDeletion record) => _dbContext.TenantDeletions.Add(record);
+
         public async Task CommitAsync(CancellationToken cancellationToken = default)
         {
             try

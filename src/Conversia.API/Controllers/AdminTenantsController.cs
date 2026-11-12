@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Conversia.API.Controllers;
 
 /// <summary>
-/// What the platform administrator does with the companies: approve or suspend them, set how many lines each may have active, switch a
+/// What the platform administrator does with the companies: approve, pause, suspend, cancel or delete them, set how many lines each may have active, switch a
 /// line off. Business facts only: there is no endpoint here (or anywhere for this role) that returns conversations, messages, contacts,
 /// metrics or a company's users.
 /// </summary>
@@ -70,6 +70,20 @@ public class AdminTenantsController : ControllerBase
     [HttpPost("tenants/{id:guid}/channels/{channelId:guid}/deactivate")]
     public async Task<ActionResult<TenantLineResponse>> DeactivateChannel(Guid id, Guid channelId, CancellationToken cancellationToken)
         => Ok(await _admin.DeactivateChannelAsync(AdminId, id, channelId, cancellationToken));
+
+    /// <summary>
+    /// Deletes a cancelled company's data now instead of at the end of its retention window (Ley 1581): the body carries the company's name
+    /// typed by the administrator and the reason. <c>202</c>: the deletion job does it in the background (the company shows when it started);
+    /// asking again changes nothing. <c>409</c> <c>tenant_not_cancelled</c> for a company that is not cancelled.
+    /// </summary>
+    [HttpPost("tenants/{id:guid}/data-deletion")]
+    public async Task<ActionResult<TenantSummaryResponse>> RequestDataDeletion(Guid id, DeleteTenantDataRequest request, CancellationToken cancellationToken)
+        => Accepted(await _admin.RequestDataDeletionAsync(AdminId, id, request, cancellationToken));
+
+    /// <summary>The company's lifecycle history (status changes and data deletion) from the audit trail, newest first.</summary>
+    [HttpGet("tenants/{id:guid}/lifecycle")]
+    public async Task<ActionResult<PagedResponse<AuditEntryResponse>>> ListLifecycle(Guid id, [FromQuery] AdminAuditQuery query, CancellationToken cancellationToken)
+        => Ok(await _admin.ListLifecycleAsync(id, query.Page, query.PageSize, cancellationToken));
 
     [HttpGet("audit")]
     public async Task<ActionResult<PagedResponse<AuditEntryResponse>>> ListAudit([FromQuery] AdminAuditQuery query, CancellationToken cancellationToken)

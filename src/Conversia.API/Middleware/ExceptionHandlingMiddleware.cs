@@ -87,8 +87,22 @@ public class ExceptionHandlingMiddleware
         }
         catch (TenantNotActiveException ex)
         {
-            await WriteProblemAsync(context, StatusCodes.Status403Forbidden, ProblemTexts.TenantNotActiveTitle, ex.Message,
-                ("code", TenantNotActiveException.Code), ("tenantStatus", ex.Status.ToString()));
+            (string, object)[] extensions = ex.Cause is { } cause
+                ? [("code", TenantNotActiveException.Code), ("tenantStatus", ex.Status.ToString()), ("suspensionCause", cause.ToString())]
+                : [("code", TenantNotActiveException.Code), ("tenantStatus", ex.Status.ToString())];
+            await WriteProblemAsync(context, StatusCodes.Status403Forbidden, ProblemTexts.TenantNotActiveTitle, ex.Message, extensions);
+        }
+        catch (TenantGoneException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status401Unauthorized, ProblemTexts.TenantGoneTitle, ex.Message, ("code", TenantGoneException.Code));
+        }
+        catch (TenantLifecycleConflictException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.TenantStatusConflictTitle, ex.Message, ("code", ex.Code));
+        }
+        catch (ContactNotFoundException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.ContactNotFoundTitle, ex.Message);
         }
         catch (ConversationNotFoundException ex)
         {

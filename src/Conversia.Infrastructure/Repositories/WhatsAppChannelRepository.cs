@@ -33,7 +33,8 @@ public class WhatsAppChannelRepository : IWhatsAppChannelRepository
 
     public Task<WhatsAppChannel?> GetByChannelKeyAsync(string channelKey, CancellationToken cancellationToken = default)
         => _dbContext.WhatsAppChannels.IgnoreQueryFilters().AsNoTracking()
-            .Where(c => c.ChannelKey == channelKey && _dbContext.Tenants.Any(t => t.Id == c.TenantId && t.Status == TenantStatus.Active))
+            // Only a company that receives (Active, Paused, Suspended for a late payment): the others answer 401 and nothing is stored.
+            .Where(c => c.ChannelKey == channelKey && _dbContext.Tenants.Where(TenantIngestion.AcceptsWebhooks).Any(t => t.Id == c.TenantId))
             .FirstOrDefaultAsync(cancellationToken);
 
     public Task<WhatsAppChannel?> GetForUpdateAsync(Guid id, CancellationToken cancellationToken = default)

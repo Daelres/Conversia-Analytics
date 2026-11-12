@@ -13,5 +13,7 @@ public interface IPlatformAdminQueries
     /// <summary>Null for an unknown id.</summary>
     Task<TenantAdminDetail?> GetTenantAsync(Guid tenantId, CancellationToken cancellationToken = default);
 
-    Task<ReadPage<PlatformAuditEntry>> ListAuditAsync(Guid? tenantId, int page, int pageSize, CancellationToken cancellationToken = default);
+    /// <param name="actions">Only these action codes; every action when null.</param>
+    Task<ReadPage<PlatformAuditEntry>> ListAuditAsync(
+        Guid? tenantId, int page, int pageSize, CancellationToken cancellationToken = default, IReadOnlyCollection<string>? actions = null);
 }

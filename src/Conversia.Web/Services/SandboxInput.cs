@@ -45,3 +45,16 @@ public sealed class SandboxDataInput
 {
     public string? SubmissionId { get; set; }
 }
+
+/// <summary>
+/// The confirmation form of suppressing a contact: a one-time submission id and the checkbox that says the customer asked for it. The
+/// contact is the conversation's (read again on the post), never a value of the form.
+/// </summary>
+public sealed class ContactSuppressionInput
+{
+    public string? SubmissionId { get; set; }
+
+    [System.ComponentModel.DataAnnotations.Range(typeof(bool), "true", "true", ErrorMessage = "Confirma que el cliente pidió suprimir sus datos.")]
+    public bool Confirmed { get; set; }
+}
+

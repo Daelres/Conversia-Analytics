@@ -1,5 +1,6 @@
 using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Admin;
+using Conversia.Application.DTOs.Contacts;
 using Conversia.Application.DTOs.Auth;
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Messages;
@@ -167,4 +168,18 @@ public interface IApiClient
     Task<ApiResult<LineLicenseResponse>> RetireAdminLicenseAsync(string token, Guid id, CancellationToken cancellationToken = default);
 
     Task<ApiResult<PagedResponse<AuditEntryResponse>>> GetAdminAuditAsync(string token, AdminAuditQuery query, CancellationToken cancellationToken = default);
+
+    /// <summary><c>GET /api/admin/tenants/{id}/lifecycle</c>: the company's status changes and data deletion, newest first.</summary>
+    Task<ApiResult<PagedResponse<AuditEntryResponse>>> GetAdminTenantLifecycleAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// <c>POST /api/admin/tenants/{id}/data-deletion</c>: deletes a cancelled company's data now (202). A company that is not cancelled is a
+    /// 409 <c>tenant_not_cancelled</c>; a name that is not the company's is a 400.
+    /// </summary>
+    Task<ApiResult<TenantSummaryResponse>> RequestTenantDataDeletionAsync(string token, Guid id, DeleteTenantDataRequest request, CancellationToken cancellationToken = default);
+
+    // ---- contact suppression (Ley 1581; ContactsSuppress) ----
+
+    /// <summary><c>POST /api/contacts/{id}/suppression</c>: deletes the contact and everything of it. Irreversible.</summary>
+    Task<ApiResult<ContactSuppressionResponse>> SuppressContactAsync(string token, Guid contactId, CancellationToken cancellationToken = default);
 }

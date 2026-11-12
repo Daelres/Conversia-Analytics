@@ -59,7 +59,7 @@ public class TenantFilterGuardTests
     }
 
     [Fact]
-    public void EveryEntityWithATenantHasTheFilter_ExceptTheTwoPlatformTables()
+    public void EveryEntityWithATenantHasTheFilter_ExceptTheThreePlatformTables()
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -69,7 +69,9 @@ public class TenantFilterGuardTests
             .Select(t => t.ClrType)
             .ToHashSet();
 
-        Assert.Equal(new HashSet<Type> { typeof(ErrorLog), typeof(PlatformAuditLog) }, unfiltered);
+        // ErrorLogs: the operations registry; PlatformAuditLogs: the administrators' trail; TenantDeletions: the tombstone of a company
+        // whose data is gone (its key is the id the company had, and there is no company left to filter by).
+        Assert.Equal(new HashSet<Type> { typeof(ErrorLog), typeof(PlatformAuditLog), typeof(TenantDeletion) }, unfiltered);
     }
 
     [Fact]

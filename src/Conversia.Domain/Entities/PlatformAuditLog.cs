@@ -6,7 +6,8 @@ using Conversia.Domain.Exceptions;
 namespace Conversia.Domain.Entities;
 
 /// <summary>
-/// One change made by a platform administrator: who, what (an action code), to which company and the old and new values. Details hold
+/// One change made by a platform administrator, or by the system (a background job: billing, deletion): who, what (an action code), to which
+/// company, why (a stable <see cref="ReasonCode"/>, apart from the free-text reason in the details) and the old and new values. Details hold
 /// ids, statuses and numbers only (never a secret, a message or customer data). Platform-level, so no tenant query filter applies.
 /// </summary>
 public class PlatformAuditLog : BaseEntity
@@ -30,9 +31,17 @@ public class PlatformAuditLog : BaseEntity
         public const string LicenseAssigned = "license.assigned";
         public const string LicenseReleased = "license.released";
         public const string LicenseRetired = "license.retired";
+        public const string TenantDataDeletionStarted = "tenant.data_deletion_started";
+        public const string TenantDataDeleted = "tenant.data_deleted";
     }
 
-    public Guid AdminId { get; private set; }
+    /// <summary>The administrator who made the change; null when the system made it (see <see cref="IsSystem"/>).</summary>
+    public Guid? AdminId { get; private set; }
+
+    /// <summary>The stable code of why (<see cref="Common.ReasonCodes"/>): always there for a system change, optional for an administrator's.</summary>
+    public string? ReasonCode { get; private set; }
+
+    public bool IsSystem => AdminId is null;
 
     public string Action { get; private set; } = string.Empty;
 
@@ -47,7 +56,15 @@ public class PlatformAuditLog : BaseEntity
     {
     }
 
-    public static PlatformAuditLog Record(Guid adminId, string action, Guid? tenantId, IReadOnlyDictionary<string, object?> details)
+    public static PlatformAuditLog Record(
+        Guid adminId, string action, Guid? tenantId, IReadOnlyDictionary<string, object?> details, string? reasonCode = null)
+        => Create(TextRules.RequiredId(adminId, "El administrador es obligatorio."), action, tenantId, details, ReasonCodes.Optional(reasonCode));
+
+    /// <summary>A change made by a background job: no administrator, and the reason code is required.</summary>
+    public static PlatformAuditLog RecordSystem(string action, Guid? tenantId, string reasonCode, IReadOnlyDictionary<string, object?> details)
+        => Create(null, action, tenantId, details, ReasonCodes.Required(reasonCode));
+
+    private static PlatformAuditLog Create(Guid? adminId, string action, Guid? tenantId, IReadOnlyDictionary<string, object?> details, string? reasonCode)
     {
         if (string.IsNullOrWhiteSpace(action) || action.Length > ActionMaxLength)
         {
@@ -62,10 +79,11 @@ public class PlatformAuditLog : BaseEntity
 
         return new PlatformAuditLog
         {
-            AdminId = TextRules.RequiredId(adminId, "El administrador es obligatorio."),
+            AdminId = adminId,
             Action = action,
             TenantId = tenantId,
             Details = json,
+            ReasonCode = reasonCode,
         };
     }
 }

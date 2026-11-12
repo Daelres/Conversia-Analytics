@@ -18,8 +18,8 @@ public class TenantRepository : ITenantRepository
     public Task<Tenant?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
         => _dbContext.Tenants.FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
 
-    public Task<TenantStatus?> GetStatusAsync(Guid id, CancellationToken cancellationToken = default)
-        => _dbContext.Tenants.AsNoTracking().Where(t => t.Id == id).Select(t => (TenantStatus?)t.Status).FirstOrDefaultAsync(cancellationToken);
+    public Task<TenantLifecycleState?> GetLifecycleAsync(Guid id, CancellationToken cancellationToken = default)
+        => _dbContext.Tenants.AsNoTracking().Where(t => t.Id == id).Select(t => new TenantLifecycleState(t.Status, t.SuspensionCause)).FirstOrDefaultAsync(cancellationToken);
 
     public Task<bool?> GetSandboxModeAsync(Guid id, CancellationToken cancellationToken = default)
         => _dbContext.Tenants.AsNoTracking().Where(t => t.Id == id).Select(t => (bool?)t.SandboxMode).FirstOrDefaultAsync(cancellationToken);

@@ -17,6 +17,7 @@ public class PermissionCatalogTests
     [InlineData(Permission.ConversationsView, 7)]
     [InlineData(Permission.ConversationsManage, 8)]
     [InlineData(Permission.MetricsView, 9)]
+    [InlineData(Permission.ContactsSuppress, 10)]
     public void CatalogValues_KeepTheirPersistedNumbers(Permission permission, int persistedValue)
     {
         Assert.Equal(persistedValue, (int)permission);
@@ -27,7 +28,7 @@ public class PermissionCatalogTests
     public void Catalog_ContainsExactlyTheDocumentedPermissions()
     {
         Assert.Equal(
-            new[] { "ConversationsManage", "ConversationsView", "MetricsView", "OrganizationManage", "OrganizationView", "UsersManage", "UsersView" },
+            new[] { "ContactsSuppress", "ConversationsManage", "ConversationsView", "MetricsView", "OrganizationManage", "OrganizationView", "UsersManage", "UsersView" },
             Enum.GetNames<Permission>().Order().ToArray());
     }
 
@@ -37,7 +38,7 @@ public class PermissionCatalogTests
         // 3 and 4 were ProductsView and ProductsManage; databases may still hold grants with those numbers until the RemoveProducts migration runs.
         Assert.False(Enum.IsDefined((Permission)3));
         Assert.False(Enum.IsDefined((Permission)4));
-        Assert.Equal(new[] { 1, 2, 5, 6, 7, 8, 9 }, Enum.GetValues<Permission>().Select(p => (int)p).Order().ToArray());
+        Assert.Equal(new[] { 1, 2, 5, 6, 7, 8, 9, 10 }, Enum.GetValues<Permission>().Select(p => (int)p).Order().ToArray());
     }
 
     [Theory]

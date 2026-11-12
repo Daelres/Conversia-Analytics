@@ -29,10 +29,40 @@ public class Tenant : BaseEntity
 
     public DateTime? StatusChangedAt { get; private set; }
 
-    /// <summary>The platform administrator who last changed the status; null while the company is as it registered.</summary>
+    /// <summary>The platform administrator who last changed the status; null while the company is as it registered, or when the system changed it.</summary>
     public Guid? StatusChangedBy { get; private set; }
 
     public string? StatusReason { get; private set; }
+
+    /// <summary>The stable code of the last change made by the system (<see cref="ReasonCodes"/>), or given with it; null otherwise.</summary>
+    public string? StatusReasonCode { get; private set; }
+
+    /// <summary>Why the company is suspended; null in every other status.</summary>
+    public SuspensionCause? SuspensionCause { get; private set; }
+
+    /// <summary>When it was cancelled; null unless it is <see cref="TenantStatus.Cancelled"/>.</summary>
+    public DateTime? CancelledAt { get; private set; }
+
+    /// <summary>When the deletion of its data is due (the cancellation plus the retention window); null unless cancelled.</summary>
+    public DateTime? DataDeletionDueAt { get; private set; }
+
+    /// <summary>
+    /// A late payment noted while the company was paused (the billing job does not suspend a paused company): resuming the pause lands in the
+    /// billing suspension while it is set. Cleared by the payment and by a cancellation.
+    /// </summary>
+    public DateTime? BillingHoldSince { get; private set; }
+
+    /// <summary>When the deletion of its data started; from then on it cannot be reactivated.</summary>
+    public DateTime? DataDeletionStartedAt { get; private set; }
+
+    public const int MinDeletionRetentionDays = 1;
+
+    public const int MaxDeletionRetentionDays = 365;
+
+    public const int DefaultDeletionRetentionDays = 30;
+
+    public static readonly string DeletionRetentionRuleMessage =
+        $"Los días de conservación antes de eliminar los datos deben estar entre {MinDeletionRetentionDays} y {MaxDeletionRetentionDays}.";
 
     /// <summary>
     /// The internal sandbox (docs/SANDBOX.md): while it is on, nothing of the company goes to the WhatsApp provider, a simulated customer can
@@ -163,32 +193,233 @@ public class Tenant : BaseEntity
     }
 
     /// <summary>
-    /// The transitions an administrator may make: Pending to Active or Suspended, Active to Suspended, Suspended to Active.
-    /// Staying where it is, and going back to Pending, are not transitions.
+    /// The transitions an administrator may make (docs/PLATFORM_ADMIN.md, "Lifecycle of a company"): Pending to Active, Suspended or
+    /// Cancelled; Active to Paused, Suspended or Cancelled; Paused to Active, Suspended or Cancelled; Suspended to Active or Cancelled;
+    /// Cancelled to Active (only before its data deletion started, see <see cref="CanReactivate"/>). Staying where it is, and going back to
+    /// Pending, are not transitions. Cancelling goes through <see cref="Cancel"/>, which schedules the deletion.
     /// </summary>
     public static bool CanChangeStatus(TenantStatus from, TenantStatus to)
         => (from, to) switch
         {
-            (TenantStatus.Pending, TenantStatus.Active) => true,
-            (TenantStatus.Pending, TenantStatus.Suspended) => true,
-            (TenantStatus.Active, TenantStatus.Suspended) => true,
-            (TenantStatus.Suspended, TenantStatus.Active) => true,
+            (TenantStatus.Pending, TenantStatus.Active or TenantStatus.Suspended or TenantStatus.Cancelled) => true,
+            (TenantStatus.Active, TenantStatus.Paused or TenantStatus.Suspended or TenantStatus.Cancelled) => true,
+            (TenantStatus.Paused, TenantStatus.Active or TenantStatus.Suspended or TenantStatus.Cancelled) => true,
+            (TenantStatus.Suspended, TenantStatus.Active or TenantStatus.Cancelled) => true,
+            (TenantStatus.Cancelled, TenantStatus.Active) => true,
             _ => false,
         };
 
-    /// <summary>Moves the company to <paramref name="newStatus"/> on behalf of a platform administrator. Validates before it assigns anything.</summary>
+    /// <summary>Like <see cref="CanChangeStatus(TenantStatus, TenantStatus)"/>, with the cause of a suspension (a Billing one can be made Manual).</summary>
+    public static bool CanChangeStatus(TenantStatus from, SuspensionCause? cause, TenantStatus to)
+        => CanChangeStatus(from, to) || (from, cause, to) == (TenantStatus.Suspended, Enums.SuspensionCause.Billing, TenantStatus.Suspended);
+
+    /// <summary>False only for a cancelled company whose data deletion already started: from then on the data is going, so it cannot come back.</summary>
+    public static bool CanReactivate(Tenant tenant) => tenant.Status != TenantStatus.Cancelled || tenant.DataDeletionStartedAt is null;
+
+    /// <summary>The statuses whose webhooks are always accepted. With <see cref="ReceivingSuspensionCause"/>, the one definition of who receives.</summary>
+    public static readonly IReadOnlyList<TenantStatus> StatusesThatReceive = [TenantStatus.Active, TenantStatus.Paused];
+
+    /// <summary>The one cause of suspension that keeps receiving: a late payment loses no message.</summary>
+    public const SuspensionCause ReceivingSuspensionCause = Enums.SuspensionCause.Billing;
+
+    /// <summary>
+    /// Whether the webhooks of a company in this status are accepted and stored: Active, Paused, and Suspended for a late payment. The queries
+    /// (webhook lookup, webhook worker, auto-closer) are generated from <see cref="StatusesThatReceive"/> and <see cref="ReceivingSuspensionCause"/>.
+    /// </summary>
+    public static bool AcceptsWebhooksIn(TenantStatus status, SuspensionCause? cause)
+        => StatusesThatReceive.Contains(status) || (status == TenantStatus.Suspended && cause == ReceivingSuspensionCause);
+
+    /// <summary>Its users work, its conversations are analysed and its messages can be sent: Active only.</summary>
+    public bool IsOperational => Status == TenantStatus.Active;
+
+    /// <summary>Its webhooks are accepted and its deliveries are stored (no message is lost): see <see cref="AcceptsWebhooksIn"/>.</summary>
+    public bool AcceptsWebhooks => AcceptsWebhooksIn(Status, SuspensionCause);
+
+    /// <summary>
+    /// Moves the company to <paramref name="newStatus"/> on behalf of a platform administrator. A suspension made this way is
+    /// <see cref="Enums.SuspensionCause.Manual"/>. Validates before it assigns anything. Cancelling is <see cref="Cancel"/>.
+    /// </summary>
     public void ChangeStatus(TenantStatus newStatus, Guid administratorId, string? reason, DateTime now)
     {
-        if (!CanChangeStatus(Status, newStatus))
+        if (newStatus == TenantStatus.Cancelled)
+        {
+            throw new DomainException("La cancelación de una empresa programa la eliminación de sus datos: usa la cancelación.");
+        }
+
+        if (!CanChangeStatus(Status, SuspensionCause, newStatus))
         {
             throw new DomainException($"No se puede pasar una empresa de {Status} a {newStatus}.");
         }
 
+        if (!CanReactivate(this))
+        {
+            throw new DomainException(DeletionStartedMessage);
+        }
+
         var cleanReason = TextRules.Optional(reason, StatusReasonMaxLength, StatusReasonRuleMessage);
-        Status = newStatus;
-        StatusReason = cleanReason;
-        StatusChangedBy = TextRules.RequiredId(administratorId, "El administrador es obligatorio.");
-        StatusChangedAt = now;
+        var admin = TextRules.RequiredId(administratorId, "El administrador es obligatorio.");
+        if (Status == TenantStatus.Paused && newStatus == TenantStatus.Active && BillingHoldSince is not null)
+        {
+            // Resuming a pause whose bill is still unpaid lands where the payment would have put it.
+            SetStatus(TenantStatus.Suspended, Enums.SuspensionCause.Billing, admin, cleanReason, ReasonCodes.BillingPastDue, now);
+            BillingHoldSince = null;
+            return;
+        }
+
+        SetStatus(newStatus, newStatus == TenantStatus.Suspended ? Enums.SuspensionCause.Manual : null, admin, cleanReason, null, now);
+        if (newStatus != TenantStatus.Paused)
+        {
+            BillingHoldSince = null;
+        }
+    }
+
+    public const string DeletionStartedMessage = "La eliminación de los datos de esta empresa ya empezó: no se puede reactivar.";
+
+    /// <summary>
+    /// Cancels the company: nothing of it is received any more and its data is deleted <paramref name="retentionDays"/> days from now,
+    /// unless it is reactivated before. <paramref name="actorId"/> is the administrator, or null for the system (billing), which must
+    /// then give its <paramref name="reasonCode"/>. Switching its lines off and releasing its licences is the caller's (under the company lock).
+    /// </summary>
+    public void Cancel(Guid? actorId, string? reason, string? reasonCode, DateTime now, int retentionDays)
+    {
+        if (retentionDays is < MinDeletionRetentionDays or > MaxDeletionRetentionDays)
+        {
+            throw new DomainException(DeletionRetentionRuleMessage);
+        }
+
+        if (!CanChangeStatus(Status, TenantStatus.Cancelled))
+        {
+            throw new DomainException($"No se puede pasar una empresa de {Status} a {TenantStatus.Cancelled}.");
+        }
+
+        var cleanReason = TextRules.Optional(reason, StatusReasonMaxLength, StatusReasonRuleMessage);
+        var code = actorId is null ? ReasonCodes.Required(reasonCode) : ReasonCodes.Optional(reasonCode);
+        var actor = actorId is { } id ? TextRules.RequiredId(id, "El administrador es obligatorio.") : (Guid?)null;
+        var at = UtcTime.Normalize(now);
+        SetStatus(TenantStatus.Cancelled, null, actor, cleanReason, code, at);
+        BillingHoldSince = null;
+        CancelledAt = at;
+        DataDeletionDueAt = at.AddDays(retentionDays);
+        DataDeletionStartedAt = null;
+    }
+
+    /// <summary>The billing job: an Active company with a late payment is suspended (it keeps receiving its messages). Idempotent.</summary>
+    public TenantLifecycleOutcome SuspendForBilling(string reasonCode, DateTime now)
+    {
+        var code = ReasonCodes.Required(reasonCode);
+        if (Status == TenantStatus.Suspended && SuspensionCause == Enums.SuspensionCause.Billing)
+        {
+            return TenantLifecycleOutcome.Unchanged;
+        }
+
+        if (Status == TenantStatus.Paused)
+        {
+            // Not suspended (the pause was agreed and keeps its words for the users): the hold makes the resume land in the suspension.
+            if (BillingHoldSince is not null)
+            {
+                return TenantLifecycleOutcome.Unchanged;
+            }
+
+            BillingHoldSince = UtcTime.Normalize(now);
+            StatusReasonCode = code;
+            return TenantLifecycleOutcome.Changed;
+        }
+
+        if (Status != TenantStatus.Active)
+        {
+            return TenantLifecycleOutcome.NotApplicable;
+        }
+
+        SetStatus(TenantStatus.Suspended, Enums.SuspensionCause.Billing, null, null, code, now);
+        return TenantLifecycleOutcome.Changed;
+    }
+
+    /// <summary>The billing job: a billing suspension is lifted once paid. Never an administrator's suspension, never a cancellation. Idempotent.</summary>
+    public TenantLifecycleOutcome ResumeFromBilling(string reasonCode, DateTime now)
+    {
+        var code = ReasonCodes.Required(reasonCode);
+        if (Status == TenantStatus.Active)
+        {
+            return TenantLifecycleOutcome.Unchanged;
+        }
+
+        if (Status == TenantStatus.Paused)
+        {
+            if (BillingHoldSince is null)
+            {
+                return TenantLifecycleOutcome.Unchanged;
+            }
+
+            BillingHoldSince = null;
+            StatusReasonCode = code;
+            return TenantLifecycleOutcome.Changed;
+        }
+
+        if (Status != TenantStatus.Suspended || SuspensionCause != Enums.SuspensionCause.Billing)
+        {
+            return TenantLifecycleOutcome.NotApplicable;
+        }
+
+        SetStatus(TenantStatus.Active, null, null, null, code, now);
+        return TenantLifecycleOutcome.Changed;
+    }
+
+    /// <summary>The billing job: cancels a company that never paid (Pending ones were never billed). Idempotent.</summary>
+    public TenantLifecycleOutcome CancelForNonPayment(string reasonCode, DateTime now, int retentionDays)
+    {
+        var code = ReasonCodes.Required(reasonCode);
+        if (Status == TenantStatus.Cancelled)
+        {
+            return TenantLifecycleOutcome.Unchanged;
+        }
+
+        if (Status == TenantStatus.Pending)
+        {
+            return TenantLifecycleOutcome.NotApplicable;
+        }
+
+        Cancel(null, null, code, now, retentionDays);
+        return TenantLifecycleOutcome.Changed;
+    }
+
+    /// <summary>
+    /// Marks the start of the deletion of a cancelled company's data. Returns false, and changes nothing, when it had already started (a
+    /// resumed deletion). From now on the company cannot be reactivated.
+    /// </summary>
+    public bool BeginDataDeletion(DateTime now)
+    {
+        if (Status != TenantStatus.Cancelled)
+        {
+            throw new DomainException("Solo se pueden eliminar los datos de una empresa cancelada.");
+        }
+
+        if (DataDeletionStartedAt is not null)
+        {
+            return false;
+        }
+
+        DataDeletionStartedAt = UtcTime.Normalize(now);
+        return true;
+    }
+
+    /// <summary>A cancelled company whose retention window passed, or whose deletion already started (it must be finished).</summary>
+    public bool IsDataDeletionDue(DateTime now)
+        => Status == TenantStatus.Cancelled && (DataDeletionStartedAt is not null || DataDeletionDueAt <= UtcTime.Normalize(now));
+
+    private void SetStatus(TenantStatus status, SuspensionCause? cause, Guid? actor, string? reason, string? reasonCode, DateTime now)
+    {
+        Status = status;
+        SuspensionCause = cause;
+        if (status != TenantStatus.Cancelled)
+        {
+            CancelledAt = null;
+            DataDeletionDueAt = null;
+        }
+
+        StatusReason = reason;
+        StatusReasonCode = reasonCode;
+        StatusChangedBy = actor;
+        StatusChangedAt = UtcTime.Normalize(now);
     }
 
     /// <summary>Sets the quota of simultaneously active lines. Whether it is below the lines in use is for the caller to check, under the tenant lock.</summary>

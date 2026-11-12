@@ -126,6 +126,8 @@ internal sealed class AdminStub
             ("POST", _) when LicenseId(path, "/assign") is { } id => MoveLicense(id, "Assigned", request),
             ("POST", _) when LicenseId(path, "/release") is { } id => MoveLicense(id, "Available", request),
             ("POST", _) when LicenseId(path, "/retire") is { } id => MoveLicense(id, "Retired", request),
+            ("GET", _) when TenantId(path, "/lifecycle") is { } id => FakeBackend.Answer(HttpStatusCode.OK, Page(Audit.Where(a => a.TenantId == id).ToList(), 1, 50)),
+            ("POST", _) when TenantId(path, "/data-deletion") is { } id => DeleteData(id, request),
             ("GET", _) when TenantId(path, "") is { } id => Detail(id),
             ("PUT", _) when TenantId(path, "/status") is { } id => ChangeStatus(id, request),
             ("PUT", _) when TenantId(path, "/line-quota") is { } id => SetQuota(id, request),
@@ -181,6 +183,33 @@ internal sealed class AdminStub
         return FakeBackend.Answer(HttpStatusCode.OK, Summary(company));
     }
 
+    /// <summary>The bodies the data-deletion endpoint received, in order.</summary>
+    public List<string> DeletionRequests { get; } = [];
+
+    private HttpResponseMessage DeleteData(Guid id, BackendRequest request)
+    {
+        var company = Companies.FirstOrDefault(c => c.Id == id);
+        if (company is null)
+        {
+            return FakeBackend.Raw(HttpStatusCode.NotFound, null);
+        }
+
+        using var body = request.BodyJson();
+        DeletionRequests.Add(body.RootElement.GetRawText());
+        if (company.Status != TenantStatus.Cancelled)
+        {
+            return FakeBackend.Raw(HttpStatusCode.Conflict, """{"title":"Cambio de estado no permitido","status":409,"detail":"Solo se pueden eliminar los datos de una empresa cancelada. Cancélala primero.","code":"tenant_not_cancelled"}""");
+        }
+
+        if (!string.Equals(body.RootElement.GetProperty("confirmName").GetString(), company.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            return FakeBackend.Raw(HttpStatusCode.BadRequest, """{"title":"Solicitud no válida","status":400,"detail":"El nombre escrito no coincide con el nombre de la empresa. Escríbelo tal como aparece."}""");
+        }
+
+        company.DataDeletionStartedAt = DateTime.UtcNow;
+        return FakeBackend.Answer(HttpStatusCode.Accepted, Summary(company));
+    }
+
     private HttpResponseMessage SetQuota(Guid id, BackendRequest request)
     {
         var company = Companies.FirstOrDefault(c => c.Id == id);
@@ -199,6 +228,8 @@ internal sealed class AdminStub
         Id = company.Id, Name = company.Name, Status = company.Status, MaxActiveLines = company.MaxActiveLines, ActiveLines = company.ActiveLines,
         RegisteredLines = company.RegisteredLines, OwnerEmail = company.OwnerEmail, RegisteredAt = company.RegisteredAt,
         LastActivityAt = company.LastActivityAt, StatusChangedAt = company.StatusChangedAt, StatusReason = company.StatusReason, AiEnabled = company.AiEnabled,
+        SuspensionCause = company.SuspensionCause, CancelledAt = company.CancelledAt, DataDeletionDueAt = company.DataDeletionDueAt,
+        DataDeletionStartedAt = company.DataDeletionStartedAt,
     };
 
     private static PagedResponse<T> Page<T>(IReadOnlyList<T> all, int page, int size) => new()

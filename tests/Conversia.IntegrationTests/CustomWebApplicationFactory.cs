@@ -95,6 +95,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         builder.UseSetting("Conversations:AutoCloseEnabled", "false");
         builder.UseSetting("Classification:Enabled", "false");
         builder.UseSetting("Usage:Retention:Enabled", "false");
+        builder.UseSetting("Tenants:Deletion:Enabled", "false"); // the tests run the deleter directly
+        // A real privacy key, as every deployment outside Development has one (the Development fallback would log a warning).
+        builder.UseSetting("Privacy:HashKey", "dGVzdC1vbmx5LXByaXZhY3ktaGFzaC1rZXktMzItYnl0ZXMhIQ==");
         builder.UseSetting("Messaging:TenantSendLimitRefresh:Enabled", "false");
         builder.UseSetting("PlatformMonitoring:OverviewCacheSeconds", "0"); // each test reads its own state
         // Every call from the in-process client shares one address; the webhook rate-limit tests use a derived host with a small budget.

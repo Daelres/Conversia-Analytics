@@ -61,12 +61,19 @@ public class PlatformAdminQueries : IPlatformAdminQueries
         return new TenantAdminDetail(summary, lines, licenses);
     }
 
-    public async Task<ReadPage<PlatformAuditEntry>> ListAuditAsync(Guid? tenantId, int page, int pageSize, CancellationToken cancellationToken = default)
+    public async Task<ReadPage<PlatformAuditEntry>> ListAuditAsync(
+        Guid? tenantId, int page, int pageSize, CancellationToken cancellationToken = default, IReadOnlyCollection<string>? actions = null)
     {
         var entries = _db.PlatformAuditLogs.AsNoTracking();
         if (tenantId is { } id)
         {
             entries = entries.Where(e => e.TenantId == id);
+        }
+
+        if (actions is not null)
+        {
+            var codes = actions.ToList();
+            entries = entries.Where(e => codes.Contains(e.Action));
         }
 
         var total = await entries.CountAsync(cancellationToken);
@@ -80,7 +87,8 @@ public class PlatformAdminQueries : IPlatformAdminQueries
                 _db.PlatformAdmins.Where(a => a.Id == e.AdminId).Select(a => a.Email).FirstOrDefault(),
                 e.Action,
                 e.TenantId,
-                e.Details))
+                e.Details,
+                e.ReasonCode))
             .ToListAsync(cancellationToken);
         return new ReadPage<PlatformAuditEntry>(rows, total);
     }
@@ -108,7 +116,12 @@ public class PlatformAdminQueries : IPlatformAdminQueries
             t.AiTermsVersion,
             t.AiEnabledChangedAt,
             t.AiMonthlyConversationQuota,
-            t.SendRateLimitPerMinute));
+            t.SendRateLimitPerMinute,
+            t.SuspensionCause,
+            t.StatusReasonCode,
+            t.CancelledAt,
+            t.DataDeletionDueAt,
+            t.DataDeletionStartedAt));
 
     private static string EscapeLike(string text)
         => text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);

@@ -16,4 +16,6 @@ public enum Permission
     ConversationsView = 7,
     ConversationsManage = 8,
     MetricsView = 9,
+    /// <summary>Suppress a contact on request of the customer (Ley 1581): its conversations, messages and opportunities are deleted.</summary>
+    ContactsSuppress = 10,
 }

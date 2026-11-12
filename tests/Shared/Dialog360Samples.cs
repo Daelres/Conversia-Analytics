@@ -53,6 +53,15 @@ public static class Dialog360Samples
         ]
         """);
 
+    /// <summary>One delivery with a message of each of two customers.</summary>
+    public static string TwoContacts(string firstWaId, string secondWaId, string firstId, string secondId, long timestamp = T0) => Envelope("messages", $$"""
+        "contacts": [ { "profile": { "name": "Cliente A" }, "wa_id": "{{firstWaId}}" }, { "profile": { "name": "Cliente B" }, "wa_id": "{{secondWaId}}" } ],
+        "messages": [
+          { "from": "{{firstWaId}}", "id": "{{firstId}}", "timestamp": "{{timestamp}}", "type": "text", "text": { "body": "Hola" } },
+          { "from": "{{secondWaId}}", "id": "{{secondId}}", "timestamp": "{{timestamp + 5}}", "type": "text", "text": { "body": "Buenas" } }
+        ]
+        """);
+
     /// <summary>A first message that comes from a click-to-WhatsApp ad (carries a referral).</summary>
     public static string InboundFromAd(string id = "wamid.HBgM-AD-1", long timestamp = T0, string waId = CustomerWaId) => Envelope("messages", $$"""
         "contacts": [ { "profile": { "name": "Laura Gómez" }, "wa_id": "{{waId}}" } ],

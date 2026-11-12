@@ -4,6 +4,7 @@ using System.Text.Json;
 using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Admin;
 using Conversia.Application.DTOs.Auth;
+using Conversia.Application.DTOs.Contacts;
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Messages;
 using Conversia.Application.DTOs.Metrics;
@@ -211,6 +212,17 @@ public sealed class ApiClient : IApiClient
 
     public Task<ApiResult<PagedResponse<AuditEntryResponse>>> GetAdminAuditAsync(string token, AdminAuditQuery query, CancellationToken cancellationToken = default)
         => SendAsync<PagedResponse<AuditEntryResponse>>(HttpMethod.Get, "api/admin/audit" + AdminQueryString.Build(query), token, body: null, response => response.Items is not null, cancellationToken);
+
+    public Task<ApiResult<PagedResponse<AuditEntryResponse>>> GetAdminTenantLifecycleAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<PagedResponse<AuditEntryResponse>>(HttpMethod.Get, $"api/admin/tenants/{id}/lifecycle?pageSize=50", token, body: null, response => response.Items is not null, cancellationToken);
+
+    private static readonly IReadOnlySet<string> DeletionCodes = new HashSet<string>(StringComparer.Ordinal) { "tenant_not_cancelled" };
+
+    public Task<ApiResult<TenantSummaryResponse>> RequestTenantDataDeletionAsync(string token, Guid id, DeleteTenantDataRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<TenantSummaryResponse>(HttpMethod.Post, $"api/admin/tenants/{id}/data-deletion", token, request, isUsable: null, cancellationToken, DeletionCodes);
+
+    public Task<ApiResult<ContactSuppressionResponse>> SuppressContactAsync(string token, Guid contactId, CancellationToken cancellationToken = default)
+        => SendAsync<ContactSuppressionResponse>(HttpMethod.Post, $"api/contacts/{contactId}/suppression", token, body: null, response => response.ContactId != Guid.Empty, cancellationToken);
 
     private static bool HasToken(AuthResponse response) => !string.IsNullOrWhiteSpace(response.Token);
 

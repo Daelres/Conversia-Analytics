@@ -23,7 +23,9 @@ public sealed record DeliveryWindows(DeliveryCounts Real24h, DeliveryCounts Sand
 
 /// <param name="WebhookPending">Pending webhook events a worker will take (of Active companies).</param>
 /// <param name="ClassificationStopped">Flagged conversations the worker gave up on after the maximum failures.</param>
-public sealed record BacklogCounts(int WebhookPending, DateTime? OldestPendingAt, int ClassificationWaiting, DateTime? OldestClassificationAt, int ClassificationStopped);
+/// <param name="StuckDeletions">Platform only: data deletions of cancelled companies marked stuck, or started more than a day ago and not finished.</param>
+public sealed record BacklogCounts(
+    int WebhookPending, DateTime? OldestPendingAt, int ClassificationWaiting, DateTime? OldestClassificationAt, int ClassificationStopped, int StuckDeletions = 0);
 
 /// <summary>AI usage of one month, real or sandbox (summed over companies on the platform view).</summary>
 public sealed record AiUsageTotals(

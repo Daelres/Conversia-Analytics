@@ -76,6 +76,11 @@ services:
       # Optional. Master key (base64 of 32 random bytes) that encrypts each channel's 360dialog API key. Unset: sending messages and
       # setting a channel's key answer 503. A malformed value stops the API. See docs/MESSAGING.md.
       Messaging__CredentialEncryptionKey: ${CREDENTIAL_ENCRYPTION_KEY:-}
+      # Required. The privacy key (base64 of 32 random bytes) that keys the hashes kept of suppressed customers' numbers and of deleted
+      # companies' names. Keep it: changing it without moving the old one to Privacy__RetiredHashKeys__<id> forgets every suppression.
+      # See docs/USERS_TENANTS_PERMISSIONS.md, "Contact suppression".
+      Privacy__HashKey: ${PRIVACY_HASH_KEY:?Set PRIVACY_HASH_KEY in .env (openssl rand -base64 32).}
+      Privacy__HashKeyId: ${PRIVACY_HASH_KEY_ID:-1}
       # Optional. Both set: the API creates this platform administrator at startup if no one has the email (it never changes an existing
       # one). Empty = no bootstrap. The password needs at least 12 characters and must not be a placeholder. See docs/PLATFORM_ADMIN.md.
       PlatformAdmin__Email: ${PLATFORM_ADMIN_EMAIL:-}

@@ -142,7 +142,8 @@ public sealed class PlatformMonitoringService : IPlatformMonitoringService
                 activity.AiLimitedTotal,
                 deploymentUsd >= _ai.DeploymentMonthlyUsdCap,
                 breaker,
-                _lost?.LostRecords ?? 0),
+                _lost?.LostRecords ?? 0,
+                activity.Backlog.StuckDeletions),
             _thresholds);
 
         return new PlatformOverviewResponse
@@ -285,6 +286,7 @@ public sealed class PlatformMonitoringService : IPlatformMonitoringService
         ClassificationWaiting = b.ClassificationWaiting,
         OldestClassificationSeconds = Seconds(Age(now, b.OldestClassificationAt)),
         ClassificationStopped = b.ClassificationStopped,
+        StuckDeletions = b.StuckDeletions,
     };
 
     private static TimeSpan? Age(DateTime now, DateTime? since) => since is { } at ? (now > at ? now - at : TimeSpan.Zero) : null;

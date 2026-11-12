@@ -39,6 +39,8 @@ builder.Services.AddClassification(builder.Configuration, builder.Environment);
 builder.Services.AddMetrics(builder.Configuration);
 builder.Services.AddMessaging(builder.Configuration);
 builder.Services.AddPlatformAdministration(builder.Configuration);
+builder.Services.AddPrivacy(builder.Configuration, builder.Environment);
+builder.Services.AddTenantLifecycle(builder.Configuration);
 builder.Services.AddOptionalForwardedHeaders(builder.Configuration);
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>

@@ -1,0 +1,157 @@
+@page "/admin/empresas/{Id:guid}/eliminar-datos"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Application.DTOs.Admin
+@using Conversia.Application.Time
+@using Conversia.Domain.Enums
+@using Conversia.Web.Authentication
+@using Conversia.Web.Time
+@inherits AdminPageBase
+@inject TenantTimeZone TimeZone
+
+<PageTitle>Eliminar los datos de la empresa - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+@if (CompanyMissing)
+{
+    <CompanyNotFoundView />
+}
+else if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="admin-delete-data" data-company-id="@Id">
+        <PageHeader Eyebrow="Empresa" EyebrowIcon="building" Title="Eliminar los datos de la empresa" Description="@(_company?.Name)">
+            <a class="btn btn--secondary" href="/admin/empresas/@Id"><Icon Name="arrow-left" />Volver a la empresa</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_company is not null && !Applies)
+        {
+            <Alert Kind="AlertKind.Warning" data-testid="not-allowed">
+                @(_company.DataDeletionStartedAt is not null
+                    ? "La eliminación de los datos de esta empresa ya empezó."
+                    : $"Solo se pueden eliminar los datos de una empresa cancelada; esta está «{TenantStatusLabels.Label(_company.Status).ToLowerInvariant()}». Cancélala primero.")
+            </Alert>
+        }
+
+        @* Always rendered (hidden when it does not apply): a POST can only be dispatched to a form that exists in the render tree,
+           and a forged one must still reach the API and be refused there. *@
+        <div hidden="@(!ShowForm)">
+            <Card Title="¿Eliminar todos los datos ahora?" IconName="trash" data-testid="delete-confirm">
+                <div class="stack">
+                    <Alert Kind="AlertKind.Danger" data-testid="delete-warning">
+                        Se eliminan para siempre sus conversaciones, mensajes, contactos, oportunidades, entregas de webhook, líneas, sucursales, asesores,
+                        usuarios y uso de IA. No se puede deshacer. Solo quedan el registro de auditoría y una constancia de la eliminación (fechas,
+                        cantidades y una huella del nombre, nunca el nombre).
+                    </Alert>
+                    @if (_company?.DataDeletionDueAt is { } dueAt)
+                    {
+                        <p class="muted" data-testid="deletion-due-at">Sin esta acción, los datos se eliminarían el @AdminFormat.Moment(TimeZone.ToLocal(dueAt)).</p>
+                    }
+                    <EditForm Model="Input" FormName="delete-data" OnValidSubmit="RunAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="delete-data-form">
+                        <DataAnnotationsValidator />
+                        <FormField TValue="string" For="() => Input.ConfirmName" Id="confirm-name" Label="Escribe el nombre de la empresa para confirmar"
+                                   Hint="@($"Tal como aparece: «{_company?.Name}».")" ApiErrors="_errors" Context="field">
+                            <input id="confirm-name" name="@($"{nameof(Input)}.{nameof(DeleteDataInput.ConfirmName)}")" class="input" autocomplete="off" maxlength="200" value="@Input.ConfirmName" @attributes="field" />
+                        </FormField>
+                        <FormField TValue="string" For="() => Input.Reason" Id="reason" Label="Motivo"
+                                   Hint="Obligatorio. Queda en el registro de auditoría. No incluyas datos personales de clientes. Hasta 200 caracteres." ApiErrors="_errors" Context="field">
+                            <textarea id="reason" name="@($"{nameof(Input)}.{nameof(DeleteDataInput.Reason)}")" class="input" rows="3" maxlength="@DeleteTenantDataRequest.ReasonMaxLength" @attributes="field">@Input.Reason</textarea>
+                        </FormField>
+                        <ApiFieldErrors Errors="_errors" KnownFields="@(["ConfirmName", "Reason"])" />
+                        <div class="form-actions">
+                            @if (ShowForm)
+                            {
+                                <button type="submit" class="btn btn--danger"><Icon Name="trash" />Sí, eliminar todos los datos</button>
+                            }
+                            <a class="btn btn--ghost" href="/admin/empresas/@Id">Cancelar</a>
+                        </div>
+                    </EditForm>
+                </div>
+            </Card>
+        </div>
+    </div>
+}
+
+@code {
+    private TenantDetailResponse? _company;
+    private IReadOnlyDictionary<string, string[]>? _errors;
+    private DeleteDataInput? _input;
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [SupplyParameterFromForm(FormName = "delete-data")]
+    private DeleteDataInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    // Only a cancelled company whose deletion has not started; the API stays the authority either way.
+    private bool Applies => _company is { Status: TenantStatus.Cancelled, DataDeletionStartedAt: null };
+
+    private bool ShowForm => Applies && !Redirected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Api.GetAdminTenantAsync(Token!, Id);
+        if (await TryFailAsync(result))
+        {
+            return;
+        }
+
+        _company = result.Value;
+    }
+
+    private async Task RunAsync()
+    {
+        var result = await Api.RequestTenantDataDeletionAsync(Token!, Id, Input.ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo(AdminNotice.Url(Id, AdminNotice.DataDeletionRequested));
+            return;
+        }
+
+        switch (result.Status)
+        {
+            case ApiResultStatus.ValidationFailed:
+                // The name that does not match comes back as a plain 400 with the API's message.
+                _errors = result.ValidationErrors;
+                Message = result.ValidationErrors is { Count: > 0 } ? null : result.Detail ?? "Revisa el nombre y el motivo.";
+                SetStatusCode(StatusCodes.Status400BadRequest);
+                break;
+            case ApiResultStatus.Conflict:
+                Message = result.Detail ?? "La empresa no está cancelada.";
+                SetStatusCode(StatusCodes.Status409Conflict);
+                break;
+            default:
+                await TryFailAsync(result);
+                break;
+        }
+
+        if (!Redirected && !Denied && !CompanyMissing)
+        {
+            await LoadAsync();
+        }
+    }
+}

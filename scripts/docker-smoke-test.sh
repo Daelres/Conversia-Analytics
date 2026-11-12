@@ -104,6 +104,7 @@ PY
 postgres_password="$(openssl rand -hex 16)"
 jwt_key="$(openssl rand -hex 32)"
 report_key="$(openssl rand -hex 24)"
+privacy_key="$(openssl rand -base64 32)"
 owner_password="Aa1-$(openssl rand -hex 12)"
 owner_email="owner-$suffix@smoke.test"
 admin_password="Zz9-$(openssl rand -hex 12)"
@@ -117,6 +118,7 @@ POSTGRES_USER=$postgres_user
 POSTGRES_PASSWORD=$postgres_password
 JWT_SIGNING_KEY=$jwt_key
 ERROR_REPORT_KEY=$report_key
+PRIVACY_HASH_KEY=$privacy_key
 API_PORT=$api_port
 WEB_PORT=$web_port
 POSTGRES_PORT=$postgres_port
@@ -125,7 +127,7 @@ PLATFORM_ADMIN_EMAIL=$admin_email
 PLATFORM_ADMIN_PASSWORD=$admin_password
 EOF
 # The values that must never appear in an image, a container definition or a log.
-printf '%s\n' "$postgres_password" "$jwt_key" "$report_key" "$owner_password" "$admin_password" >"$secrets"
+printf '%s\n' "$postgres_password" "$jwt_key" "$report_key" "$privacy_key" "$owner_password" "$admin_password" >"$secrets"
 
 # Everything is published on loopback only, so the throwaway stack is not reachable from the network.
 cat >"$override" <<'EOF'

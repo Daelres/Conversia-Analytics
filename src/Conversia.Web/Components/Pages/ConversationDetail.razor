@@ -132,6 +132,14 @@ else if (!Redirected)
                             }
                         </dl>
                     </Card>
+
+                    @if (CanSuppress)
+                    {
+                        <Card Title="Datos del cliente" Subtitle="Si el cliente pide borrar sus datos (habeas data)." IconName="shield-check" data-testid="contact-privacy">
+                            <p class="muted">Suprimir elimina para siempre al contacto con todas sus conversaciones y mensajes en tu empresa.</p>
+                            <a class="btn btn--danger-ghost" href="@ConversationLinks.Detail(Id)/suprimir-contacto" data-testid="suppress-contact-link"><Icon Name="trash" />Suprimir datos del cliente</a>
+                        </Card>
+                    }
                 }
 
                 @* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller
@@ -244,6 +252,8 @@ else if (!Redirected)
 
     private bool CanManage { get; set; }
 
+    private bool CanSuppress { get; set; }
+
     private static readonly (string Value, string Label)[] StageChoices =
     [
         ("Won", "Ganada"),
@@ -308,6 +318,7 @@ else if (!Redirected)
 
         _conversation = detailTask.Result.Value;
         CanManage = profileTask.Result.Value!.Can(Permission.ConversationsManage);
+        CanSuppress = profileTask.Result.Value!.Can(Permission.ContactsSuppress);
 
         // The conversation itself says whether its line can send, so a person who may write needs no access to the organization.
         // In sandbox mode (docs/SANDBOX.md) a sandbox conversation needs no provider key, and a real one takes no message; outside it, the reverse.

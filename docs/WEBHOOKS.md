@@ -30,7 +30,7 @@ worker's job, so a parsing bug can never lose a message.
 | Body | One JSON object, at most `Webhooks:MaxBodyBytes` (default 1 MiB). Any content type. |
 | `200` | Stored as a new pending event, **or** an event with the same body hash already existed for the channel (nothing stored). 360dialog must always see `200` for a delivery we have, otherwise it retries. Empty body. |
 | `400` | The body is empty, not a single JSON object, or JSON that PostgreSQL `jsonb` cannot hold (a `\u0000` escape, an unpaired surrogate). `application/problem+json`. |
-| `401` | Unknown key, malformed key, inactive channel, **channel of a company that is not Active (pending or suspended)**, missing secret, wrong secret or a malformed `Authorization` header. **One identical answer** for all of them, so nothing tells an attacker which part failed. The body is not read. |
+| `401` | Unknown key, malformed key, inactive channel, **channel of a company that does not receive (pending, suspended by the team, cancelled or deleted)**, missing secret, wrong secret or a malformed `Authorization` header. **One identical answer** for all of them, so nothing tells an attacker which part failed. The body is not read. |
 | `413` | Body over the limit (checked on `Content-Length` and, for chunked bodies, while reading). |
 | `429` | The client IP failed to authenticate more than `Webhooks:FailedAuthRateLimitPerMinute` times (default 60) in a minute (it is then refused before being authenticated), or the channel received more than `Webhooks:ChannelRateLimitPerMinute` deliveries (default 6000). Has `Retry-After`. See [Rate limits](#rate-limits-and-proxies). |
 
@@ -60,10 +60,25 @@ the API at startup. It applies to the whole API (the login limiter too), as the 
 
 ### Companies that are not Active
 
-Billing is per line, so a company operates only while a platform administrator has it **Active** (`docs/PLATFORM_ADMIN.md`). For a Pending or
-Suspended company the webhook answers the same uniform `401` as for a wrong secret and **stores nothing**; the background workers (event
-processing, classification, automatic closing) do not claim its work. Events stored before a suspension stay `Pending` and are processed once
-it is Active again. The queue health and the backlog counters ignore that waiting work on purpose.
+What a delivery meets depends on the company's status (`docs/PLATFORM_ADMIN.md`, "Lifecycle of a company"):
+
+| Status | Webhook | Event processing and automatic closing | Classification |
+|---|---|---|---|
+| Active | accepted | yes | yes |
+| **Paused** | **accepted and stored** | yes: no message is lost and conversation boundaries follow the messages | waits, flagged, until it is Active again |
+| **Suspended for a late payment** (`SuspensionCause = Billing`) | **accepted and stored** | yes | waits |
+| Pending, Suspended by the team (`Manual`), Cancelled | the same uniform `401` as for a wrong secret; **nothing stored** | no: events stored before stay `Pending` and are processed once the company receives again | no |
+
+The rule lives in one place: `Tenant.StatusesThatReceive` and `Tenant.ReceivingSuspensionCause` in the domain. `TenantIngestion` generates
+from them both the LINQ expression (webhook lookup, monitors) and the SQL condition spliced into the two claim statements (the webhook
+worker's and the auto-closer's); `TenantReceivingStatesTests` checks, for every status, that the lookup, the worker and the auto-closer agree
+with the domain. The queue monitor and the platform backlog count the events of the companies that
+receive.
+
+**Suppressed contacts.** Before a message is stored, ingestion looks up the number in `ContactSuppressions` (once per number and delivery):
+a message sent up to and including the suppression is dropped and counted as skipped; one sent after it opens a new contact
+(`docs/USERS_TENANTS_PERMISSIONS.md`, "Contact suppression"). A delivery that had such messages is **deleted right after it is processed**, in
+the same transaction (its other messages are stored; only its raw copy goes); the log says so, with ids only.
 
 ### Managing a channel
 
@@ -411,6 +426,8 @@ events older than `Webhooks:Retention:RetentionDays` (14) and **Failed** events 
 `Webhooks:Retention:FailedRetentionDays` (60, longer because an operator may still want to look at
 or requeue them); `Pending` events are never purged. It can be turned off with
 `Webhooks:Retention:Enabled=false`. The stored contacts, conversations and messages are *not* covered
-by this purge: their retention, the Ley 1581 de 2012 purposes and deletion requests remain open
-(`docs/decisiones.md`). Secrets never reach the repository: the webhook secret is stored as a hash,
+by this purge. Deletion is now covered two ways (Ley 1581 de 2012): **a customer's request** suppresses the contact and everything of it,
+processed raw deliveries with its number included (`docs/USERS_TENANTS_PERMISSIONS.md`, "Contact suppression"), and **the end of the service**
+deletes everything of the company after its retention window (`docs/PLATFORM_ADMIN.md`, "Deleting a company's data"). A retention period for
+the conversations of an active company (how long they are kept while the service runs) remains open (`docs/decisiones.md`). Secrets never reach the repository: the webhook secret is stored as a hash,
 the 360dialog key only comes from configuration.

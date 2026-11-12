@@ -25,7 +25,12 @@ public sealed record TenantAdminSummary(
     string? AiTermsVersion = null,
     DateTime? AiEnabledChangedAt = null,
     int? AiMonthlyConversationQuota = null,
-    int? SendRateLimitPerMinute = null);
+    int? SendRateLimitPerMinute = null,
+    SuspensionCause? SuspensionCause = null,
+    string? StatusReasonCode = null,
+    DateTime? CancelledAt = null,
+    DateTime? DataDeletionDueAt = null,
+    DateTime? DataDeletionStartedAt = null);
 
 /// <summary>A WhatsApp line of a company: the number, its branch and whether it is switched on. No customer data.</summary>
 public sealed record TenantAdminLine(Guid ChannelId, string DisplayPhoneNumber, string? BranchName, bool IsActive);
@@ -33,5 +38,6 @@ public sealed record TenantAdminLine(Guid ChannelId, string DisplayPhoneNumber, 
 /// <param name="AssignedLicenses">Line licences of the platform assigned to the company.</param>
 public sealed record TenantAdminDetail(TenantAdminSummary Summary, IReadOnlyList<TenantAdminLine> Lines, int AssignedLicenses = 0);
 
+/// <param name="AdminId">Null when the system made the change (a background job); <paramref name="ReasonCode"/> then says why.</param>
 public sealed record PlatformAuditEntry(
-    Guid Id, DateTime OccurredAt, Guid AdminId, string? AdminEmail, string Action, Guid? TenantId, string Details);
+    Guid Id, DateTime OccurredAt, Guid? AdminId, string? AdminEmail, string Action, Guid? TenantId, string Details, string? ReasonCode = null);

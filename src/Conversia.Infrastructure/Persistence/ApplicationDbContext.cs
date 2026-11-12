@@ -59,6 +59,12 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<MessageSendOutcome> MessageSendOutcomes => Set<MessageSendOutcome>();
 
+    /// <summary>The marks of suppressed contacts (a per-company hash of the number): tenant-scoped.</summary>
+    public DbSet<ContactSuppression> ContactSuppressions => Set<ContactSuppression>();
+
+    /// <summary>Platform-level tombstones of deleted companies: the company is gone, so it is deliberately unfiltered.</summary>
+    public DbSet<TenantDeletion> TenantDeletions => Set<TenantDeletion>();
+
     /// <summary>Operations table: not tenant-filtered, see <c>ErrorLogConfiguration</c>.</summary>
     public DbSet<ErrorLog> ErrorLogs => Set<ErrorLog>();
 
@@ -93,6 +99,7 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<AiUsageMonth>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<AiUsageConversation>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<MessageSendOutcome>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ContactSuppression>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
 
         base.OnModelCreating(modelBuilder);
     }

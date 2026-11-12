@@ -237,3 +237,24 @@ public class WebhookEventConfiguration : IEntityTypeConfiguration<WebhookEvent>
         builder.HasOne<WhatsAppChannel>().WithMany().HasForeignKey(e => e.ChannelId).OnDelete(DeleteBehavior.Restrict);
     }
 }
+
+/// <summary>
+/// The marks of suppressed contacts (docs/USERS_TENANTS_PERMISSIONS.md, "Contact suppression"): one per company and number hash, looked up by
+/// ingestion for every message of a contact it does not know yet.
+/// </summary>
+public class ContactSuppressionConfiguration : IEntityTypeConfiguration<ContactSuppression>
+{
+    public void Configure(EntityTypeBuilder<ContactSuppression> builder)
+    {
+        builder.ToTable("ContactSuppressions");
+        builder.HasKey(s => s.Id);
+        builder.Property(s => s.TenantId).IsRequired();
+        builder.Property(s => s.WaIdHash).IsRequired().HasMaxLength(ContactSuppression.HashLength).IsFixedLength();
+        builder.Property(s => s.HashKeyId).IsRequired().HasMaxLength(ContactSuppression.HashKeyIdMaxLength);
+        builder.Property(s => s.SuppressedAt).IsRequired();
+        builder.Property(s => s.SuppressedBy).IsRequired();
+        builder.Property(s => s.CreatedAt).IsRequired();
+        builder.HasIndex(s => new { s.TenantId, s.WaIdHash }).IsUnique();
+        builder.HasOne<Tenant>().WithMany().HasForeignKey(s => s.TenantId).OnDelete(DeleteBehavior.Restrict);
+    }
+}

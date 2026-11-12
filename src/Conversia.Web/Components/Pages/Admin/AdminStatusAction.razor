@@ -4,7 +4,10 @@
 @using Conversia.Application.DTOs.Admin
 @using Conversia.Domain.Enums
 @using Conversia.Web.Authentication
+@using Conversia.Application.Time
+@using Conversia.Web.Time
 @inherits AdminPageBase
+@inject TenantTimeZone TimeZone
 
 <PageTitle>@(_action?.Title ?? "Cambiar estado") - Administración de Conversia</PageTitle>
 <HeadContent>
@@ -49,9 +52,24 @@ else if (!Redirected)
                         </div>
                     </dl>
                     <p class="muted" data-testid="confirm-effect">@_action.Effect</p>
+                    @if (_action.Target == TenantStatus.Cancelled && _company is not null)
+                    {
+                        <Alert Kind="AlertKind.Warning" data-testid="deletion-date">Si no la reactivas antes, sus datos se eliminarán para siempre el @MetricsFormat.Date(DateOnly.FromDateTime(TimeZone.ToLocal(DateTime.UtcNow.AddDays(_company.DeletionRetentionDays)))) (@_company.DeletionRetentionDays días después de cancelarla).</Alert>
+                    }
                     <EditForm Model="Input" FormName="status-action" OnValidSubmit="RunAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="status-action-form">
                         <DataAnnotationsValidator />
-                        <FormField TValue="string" For="() => Input.Reason" Id="reason" Label="Motivo (opcional)"
+                        <div class="field">
+                            <label class="field__label" for="reason-code">Motivo de la lista (opcional)</label>
+                            <select id="reason-code" class="input" name="@($"{nameof(Input)}.{nameof(StatusReasonInput.ReasonCode)}")" data-testid="reason-code">
+                                <option value="">Sin motivo de la lista</option>
+                                @foreach (var listed in Conversia.Domain.Common.AdminReasonCodes.All)
+                                {
+                                    <option value="@listed" selected="@(listed == Input.ReasonCode)">@AuditFormat.ReasonCodeLabel(listed)</option>
+                                }
+                            </select>
+                            <p class="field__hint muted">Prefiere un motivo de la lista: queda como código. El detalle de abajo es texto libre y se guarda para siempre.</p>
+                        </div>
+                        <FormField TValue="string" For="() => Input.Reason" Id="reason" Label="Detalle (opcional)"
                                    Hint="Queda en el registro de auditoría. No incluyas datos personales de clientes. Hasta 500 caracteres." ApiErrors="_errors" Context="field">
                             <textarea id="reason" name="@($"{nameof(Input)}.{nameof(StatusReasonInput.Reason)}")" class="input" rows="3" maxlength="500" @attributes="field">@Input.Reason</textarea>
                         </FormField>
@@ -91,7 +109,7 @@ else if (!Redirected)
     private StatusAction? _action => TenantStatusLabels.Find(Action);
 
     // The page offers the form only for a move the company's current status allows; the API stays the authority either way.
-    private bool Allowed => _company is not null && TenantStatusLabels.ActionsFor(_company.Status).Any(a => a.Route == Action);
+    private bool Allowed => _company is not null && TenantStatusLabels.ActionsFor(_company).Any(a => a.Route == Action);
 
     private bool ShowForm => _company is not null && Allowed && !Redirected;
 

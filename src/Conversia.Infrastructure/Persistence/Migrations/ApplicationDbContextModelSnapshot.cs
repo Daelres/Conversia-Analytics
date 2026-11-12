@@ -257,6 +257,52 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.ToTable("Contacts", (string)null);
                 });
 
+            modelBuilder.Entity("Conversia.Domain.Entities.ContactSuppression", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("HashKeyId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("SuppressedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("SuppressedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("WaIdHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "WaIdHash")
+                        .IsUnique();
+
+                    b.ToTable("ContactSuppressions", (string)null);
+                });
+
             modelBuilder.Entity("Conversia.Domain.Entities.Conversation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -872,7 +918,7 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<Guid>("AdminId")
+                    b.Property<Guid?>("AdminId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("CreatedAt")
@@ -884,6 +930,10 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<string>("Details")
                         .IsRequired()
                         .HasColumnType("jsonb");
+
+                    b.Property<string>("ReasonCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<Guid?>("TenantId")
                         .HasColumnType("uuid");
@@ -900,7 +950,10 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "CreatedAt");
 
-                    b.ToTable("PlatformAuditLogs", (string)null);
+                    b.ToTable("PlatformAuditLogs", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PlatformAuditLogs_SystemReasonCode", "\"AdminId\" IS NOT NULL OR \"ReasonCode\" IS NOT NULL");
+                        });
                 });
 
             modelBuilder.Entity("Conversia.Domain.Entities.Tenant", b =>
@@ -924,11 +977,23 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<DateTime?>("BillingHoldSince")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("DataDeletionDueAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DataDeletionStartedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("MaxActiveLines")
                         .HasColumnType("integer");
@@ -961,6 +1026,14 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("StatusReasonCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SuspensionCause")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -973,10 +1046,61 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_Tenants_AiMonthlyConversationQuota", "\"AiMonthlyConversationQuota\" IS NULL OR \"AiMonthlyConversationQuota\" BETWEEN 0 AND 1000000");
 
+                            t.HasCheckConstraint("CK_Tenants_Cancellation", "(\"Status\" = 'Cancelled') = (\"CancelledAt\" IS NOT NULL AND \"DataDeletionDueAt\" IS NOT NULL) AND (\"DataDeletionStartedAt\" IS NULL OR \"Status\" = 'Cancelled')");
+
                             t.HasCheckConstraint("CK_Tenants_MaxActiveLines", "\"MaxActiveLines\" BETWEEN 0 AND 1000");
 
                             t.HasCheckConstraint("CK_Tenants_SendRateLimitPerMinute", "\"SendRateLimitPerMinute\" IS NULL OR \"SendRateLimitPerMinute\" BETWEEN 1 AND 1000000");
+
+                            t.HasCheckConstraint("CK_Tenants_SuspensionCause", "(\"Status\" = 'Suspended') = (\"SuspensionCause\" IS NOT NULL)");
                         });
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.TenantDeletion", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Counts")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("HashKeyId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("NameHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.Property<Guid?>("RequestedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("StuckSince")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("TenantId");
+
+                    b.HasIndex("CompletedAt");
+
+                    b.ToTable("TenantDeletions", (string)null);
                 });
 
             modelBuilder.Entity("Conversia.Domain.Entities.User", b =>
@@ -1260,6 +1384,15 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("Conversia.Domain.Entities.Contact", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.ContactSuppression", b =>
                 {
                     b.HasOne("Conversia.Domain.Entities.Tenant", null)
                         .WithMany()

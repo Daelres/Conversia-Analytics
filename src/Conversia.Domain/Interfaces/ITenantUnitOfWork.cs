@@ -30,6 +30,9 @@ public interface ITenantChange : IAsyncDisposable
     /// <summary>The licences assigned to THIS company, tracked (docs/PLATFORM_ADMIN.md, "Line licences").</summary>
     Task<IReadOnlyList<LineLicense>> GetAssignedLicensesAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Queues the tombstone of a company whose data deletion starts; written, with the rest, by <see cref="CommitAsync"/>.</summary>
+    void AddDeletionRecord(TenantDeletion record);
+
     /// <summary>Queues an audit row; it is written, with the rest, by <see cref="CommitAsync"/>.</summary>
     void Record(PlatformAuditLog entry);
 

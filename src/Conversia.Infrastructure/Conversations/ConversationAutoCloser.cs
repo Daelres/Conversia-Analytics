@@ -28,17 +28,20 @@ public sealed class ConversationAutoCloser(ApplicationDbContext db, Conversation
         await db.Database.ExecuteSqlAsync($"SELECT set_config('idle_in_transaction_session_timeout', {timeout}, true)", cancellationToken);
 
         // Across all tenants on purpose. LIMIT is inside the locking query, so only the conversations of the batch are locked.
-        // A pending or suspended company is left alone (closing decides an outcome; it resumes when the company is Active again).
-        var active = nameof(TenantStatus.Active);
+        // Only a company that receives its messages (TenantIngestion: Active, Paused, Suspended for a late payment): a paused one keeps its
+        // conversation boundaries, or a long pause would merge unrelated chats into one. A pending, manually suspended or cancelled company is
+        // left alone (it resumes when the company is Active again).
+#pragma warning disable EF1002 // the spliced condition is TenantIngestion's constant, built from enum names; the values are parameters
         var batch = await db.Conversations
-            .FromSql($"""
+            .FromSqlRaw($$"""
                 SELECT * FROM "Conversations"
-                WHERE "Status" = 'Open' AND "LastMessageAt" < {cutoff}
-                  AND EXISTS (SELECT 1 FROM "Tenants" WHERE "Tenants"."Id" = "Conversations"."TenantId" AND "Tenants"."Status" = {active})
+                WHERE "Status" = 'Open' AND "LastMessageAt" < {0}
+                  AND EXISTS (SELECT 1 FROM "Tenants" WHERE "Tenants"."Id" = "Conversations"."TenantId" AND {{TenantIngestion.AcceptsWebhooksSql}})
                 ORDER BY "LastMessageAt"
-                LIMIT {options.BatchSize}
+                LIMIT {1}
                 FOR UPDATE SKIP LOCKED
-                """)
+                """, cutoff, options.BatchSize)
+#pragma warning restore EF1002
             .IgnoreQueryFilters()
             .ToListAsync(cancellationToken);
         if (batch.Count == 0)

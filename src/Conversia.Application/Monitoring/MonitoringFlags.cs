@@ -44,7 +44,8 @@ public sealed record MonitoringFlagInput(
     int AiLimitedCompanies,
     bool DeploymentCapReached,
     string? BreakerState,
-    long LostUsageRecords = 0);
+    long LostUsageRecords = 0,
+    int StuckDeletions = 0);
 
 /// <param name="Code">Stable machine code (<c>webhook_backlog</c>, ...).</param>
 /// <param name="Severity"><c>warning</c> or <c>critical</c>.</param>
@@ -132,6 +133,12 @@ public static class MonitoringFlags
         if (input.DeploymentCapReached)
         {
             flags.Add(new("ai_deployment_cap", Critical, "Se alcanzó el tope mensual en USD de IA de la plataforma: todas las empresas se clasifican solo con reglas hasta fin de mes."));
+        }
+
+        if (input.StuckDeletions > 0)
+        {
+            flags.Add(new("tenant_deletion_stuck", Critical,
+                $"{input.StuckDeletions} eliminaciones de datos de empresas canceladas no terminan (se reintentan solas; revisa el log de la API)."));
         }
 
         if (input.LostUsageRecords > 0)

@@ -1,3 +1,4 @@
+using Conversia.Domain.Common;
 using Conversia.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -35,6 +36,19 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
             "CK_Tenants_AiMonthlyConversationQuota", $"\"AiMonthlyConversationQuota\" IS NULL OR \"AiMonthlyConversationQuota\" BETWEEN 0 AND {Tenant.MaxAiMonthlyConversationQuota}"));
         builder.ToTable(t => t.HasCheckConstraint(
             "CK_Tenants_SendRateLimitPerMinute", $"\"SendRateLimitPerMinute\" IS NULL OR \"SendRateLimitPerMinute\" BETWEEN 1 AND {Tenant.MaxSendRateLimitPerMinute}"));
+
+        // The lifecycle (docs/PLATFORM_ADMIN.md, "Lifecycle of a company"): a suspension always says why, and only a cancelled company has a
+        // cancellation and a deletion date. Bounded in the database too, so the workers' SQL can trust the columns.
+        builder.Property(t => t.StatusReasonCode).HasMaxLength(ReasonCodes.MaxLength);
+        builder.Property(t => t.SuspensionCause).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(t => t.CancelledAt);
+        builder.Property(t => t.DataDeletionDueAt);
+        builder.Property(t => t.DataDeletionStartedAt);
+        builder.Property(t => t.BillingHoldSince);
+        builder.ToTable(t => t.HasCheckConstraint("CK_Tenants_SuspensionCause", "(\"Status\" = 'Suspended') = (\"SuspensionCause\" IS NOT NULL)"));
+        builder.ToTable(t => t.HasCheckConstraint(
+            "CK_Tenants_Cancellation",
+            "(\"Status\" = 'Cancelled') = (\"CancelledAt\" IS NOT NULL AND \"DataDeletionDueAt\" IS NOT NULL) AND (\"DataDeletionStartedAt\" IS NULL OR \"Status\" = 'Cancelled')"));
 
         builder.Property(t => t.CreatedAt).IsRequired();
         builder.Property(t => t.UpdatedAt);

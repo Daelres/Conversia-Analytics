@@ -5,12 +5,15 @@
 @using Conversia.Web.Authentication
 @inherits AuthenticatedPageBase
 @inject SupportOptions Support
+@using Conversia.Application.Time
+@using Conversia.Web.Time
+@inject TenantTimeZone TimeZone
 
 <PageTitle>@TitleText - Conversia</PageTitle>
 
 @if (!Redirected && _tenant is not null)
 {
-    <div class="page page--narrow" data-page="account-state" data-status="@_tenant.Status">
+    <div class="page page--narrow" data-page="account-state" data-status="@_tenant.Status" data-cause="@_tenant.SuspensionCause">
         <PageHeader Eyebrow="Tu empresa" EyebrowIcon="building" Title="@TitleText" Description="@Lead" />
 
         @if (JustRegistered && _tenant.Status == TenantStatus.Pending)
@@ -29,9 +32,21 @@
                 <div>
                     <dt>Estado</dt>
                     <dd>
-                        @if (_tenant.Status == TenantStatus.Suspended)
+                        @if (State == AccountState.BillingSuspended)
+                        {
+                            <Chip Tone="ChipTone.Danger" IconName="alert-circle" data-testid="tenant-status">Suspendida por pago pendiente</Chip>
+                        }
+                        else if (_tenant.Status == TenantStatus.Suspended)
                         {
                             <Chip Tone="ChipTone.Danger" IconName="alert-circle" data-testid="tenant-status">Suspendida</Chip>
+                        }
+                        else if (_tenant.Status == TenantStatus.Paused)
+                        {
+                            <Chip Tone="ChipTone.Warning" IconName="clock" data-testid="tenant-status">En pausa</Chip>
+                        }
+                        else if (_tenant.Status == TenantStatus.Cancelled)
+                        {
+                            <Chip Tone="ChipTone.Danger" IconName="x-circle" data-testid="tenant-status">Servicio cancelado</Chip>
                         }
                         else
                         {
@@ -42,7 +57,44 @@
             </dl>
         </Card>
 
-        @if (_tenant.Status == TenantStatus.Suspended)
+        @if (State == AccountState.BillingSuspended)
+        {
+            <Card Title="Qué significa" IconName="info" data-testid="billing-help">
+                <ul class="stack-sm bullets">
+                    <li>Hay un pago pendiente de tu suscripción a Conversia. Mientras se resuelve, el panel y las conversaciones no están disponibles.</li>
+                    <li>Tus números siguen recibiendo mensajes y se guardan todos: no pierdes ninguno. El análisis se pone al día cuando el pago quede registrado.</li>
+                    <li>Si ya pagaste o tienes dudas sobre el cobro, contacta al equipo de Conversia.</li>
+                </ul>
+            </Card>
+        }
+        else if (_tenant.Status == TenantStatus.Paused)
+        {
+            <Card Title="Qué significa" IconName="info" data-testid="paused-help">
+                <ul class="stack-sm bullets">
+                    <li>Tu empresa está en una pausa acordada con el equipo de Conversia: el panel, las conversaciones y el envío de mensajes no están disponibles.</li>
+                    <li>Tus números siguen recibiendo mensajes y se guardan todos. Cuando se reanude el servicio, el análisis se pone al día.</li>
+                    <li>Para reanudar antes de lo acordado, contacta al equipo de Conversia.</li>
+                </ul>
+            </Card>
+        }
+        else if (_tenant.Status == TenantStatus.Cancelled)
+        {
+            <Card Title="Qué significa" IconName="info" data-testid="cancelled-help">
+                <ul class="stack-sm bullets">
+                    <li>El servicio de tu empresa terminó: tus números ya no reciben mensajes en Conversia y el panel no está disponible.</li>
+                    @if (_tenant.DataDeletionDueAt is { } dueAt)
+                    {
+                        <li data-testid="deletion-date">Tus datos se conservan hasta el @MetricsFormat.Date(DateOnly.FromDateTime(TimeZone.ToLocal(dueAt))). Después se eliminan para siempre, como lo exige la ley de protección de datos.</li>
+                    }
+                    else
+                    {
+                        <li>Tus datos se están eliminando, como lo exige la ley de protección de datos.</li>
+                    }
+                    <li>Si quieres retomar el servicio antes de esa fecha, contacta al equipo de Conversia.</li>
+                </ul>
+            </Card>
+        }
+        else if (_tenant.Status == TenantStatus.Suspended)
         {
             <Card Title="Qué significa" IconName="info" data-testid="suspended-help">
                 <ul class="stack-sm bullets">
@@ -85,13 +137,41 @@
 
     private bool JustRegistered => Registered == "1";
 
-    private string TitleText => _tenant?.Status == TenantStatus.Suspended
-        ? "Tu empresa está suspendida"
-        : "Tu empresa está pendiente de activación";
+    private enum AccountState
+    {
+        Pending,
+        Suspended,
+        BillingSuspended,
+        Paused,
+        Cancelled,
+    }
 
-    private string Lead => _tenant?.Status == TenantStatus.Suspended
-        ? "Por ahora no puedes usar el panel ni las conversaciones. Tu cuenta sigue aquí."
-        : "Todavía no puedes usar el panel ni las conversaciones. Es un paso normal, no un error.";
+    private AccountState State => _tenant switch
+    {
+        { Status: TenantStatus.Suspended, SuspensionCause: SuspensionCause.Billing } => AccountState.BillingSuspended,
+        { Status: TenantStatus.Suspended } => AccountState.Suspended,
+        { Status: TenantStatus.Paused } => AccountState.Paused,
+        { Status: TenantStatus.Cancelled } => AccountState.Cancelled,
+        _ => AccountState.Pending,
+    };
+
+    private string TitleText => State switch
+    {
+        AccountState.BillingSuspended => "Tu empresa tiene un pago pendiente",
+        AccountState.Suspended => "Tu empresa está suspendida",
+        AccountState.Paused => "Tu empresa está en pausa",
+        AccountState.Cancelled => "El servicio de tu empresa fue cancelado",
+        _ => "Tu empresa está pendiente de activación",
+    };
+
+    private string Lead => State switch
+    {
+        AccountState.BillingSuspended => "Por ahora no puedes usar el panel ni las conversaciones. Tus mensajes se siguen guardando.",
+        AccountState.Paused => "Por ahora no puedes usar el panel ni las conversaciones. Tus mensajes se siguen guardando.",
+        AccountState.Cancelled => "Ya no puedes usar el panel ni las conversaciones.",
+        AccountState.Suspended => "Por ahora no puedes usar el panel ni las conversaciones. Tu cuenta sigue aquí.",
+        _ => "Todavía no puedes usar el panel ni las conversaciones. Es un paso normal, no un error.",
+    };
 
     protected override async Task OnInitializedAsync()
     {

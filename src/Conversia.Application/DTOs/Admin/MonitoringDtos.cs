@@ -69,6 +69,9 @@ public class BacklogResponse
 
     /// <summary>Conversations the worker gave up on after repeated failures (retried when a new message arrives).</summary>
     public int ClassificationStopped { get; set; }
+
+    /// <summary>Platform only: data deletions of cancelled companies that do not finish (a count, no company named).</summary>
+    public int StuckDeletions { get; set; }
 }
 
 /// <summary>AI usage of a month, real or sandbox. Sandbox usage never counts against a company's quota.</summary>
