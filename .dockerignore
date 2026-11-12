@@ -35,6 +35,8 @@ scripts
 pack
 .template.config
 **/*.md
+# ...except the LLM system prompt, an embedded resource of Conversia.Application (the build fails without it).
+!src/Conversia.Application/Classification/Llm/system-prompt.es-CO.md
 **/Dockerfile*
 **/.dockerignore
 docker-compose*.yml
