@@ -59,14 +59,15 @@ All under `/api/admin`, policy `PlatformAdmin`, Spanish `application/problem+jso
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/admin/auth/login` | `{email, password}` to `{token, adminId, expiresAt}`. Anonymous, rate limited. Wrong email, wrong password and a deactivated administrator are the **same** `401`. |
-| GET | `/api/admin/tenants` | Query `status` (`Pending`/`Active`/`Suspended`), `search` (part of the name, case-insensitive), `page`, `pageSize`. Items: `id, name, status, maxActiveLines, activeLines, registeredLines, ownerEmail, registeredAt, lastActivityAt` (time of the latest message, null if none), `statusChangedAt, statusReason`. |
+| GET | `/api/admin/tenants` | Query `status` (`Pending`/`Active`/`Suspended`), `search` (part of the name, case-insensitive), `page`, `pageSize`. Items: `id, name, status, maxActiveLines, activeLines, registeredLines, ownerEmail, registeredAt, lastActivityAt` (time of the latest real message, null if none: sandbox messages are not activity, [SANDBOX.md](SANDBOX.md)), `statusChangedAt, statusReason, sandboxMode`. |
 | GET | `/api/admin/tenants/{id}` | The same plus `lines` (`channelId, displayPhoneNumber, branchName, isActive`: business facts only, no webhook key) and the last 10 `recentAudit` entries. |
 | PUT | `/api/admin/tenants/{id}/status` | `{status, reason?}` (reason up to 500 characters). `409` for an invalid transition. |
 | PUT | `/api/admin/tenants/{id}/line-quota` | `{maxActiveLines}` (0 to 1000). `409` below the active lines. |
+| PUT | `/api/admin/tenants/{id}/sandbox-mode` | `{enabled, reason}` (reason **required**, 1 to 200 characters). Switches the internal sandbox of the company on or off ([SANDBOX.md](SANDBOX.md)). Idempotent: the value it already has writes nothing. |
 | POST | `/api/admin/tenants/{id}/channels/{channelId}/deactivate` | Forces a line off. Idempotent. A channel of another company is `404`. |
 | GET | `/api/admin/audit` | Query `tenantId?`, `page`, `pageSize`. Newest first. |
 
-For the companies' side: `GET /api/tenant` (any signed-in user, allowed in every status) returns `name, status, maxActiveLines, activeLines, registeredLines`.
+For the companies' side: `GET /api/tenant` (any signed-in user, allowed in every status) returns `name, status, maxActiveLines, activeLines, registeredLines, sandboxMode`.
 
 The `403` of a company that is not Active carries the stable machine code (`"code": "tenant_not_active"`, plus `"tenantStatus"`):
 
@@ -77,7 +78,7 @@ The `403` of a company that is not Active carries the stable machine code (`"cod
 ## Audit
 
 Every change writes a row to `PlatformAuditLogs`: the administrator's id, an action code, the company, a small JSON of the old and new values and
-the time. Actions: `tenant.status_changed` (`from`, `to`, `reason`), `tenant.quota_changed` (`from`, `to`), `channel.deactivated`
+the time. Actions: `tenant.status_changed` (`from`, `to`, `reason`), `tenant.quota_changed` (`from`, `to`), `tenant.sandbox_mode_changed` (`from`, `to`, `reason`), `channel.deactivated`
 (`channelId`, `displayPhoneNumber`). Refused changes and no-ops (same quota, line already off) write nothing. Rows hold ids, statuses, numbers and
 the reason the administrator typed: never a secret, a message or customer data. There is no foreign key on the company, so the trail survives it.
 
@@ -86,6 +87,15 @@ the reason the administrator typed: never a secret, a message or customer data. 
 empresa"), never a customer's name, number or message. The trail has no purge: `PlatformAuditLogs` rows are kept for as long as the platform keeps its
 own records, because they are the evidence of who approved or stopped a company. If a reason ever holds personal data, it is corrected in the database
 by hand (the column is the only field of the row a person writes). The schema is unchanged.
+
+## Sandbox mode
+
+The administrator can put a company in the **internal sandbox mode**: nothing of the company goes to 360dialog, its users can simulate
+customers, and its metrics show sandbox data only. It is the administrator's switch and nobody else's: a company's own API has no way to
+change it. Each change needs a reason and is audited. What the mode does, its data rules and its limits are in [SANDBOX.md](SANDBOX.md).
+
+The administrator still sees **no** conversation, message, contact or metric of the company, sandbox or real: the switch and the audit
+entry are all there is on this side.
 
 ## Bootstrap of the first administrator
 
@@ -150,6 +160,7 @@ The Web (`src/Conversia.Web`) has two separate areas. Everything is static serve
 | `/admin/empresas/{id}` | administrator | One company: status and the moves that make sense (Activar and Suspender when Pending, Suspender when Active, Reactivar when Suspended), the quota form (0 to 1000), its lines (number, branch, state, "Desactivar") and the latest changes. |
 | `/admin/empresas/{id}/estado/{activar\|suspender\|reactivar}` | administrator | The confirmation of a status change, with an optional reason (up to 500 characters). |
 | `/admin/empresas/{id}/lineas/{channelId}/desactivar` | administrator | The confirmation of switching a line off. |
+| `/admin/empresas/{id}/sandbox/{activar\|desactivar}` | administrator | The confirmation of switching the internal sandbox mode, with a **required** reason (up to 200 characters). The company page has the card "Modo sandbox" and the listing marks the companies that are in it ([SANDBOX.md](SANDBOX.md)). |
 | `/admin/auditoria` | administrator | The audit trail in words, newest first, 20 per page, optionally for one company (`empresa`). |
 | `POST /admin/logout` | administrator | Ends only the administrator's session. |
 

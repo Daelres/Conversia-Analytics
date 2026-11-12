@@ -2,6 +2,7 @@ using Conversia.Application.Exceptions;
 using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
 using Conversia.Domain.Interfaces;
+using Conversia.Infrastructure.Configuration;
 using Conversia.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -24,10 +25,10 @@ public class WebhookEventRepository(ApplicationDbContext dbContext, TimeProvider
         {
             var inserted = await dbContext.Database.ExecuteSqlAsync($"""
                 INSERT INTO "WebhookEvents"
-                    ("Id", "TenantId", "ChannelId", "BodyHash", "RawPayload", "ReceivedAt", "Status", "Attempts", "NextAttemptAt", "CreatedAt")
+                    ("Id", "TenantId", "ChannelId", "BodyHash", "RawPayload", "ReceivedAt", "Status", "Attempts", "NextAttemptAt", "CreatedAt", "IsSandbox")
                 VALUES
                     ({webhookEvent.Id}, {webhookEvent.TenantId}, {webhookEvent.ChannelId}, {webhookEvent.BodyHash}, {webhookEvent.RawPayload}::jsonb,
-                     {webhookEvent.ReceivedAt}, {status}, {webhookEvent.Attempts}, {webhookEvent.NextAttemptAt}, {createdAt})
+                     {webhookEvent.ReceivedAt}, {status}, {webhookEvent.Attempts}, {webhookEvent.NextAttemptAt}, {createdAt}, {webhookEvent.IsSandbox})
                 ON CONFLICT ("ChannelId", "BodyHash") DO NOTHING
                 """, cancellationToken);
             return inserted > 0;
@@ -45,6 +46,9 @@ public class ContactRepository(ApplicationDbContext dbContext) : IContactReposit
     public Task<Contact?> GetByWaIdAsync(string waId, CancellationToken cancellationToken = default)
         => dbContext.Contacts.FirstOrDefaultAsync(c => c.WaId == waId, cancellationToken);
 
+    public Task<Contact?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+        => dbContext.Contacts.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
+
     public async Task AddAsync(Contact contact, CancellationToken cancellationToken = default)
     {
         await dbContext.Contacts.AddAsync(contact, cancellationToken);
@@ -55,7 +59,7 @@ public class ContactRepository(ApplicationDbContext dbContext) : IContactReposit
         => dbContext.SaveChangesAsync(cancellationToken);
 }
 
-public class ConversationRepository(ApplicationDbContext dbContext) : IConversationRepository
+public class ConversationRepository(ApplicationDbContext dbContext, MessageSendingOptions sendingOptions) : IConversationRepository
 {
     public async Task<Conversation?> FindOpenAsync(Guid contactId, Guid channelId, CancellationToken cancellationToken = default)
     {
@@ -85,6 +89,37 @@ public class ConversationRepository(ApplicationDbContext dbContext) : IConversat
     public Task<Conversation?> GetForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
         => dbContext.Conversations.FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
 
+    public Task<Conversation?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+        => dbContext.Conversations.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
+
+    public async Task<bool> ChangeSerializedWithIngestionAsync(
+        Guid tenantId, Guid conversationId, Func<Conversation, Task> change, CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        // The caller usually cannot be cancelled (the message it records has already been sent), so the database bounds the work: every
+        // statement, every lock wait and the idle time. A limit that is hit throws, and nothing of the transaction is kept.
+        await TransactionTimeouts.SetLocalAsync(dbContext, sendingOptions.RecordTimeout, sendingOptions.RecordTimeout, cancellationToken);
+
+        // Tenant lock first, conversation row second: the order ingestion uses, so this queues behind a delivery of the tenant (or the
+        // delivery defers to it) and the two never hold one lock while waiting for the other.
+        await TenantIngestionLock.AcquireAsync(dbContext, tenantId, cancellationToken);
+
+        var locked = await dbContext.Conversations
+            .FromSql($"""SELECT * FROM "Conversations" WHERE "Id" = {conversationId} FOR UPDATE""")
+            .ToListAsync(cancellationToken);
+        if (locked.Count == 0)
+        {
+            return false;
+        }
+
+        await change(locked[0]);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+
     public async Task<Opportunity?> ChangeOpportunityAsync(
         Guid conversationId, Action<Conversation, Opportunity> change, CancellationToken cancellationToken = default)
     {
@@ -112,6 +147,10 @@ public class MessageRepository(ApplicationDbContext dbContext) : IMessageReposit
 {
     public Task<bool> ExistsAsync(Guid channelId, string providerMessageId, CancellationToken cancellationToken = default)
         => dbContext.Messages.AnyAsync(m => m.ChannelId == channelId && m.ProviderMessageId == providerMessageId, cancellationToken);
+
+    public Task<Message?> FindAsync(Guid channelId, string providerMessageId, CancellationToken cancellationToken = default)
+        => dbContext.Messages.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.ChannelId == channelId && m.ProviderMessageId == providerMessageId, cancellationToken);
 
     public async Task AddAsync(Message message, CancellationToken cancellationToken = default)
     {

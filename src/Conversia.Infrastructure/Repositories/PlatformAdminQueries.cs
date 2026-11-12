@@ -94,10 +94,15 @@ public class PlatformAdminQueries : IPlatformAdminQueries
             _db.WhatsAppChannels.IgnoreQueryFilters().Count(c => c.TenantId == t.Id),
             _db.Users.IgnoreQueryFilters().Where(u => u.TenantId == t.Id && u.IsOwner).OrderBy(u => u.CreatedAt).Select(u => u.Email).FirstOrDefault(),
             t.CreatedAt,
-            // The latest message time only, through the (TenantId, SentAt) index: nothing of the message itself.
-            _db.Messages.IgnoreQueryFilters().Where(m => m.TenantId == t.Id).Max(m => (DateTime?)m.SentAt),
+            // The latest message time only, through the (TenantId, SentAt) index: nothing of the message itself. A message of a sandbox
+            // conversation (docs/SANDBOX.md) is a test, not activity of the business: only real ones count.
+            _db.Messages.IgnoreQueryFilters()
+                .Where(m => m.TenantId == t.Id
+                    && !_db.Conversations.IgnoreQueryFilters().Any(c => c.Id == m.ConversationId && c.IsSandbox))
+                .Max(m => (DateTime?)m.SentAt),
             t.StatusChangedAt,
-            t.StatusReason));
+            t.StatusReason,
+            t.SandboxMode));
 
     private static string EscapeLike(string text)
         => text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);

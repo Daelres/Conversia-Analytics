@@ -12,6 +12,7 @@ using Conversia.Infrastructure.Authorization;
 using Conversia.Infrastructure.Configuration;
 using Conversia.Infrastructure.Persistence;
 using Conversia.Infrastructure.Repositories;
+using Conversia.Infrastructure.Sandbox;
 using Conversia.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -34,8 +35,9 @@ builder.Services.AddAdminLoginRateLimiting(builder.Configuration);
 builder.Services.AddErrorLogging(builder.Configuration);
 builder.Services.AddWebhookIngestion(builder.Configuration);
 builder.Services.AddConversations(builder.Configuration);
-builder.Services.AddClassification(builder.Configuration);
+builder.Services.AddClassification(builder.Configuration, builder.Environment);
 builder.Services.AddMetrics(builder.Configuration);
+builder.Services.AddMessaging(builder.Configuration);
 builder.Services.AddOptionalForwardedHeaders(builder.Configuration);
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -54,6 +56,9 @@ builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 builder.Services.AddScoped<IOrganizationService, OrganizationService>();
 builder.Services.AddScoped<ITenantService, TenantService>();
+builder.Services.AddScoped<ISandboxService, SandboxService>();
+builder.Services.AddSingleton<ISandboxCustomerNumbers, RandomSandboxCustomerNumbers>();
+builder.Services.AddScoped<ISandboxDataStore, SandboxDataStore>();
 // One instance per scope under both interfaces: the tenant a webhook request or the worker sets is the one the DbContext filters by.
 builder.Services.AddScoped<CurrentTenantService>();
 builder.Services.AddScoped<ICurrentTenantService>(sp => sp.GetRequiredService<CurrentTenantService>());

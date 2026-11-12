@@ -102,6 +102,20 @@ public class ExceptionHandlingMiddleware
         {
             await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.DuplicateBranchNameTitle, ex.Message);
         }
+        catch (MessagingException ex)
+        {
+            await WriteMessagingProblemAsync(context, ex);
+        }
+        catch (SandboxException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.SandboxRefusedTitle, ex.Message, ("code", ex.Code));
+        }
+        catch (SecretProtectionException ex)
+        {
+            // An operations problem (no master key, or a stored key it cannot open), not a defect of the request: logged by its kind only.
+            _logger.LogError("The provider credentials are unavailable ({Failure}): {Method} {Path}.", ex.Failure, context.Request.Method, RequestPathRedactor.Redact(context.Request.Path.Value));
+            await WriteProblemAsync(context, StatusCodes.Status503ServiceUnavailable, ProblemTexts.CredentialsUnavailableTitle, ex.Message, ("code", SecretProtectionException.Code));
+        }
         catch (MetricsQueryTimeoutException ex)
         {
             // Expected under load, not a defect: no error code, no registry, and nothing of the statement in the log.
@@ -128,6 +142,32 @@ public class ExceptionHandlingMiddleware
         {
             await HandleUnexpectedAsync(context, ex, errorRegistry);
         }
+    }
+
+    // Every reason a message was not sent has its own status and code; the detail is the exception's fixed Spanish text, never the provider's.
+    private Task WriteMessagingProblemAsync(HttpContext context, MessagingException exception)
+    {
+        var status = exception.Problem switch
+        {
+            MessagingProblem.ConversationClosed or MessagingProblem.ChannelInactive or MessagingProblem.CredentialsMissing
+                or MessagingProblem.InvalidCredentials or MessagingProblem.SandboxConversation
+                or MessagingProblem.SandboxModeActive or MessagingProblem.SandboxDataDeleted => StatusCodes.Status409Conflict,
+            MessagingProblem.RecipientNotAllowed or MessagingProblem.Rejected => StatusCodes.Status422UnprocessableEntity,
+            MessagingProblem.LimitReached => StatusCodes.Status429TooManyRequests,
+            MessagingProblem.ProviderUnavailable => StatusCodes.Status503ServiceUnavailable,
+            _ => StatusCodes.Status500InternalServerError,
+        };
+
+        if (exception.Problem == MessagingProblem.SentNotRecorded)
+        {
+            // The customer has the message and the conversation does not: somebody must know. Type only, the cause can quote data.
+            _logger.LogError(
+                "A message was sent but could not be recorded ({CauseType}): {Method} {Path}.",
+                exception.InnerException?.GetType().FullName, context.Request.Method, RequestPathRedactor.Redact(context.Request.Path.Value));
+            return WriteProblemAsync(context, status, ProblemTexts.MessageNotRecordedTitle, exception.Message, ("code", exception.Code));
+        }
+
+        return WriteProblemAsync(context, status, ProblemTexts.MessageNotSentTitle, exception.Message, ("code", exception.Code));
     }
 
     private async Task HandleUnexpectedAsync(HttpContext context, Exception exception, IErrorRegistry errorRegistry)

@@ -181,7 +181,7 @@ else if (!Redirected)
                         @foreach (var item in _page.Items)
                         {
                             var inbound = item.Direction == "Inbound";
-                            <li class="feed__item feed__item--@(inbound ? "in" : "out")" data-testid="feed-message" data-message-id="@item.Id" data-direction="@item.Direction" data-new="@(_newIds.Contains(item.Id) ? "true" : null)">
+                            <li class="feed__item feed__item--@(inbound ? "in" : "out")" data-testid="feed-message" data-message-id="@item.Id" data-direction="@item.Direction" data-sandbox="@(item.IsSandbox ? "true" : "false")" data-new="@(_newIds.Contains(item.Id) ? "true" : null)">
                                 <div class="feed__meta">
                                     @if (inbound)
                                     {
@@ -194,6 +194,10 @@ else if (!Redirected)
                                     @if (_newIds.Contains(item.Id))
                                     {
                                         <Chip Tone="ChipTone.Accent" data-testid="new-chip">Nuevo</Chip>
+                                    }
+                                    @if (item.IsSandbox)
+                                    {
+                                        <Chip Tone="ChipTone.Warning" IconName="zap" data-testid="sandbox-chip">Sandbox</Chip>
                                     }
                                     <time class="feed__time" datetime="@item.SentAt.ToString("O")" data-testid="feed-time">@Stamp(item.SentAt)</time>
                                     <span class="muted feed__age">@ConversationFormat.Age(item.SentAt, _nowUtc) · llegó @MetricsFormat.ClockSeconds(TimeZone.ToLocal(item.ReceivedAt))</span>

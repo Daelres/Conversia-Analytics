@@ -31,7 +31,7 @@ public class PlatformAdminServiceTests
         _change.Setup(c => c.Record(It.IsAny<PlatformAuditLog>())).Callback<PlatformAuditLog>(_audit.Add);
         _unitOfWork.Setup(u => u.BeginAsync(_tenant.Id, It.IsAny<CancellationToken>())).ReturnsAsync(_change.Object);
         _queries.Setup(q => q.GetTenantAsync(_tenant.Id, It.IsAny<CancellationToken>())).ReturnsAsync(() => new TenantAdminDetail(
-            new TenantAdminSummary(_tenant.Id, _tenant.Name, _tenant.Status, _tenant.MaxActiveLines, _activeLines, _activeLines, "o@x.test", Now, null, null, null), []));
+            new TenantAdminSummary(_tenant.Id, _tenant.Name, _tenant.Status, _tenant.MaxActiveLines, _activeLines, _activeLines, "o@x.test", Now, null, null, null, _tenant.SandboxMode), []));
     }
 
     private PlatformAdminService CreateSut() => new(_queries.Object, _unitOfWork.Object, new FixedTimeProvider(Now));
@@ -120,5 +120,59 @@ public class PlatformAdminServiceTests
         _change.Setup(c => c.GetChannelAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((WhatsAppChannel?)null);
 
         await Assert.ThrowsAsync<ChannelNotFoundException>(() => CreateSut().DeactivateChannelAsync(_admin, _tenant.Id, Guid.NewGuid()));
+    }
+
+    // ---- Sandbox mode ---------------------------------------------------------------------------
+
+    [Fact]
+    public async Task SetSandboxMode_On_UpdatesTheTenantAuditsFromToAndReason_AndCommitsOnce()
+    {
+        var response = await CreateSut().SetSandboxModeAsync(_admin, _tenant.Id, new SetSandboxModeRequest { Enabled = true, Reason = "  Pruebas del piloto  " });
+
+        Assert.True(_tenant.SandboxMode);
+        var entry = Assert.Single(_audit);
+        Assert.Equal((_admin, PlatformAuditLog.Actions.TenantSandboxModeChanged, (Guid?)_tenant.Id), (entry.AdminId, entry.Action, entry.TenantId));
+        Assert.Equal("tenant.sandbox_mode_changed", entry.Action);
+        Assert.Contains("\"from\":false", entry.Details);
+        Assert.Contains("\"to\":true", entry.Details);
+        Assert.Contains("\"reason\":\"Pruebas del piloto\"", entry.Details);
+        _change.Verify(c => c.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Assert.True(response.SandboxMode);
+    }
+
+    [Fact]
+    public async Task SetSandboxMode_ToWhatItAlreadyIs_WritesNothing()
+    {
+        await CreateSut().SetSandboxModeAsync(_admin, _tenant.Id, new SetSandboxModeRequest { Enabled = false, Reason = "nada" });
+
+        Assert.False(_tenant.SandboxMode);
+        Assert.Empty(_audit);
+        _change.Verify(c => c.CommitAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("   ")]
+    public async Task SetSandboxMode_WithoutAReason_IsADomainError_AndChangesNothing(string? reason)
+    {
+        await Assert.ThrowsAsync<DomainException>(() =>
+            CreateSut().SetSandboxModeAsync(_admin, _tenant.Id, new SetSandboxModeRequest { Enabled = true, Reason = reason }));
+
+        Assert.False(_tenant.SandboxMode);
+        Assert.Empty(_audit);
+    }
+
+    [Fact]
+    public async Task SetSandboxMode_WithoutAValue_IsADomainError()
+        => await Assert.ThrowsAsync<DomainException>(() =>
+            CreateSut().SetSandboxModeAsync(_admin, _tenant.Id, new SetSandboxModeRequest { Reason = "x" }));
+
+    [Fact]
+    public async Task SetSandboxMode_ForAnUnknownTenant_ThrowsNotFound()
+    {
+        _unitOfWork.Setup(u => u.BeginAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((ITenantChange?)null);
+
+        await Assert.ThrowsAsync<TenantNotFoundException>(() =>
+            CreateSut().SetSandboxModeAsync(_admin, Guid.NewGuid(), new SetSandboxModeRequest { Enabled = true, Reason = "x" }));
     }
 }

@@ -195,6 +195,7 @@ else if (!Redirected)
                                         <th scope="col">Número</th>
                                         <th scope="col">Sucursal</th>
                                         <th scope="col">Estado</th>
+                                        <th scope="col">Clave de API para enviar</th>
                                         <th scope="col" data-align="end">Registrado</th>
                                         @if (_canManage)
                                         {
@@ -209,6 +210,10 @@ else if (!Redirected)
                                             <th scope="row" data-label="Número" id="ch-@channel.Id">@channel.DisplayPhoneNumber</th>
                                             <td data-label="Sucursal">@BranchName(channel.BranchId)</td>
                                             <td data-label="Estado"><Chip Tone="@(channel.IsActive ? ChipTone.Success : ChipTone.Neutral)" IconName="@(channel.IsActive ? "check-circle" : "minus")" data-testid="channel-state">@(channel.IsActive ? "Activa" : "Inactiva")</Chip></td>
+                                            <td data-label="Clave de API para enviar" data-testid="channel-key" data-has-key="@(channel.HasProviderApiKey ? "true" : "false")" data-environment="@channel.ProviderEnvironment">
+                                                <Chip Tone="@(channel.HasProviderApiKey ? ChipTone.Success : ChipTone.Neutral)" IconName="@(channel.HasProviderApiKey ? "key" : "minus")">@(channel.HasProviderApiKey ? "Configurada" : "Sin clave")</Chip>
+                                                <span class="muted">@KeyDetail(channel)</span>
+                                            </td>
                                             <td data-label="Registrado" data-align="end">@MetricsFormat.Date(DateOnly.FromDateTime(TimeZone.ToLocal(channel.CreatedAt)))</td>
                                             @if (_canManage)
                                             {
@@ -223,6 +228,7 @@ else if (!Redirected)
                                                             <a href="/organizacion/canales/@channel.Id/activar" id="ca-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="ca-@channel.Id ch-@channel.Id"><Icon Name="power" Class="icon--sm" />Activar línea</a>
                                                         }
                                                         <a href="/organizacion/canales/@channel.Id/rotar-secreto" id="cr-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="cr-@channel.Id ch-@channel.Id"><Icon Name="key" Class="icon--sm" />Rotar secreto</a>
+                                                        <a href="/organizacion/canales/@channel.Id/clave-api" id="ck-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="ck-@channel.Id ch-@channel.Id"><Icon Name="lock" Class="icon--sm" />Clave de API</a>
                                                     </div>
                                                 </td>
                                             }
@@ -270,12 +276,31 @@ else if (!Redirected)
                     </div>
                 </div>
             </Card>
+
+            @if (_loaded && _canManage)
+            {
+                <Card Title="Datos de prueba (sandbox)" Subtitle="Lo que se creó con el modo sandbox de Conversia: conversaciones y clientes simulados." IconName="zap" id="sandbox" data-testid="sandbox-card">
+                    <div class="stack">
+                        <dl class="kv">
+                            <div>
+                                <dt>Modo sandbox</dt>
+                                <dd><Chip Tone="@(_sandboxMode ? ChipTone.Warning : ChipTone.Neutral)" IconName="@(_sandboxMode ? "zap" : "minus")" data-testid="sandbox-mode" data-enabled="@(_sandboxMode ? "true" : "false")">@(_sandboxMode ? "Activo" : "Inactivo")</Chip></dd>
+                            </div>
+                        </dl>
+                        <p class="muted" data-testid="sandbox-note">El modo sandbox lo activa y lo desactiva el equipo de Conversia. Los datos de prueba llevan la etiqueta «Sandbox» y nunca se mezclan con las métricas de tus datos reales. Puedes eliminarlos cuando ya no los necesites.</p>
+                        <div class="form-actions">
+                            <a class="btn btn--danger-ghost" href="/organizacion/sandbox/eliminar-datos" data-testid="sandbox-delete-link"><Icon Name="trash" />Eliminar los datos de prueba</a>
+                        </div>
+                    </div>
+                </Card>
+            }
     </div>
 }
 
 @code {
     private bool _loaded;
     private bool _canManage;
+    private bool _sandboxMode;
     private string _submissionId = OneTimeSubmissions.NewId();
     private IReadOnlyList<BranchResponse> _branches = [];
     private IReadOnlyList<AdvisorResponse> _advisors = [];
@@ -319,6 +344,12 @@ else if (!Redirected)
 
     private string BranchName(Guid id) => _branches.FirstOrDefault(branch => branch.Id == id)?.Name ?? MetricsFormat.NoData;
 
+    // The environment always, and the day the key was set when there is one. The key itself is never sent to the Web.
+    private string KeyDetail(ChannelResponse channel)
+        => channel is { HasProviderApiKey: true, ProviderApiKeySetAt: { } setAt }
+            ? $"{MessagingLabels.Environment(channel.ProviderEnvironment)} · desde el {MetricsFormat.Date(DateOnly.FromDateTime(TimeZone.ToLocal(setAt)))}"
+            : MessagingLabels.Environment(channel.ProviderEnvironment);
+
     protected override async Task OnInitializedAsync()
     {
         if (!await TryReadTokenAsync())
@@ -359,6 +390,7 @@ else if (!Redirected)
         _advisors = advisorsTask.Result.Value!;
         _channels = channelsTask.Result.Value!;
         _tenant = tenantTask.Result.Value!;
+        _sandboxMode = _tenant.SandboxMode;
         _loaded = true;
     }
 

@@ -14,6 +14,14 @@ else
         <ShellHeader SignedIn="_signedIn" Profile="Shell.User" Tenant="Shell.Tenant" />
         <div class="shell-body">
             <main id="main" tabindex="-1">
+                @if (_signedIn && Shell.User?.SandboxMode == true)
+                {
+                    @* On every page of a company in sandbox mode (docs/SANDBOX.md), above everything else, so nobody takes test numbers for real ones. *@
+                    <div class="sandbox-banner" role="status" data-testid="sandbox-banner">
+                        <Icon Name="alert-triangle" />
+                        <p><strong>Modo sandbox activo.</strong> Tu empresa está en el modo de pruebas interno de Conversia: no se envía ningún mensaje real por WhatsApp y el panel muestra solo datos de prueba. Los mensajes reales que lleguen se siguen guardando.</p>
+                    </div>
+                }
                 <ErrorCodeNotice />
                 @Body
             </main>

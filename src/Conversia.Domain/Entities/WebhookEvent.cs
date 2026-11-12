@@ -52,12 +52,18 @@ public class WebhookEvent : BaseEntity
     /// <summary>Messages of the delivery that were already stored by an earlier one (the provider re-sent them). Null like <see cref="StoredMessageCount"/>.</summary>
     public int? DuplicateMessageCount { get; private set; }
 
+    /// <summary>
+    /// True for a delivery written by the internal sandbox's simulated customer instead of the provider (docs/SANDBOX.md). The contacts and
+    /// conversations it creates are sandbox data. A delivery that came in through the webhook is never one.
+    /// </summary>
+    public bool IsSandbox { get; private set; }
+
     // Required by EF Core for materialization.
     private WebhookEvent()
     {
     }
 
-    public static WebhookEvent Receive(Guid tenantId, Guid channelId, byte[] bodyHash, string rawPayload, DateTime receivedAt)
+    public static WebhookEvent Receive(Guid tenantId, Guid channelId, byte[] bodyHash, string rawPayload, DateTime receivedAt, bool isSandbox = false)
     {
         if (bodyHash is not { Length: BodyHashLength })
         {
@@ -78,6 +84,7 @@ public class WebhookEvent : BaseEntity
             RawPayload = rawPayload,
             ReceivedAt = received,
             NextAttemptAt = received,
+            IsSandbox = isSandbox,
         };
     }
 

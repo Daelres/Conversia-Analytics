@@ -16,6 +16,10 @@ pilot's. It does **not** prove what the real provider sends. The message the bus
 `smb_message_echoes`) follows the public documentation and is **unverified against a real 360dialog sandbox**: see
 [the limits](#limits) and `docs/WEBHOOKS.md`.
 
+> **Not the internal sandbox mode.** This is a development tool that posts to the webhook of a local API and creates ordinary (real,
+> unmarked) data. The mode an administrator switches on for a company, in any installation, to test without 360dialog is
+> [SANDBOX.md](SANDBOX.md); its payload builder (`SandboxWebhookPayload`) is a reduced copy of the shape `CloudApiPayloads` builds here.
+
 ## Run it on your machine
 
 You need Docker and the .NET 10 SDK.

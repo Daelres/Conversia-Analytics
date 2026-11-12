@@ -14,8 +14,12 @@ internal static class ApiResponseReader
     private const string ErrorIdHeader = "X-Error-Id";
     private const string ErrorIdProperty = "errorId";
 
+    /// <param name="expectedCodes">
+    /// The machine codes of the refusals this call knows how to word. Only these are ever carried as <see cref="ApiResult{T}.ProblemCode"/>:
+    /// a <c>code</c> nobody declared says nothing a page could act on, so it must not turn a real failure into a quiet, expected outcome.
+    /// </param>
     public static async Task<ApiResult<T>> ReadAsync<T>(
-        HttpResponseMessage response, JsonSerializerOptions json, Func<T, bool>? isUsable, CancellationToken cancellationToken)
+        HttpResponseMessage response, JsonSerializerOptions json, Func<T, bool>? isUsable, CancellationToken cancellationToken, IReadOnlySet<string>? expectedCodes = null)
     {
         var status = response.StatusCode;
         if ((int)status is >= 200 and < 300)
@@ -29,12 +33,30 @@ internal static class ApiResponseReader
             HttpStatusCode.Unauthorized => ApiResult<T>.Failure(ApiResultStatus.Unauthorized),
             HttpStatusCode.Forbidden => await ReadForbiddenAsync<T>(response, cancellationToken),
             HttpStatusCode.NotFound => ApiResult<T>.Failure(ApiResultStatus.NotFound),
-            HttpStatusCode.Conflict => ApiResult<T>.Conflict(ProblemDetailsErrors.TryReadDetail(await ReadBodyAsync(response, cancellationToken))),
-            HttpStatusCode.TooManyRequests => ApiResult<T>.RateLimited(ReadRetryAfterSeconds(response)),
-            HttpStatusCode.InternalServerError => await ReadServerErrorAsync<T>(response, cancellationToken),
+            HttpStatusCode.Conflict => await ReadConflictAsync<T>(response, expectedCodes, cancellationToken),
+            HttpStatusCode.UnprocessableEntity => await ReadNamedProblemAsync<T>(response, ApiResultStatus.Unprocessable, expectedCodes, cancellationToken),
+            HttpStatusCode.TooManyRequests => ApiResult<T>.RateLimited(ReadRetryAfterSeconds(response), ExpectedCode(await ReadBodyAsync(response, cancellationToken), expectedCodes)),
+            HttpStatusCode.ServiceUnavailable => await ReadNamedProblemAsync<T>(response, ApiResultStatus.Unavailable, expectedCodes, cancellationToken),
+            HttpStatusCode.InternalServerError => await ReadServerErrorAsync<T>(response, expectedCodes, cancellationToken),
             _ => throw UpstreamResponseException.For(status)
         };
     }
+
+    private static string? ExpectedCode(string body, IReadOnlySet<string>? expectedCodes)
+        => expectedCodes is { Count: > 0 } && ProblemDetailsErrors.TryReadProblemCode(body) is { } code && expectedCodes.Contains(code) ? code : null;
+
+    private static async Task<ApiResult<T>> ReadConflictAsync<T>(HttpResponseMessage response, IReadOnlySet<string>? expectedCodes, CancellationToken cancellationToken)
+    {
+        var body = await ReadBodyAsync(response, cancellationToken);
+        return ApiResult<T>.Conflict(ProblemDetailsErrors.TryReadDetail(body), ExpectedCode(body, expectedCodes));
+    }
+
+    // A refusal the call declared (a provider that refused, or could not be reached) is an expected answer. Anything else under these
+    // statuses, with or without a code, is an answer nobody can act on: it is reported like every other upstream failure.
+    private static async Task<ApiResult<T>> ReadNamedProblemAsync<T>(HttpResponseMessage response, ApiResultStatus status, IReadOnlySet<string>? expectedCodes, CancellationToken cancellationToken)
+        => ExpectedCode(await ReadBodyAsync(response, cancellationToken), expectedCodes) is { } code
+            ? ApiResult<T>.Problem(status, code)
+            : throw UpstreamResponseException.For(response.StatusCode);
 
     private static async Task<ApiResult<T>> ReadSuccessAsync<T>(
         HttpResponseMessage response, JsonSerializerOptions json, Func<T, bool>? isUsable, CancellationToken cancellationToken)
@@ -79,10 +101,21 @@ internal static class ApiResponseReader
         return errors is null ? throw UpstreamResponseException.For(response.StatusCode) : ApiResult<T>.Invalid(errors);
     }
 
-    private static async Task<ApiResult<T>> ReadServerErrorAsync<T>(HttpResponseMessage response, CancellationToken cancellationToken)
+    private static async Task<ApiResult<T>> ReadServerErrorAsync<T>(HttpResponseMessage response, IReadOnlySet<string>? expectedCodes, CancellationToken cancellationToken)
     {
-        var code = ErrorIdOf(response) ?? ErrorIdOf(await response.Content.ReadAsStringAsync(cancellationToken));
-        return code is null ? throw UpstreamResponseException.For(response.StatusCode) : ApiResult<T>.Unavailable(code);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        var expected = ExpectedCode(body, expectedCodes);
+
+        // A failure the API registered keeps its error id whatever else the answer says; a declared code beside it still tells the page
+        // what happened (a message that was sent but not recorded).
+        if ((ErrorIdOf(response) ?? ErrorIdOf(body)) is { } errorId)
+        {
+            return ApiResult<T>.Unavailable(errorId, expected);
+        }
+
+        return expected is not null
+            ? ApiResult<T>.Problem(ApiResultStatus.Unavailable, expected)
+            : throw UpstreamResponseException.For(response.StatusCode);
     }
 
     // Only a well-formed code is ever carried: the id is shown to a person and sent to the log, so it is never taken on trust.

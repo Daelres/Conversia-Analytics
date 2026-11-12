@@ -88,7 +88,13 @@
                         {
                             <tr data-testid="company-row" data-company-id="@company.Id" data-status="@company.Status">
                                 <th scope="row" data-label="Empresa"><a href="/admin/empresas/@company.Id">@company.Name</a></th>
-                                <td data-label="Estado"><TenantStatusChip Status="company.Status" /></td>
+                                <td data-label="Estado">
+                                    <TenantStatusChip Status="company.Status" />
+                                    @if (company.SandboxMode)
+                                    {
+                                        <Chip Tone="ChipTone.Warning" IconName="zap" data-testid="company-sandbox">Sandbox</Chip>
+                                    }
+                                </td>
                                 <td data-label="Líneas activas" data-testid="company-lines" data-active="@company.ActiveLines" data-max="@company.MaxActiveLines">@AdminFormat.LinesOfQuota(company.ActiveLines, company.MaxActiveLines)</td>
                                 <td data-label="Propietario">@(company.OwnerEmail ?? MetricsFormat.NoData)</td>
                                 <td data-label="Registro">@MetricsFormat.Date(DateOnly.FromDateTime(TimeZone.ToLocal(company.RegisteredAt)))</td>

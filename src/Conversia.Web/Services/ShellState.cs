@@ -4,7 +4,8 @@ using Conversia.Domain.Enums;
 namespace Conversia.Web.Services;
 
 /// <summary>What the account card of the shell may show about the signed-in person.</summary>
-public sealed record ShellUser(bool IsOwner, Guid TenantId);
+/// <param name="SandboxMode">The company is in the internal sandbox mode (docs/SANDBOX.md): the shell says so on every page.</param>
+public sealed record ShellUser(bool IsOwner, Guid TenantId, bool SandboxMode = false);
 
 /// <summary>
 /// Per-request bridge from a page to the layout: a page that already loaded the caller's profile hands it over so that the shell
@@ -27,7 +28,7 @@ public sealed class ShellState
 
     public void Remember(UserProfileResponse profile)
     {
-        User = new ShellUser(profile.IsOwner, profile.TenantId);
+        User = new ShellUser(profile.IsOwner, profile.TenantId, profile.TenantSandboxMode);
         Changed?.Invoke();
     }
 }

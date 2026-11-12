@@ -22,6 +22,7 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
         builder.Property(t => t.StatusChangedAt);
         builder.Property(t => t.StatusChangedBy);
         builder.Property(t => t.StatusReason).HasMaxLength(Tenant.StatusReasonMaxLength);
+        builder.Property(t => t.SandboxMode).IsRequired().HasDefaultValue(false);
         builder.ToTable(t => t.HasCheckConstraint("CK_Tenants_MaxActiveLines", $"\"MaxActiveLines\" BETWEEN 0 AND {Tenant.MaxLinesLimit}"));
 
         builder.Property(t => t.CreatedAt).IsRequired();

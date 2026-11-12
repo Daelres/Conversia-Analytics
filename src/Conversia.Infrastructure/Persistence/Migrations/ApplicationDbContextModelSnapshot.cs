@@ -112,6 +112,14 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AgeRange")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("AgeRangeSource")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -127,6 +135,32 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTime>("FirstSeenAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Gender")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Undetermined");
+
+                    b.Property<string>("GenderSource")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("IsSandbox")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTime?>("ProfileChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ProfileChangedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProfileClassifiedBy")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
@@ -201,8 +235,36 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("FirstResponseAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("IsSandbox")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("LastLlmSnapshotHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
                     b.Property<DateTime>("LastMessageAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("LlmFailures")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("PendingAgeRange")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("PendingGender")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("ProfilePending")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<string>("Source")
                         .IsRequired()
@@ -253,6 +315,9 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.HasIndex(new[] { "LastMessageAt" }, "IX_Conversations_LastMessageAt_Open")
                         .HasFilter("\"Status\" = 'Open'");
+
+                    b.HasIndex(new[] { "TenantId" }, "IX_Conversations_TenantId_Sandbox")
+                        .HasFilter("\"IsSandbox\"");
 
                     b.ToTable("Conversations", null, t =>
                         {
@@ -458,6 +523,10 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("ClassifiedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ClassifiedBy")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<DateTime?>("ClosedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -470,9 +539,26 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("DetailsChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DetailsChangedBy")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("InterestReason")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<string>("InterestReasonClassifiedBy")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("InterestReasonSource")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Auto");
 
                     b.Property<string>("LossDetail")
                         .HasMaxLength(500)
@@ -487,9 +573,31 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("ObjectionClassifiedBy")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ObjectionSource")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Auto");
+
                     b.Property<string>("ServiceInterest")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ServiceInterestClassifiedBy")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ServiceInterestSource")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Auto");
 
                     b.Property<string>("Stage")
                         .IsRequired()
@@ -626,6 +734,11 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<bool>("SandboxMode")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -757,6 +870,11 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<int?>("DuplicateMessageCount")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("IsSandbox")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("LastError")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
@@ -837,6 +955,20 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("ProviderApiKeyCiphertext")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<DateTime?>("ProviderApiKeySetAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProviderEnvironment")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Sandbox");
 
                     b.Property<string>("ProviderPhoneNumberId")
                         .HasMaxLength(64)

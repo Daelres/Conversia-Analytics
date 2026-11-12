@@ -18,6 +18,8 @@ public static class ValidationMessages
 
     public static readonly string ProviderPhoneNumberId = $"El campo {{0}} {Domain.Entities.WhatsAppChannel.ProviderPhoneNumberIdRuleText}.";
 
+    public static readonly string ProviderApiKey = $"El campo {{0}} {Domain.Entities.WhatsAppChannel.ProviderApiKeyRuleText}.";
+
     public static readonly string StrongPassword =
         $"El campo {{0}} debe tener entre {StrongPasswordAttribute.MinLength} y {StrongPasswordAttribute.MaxLength} caracteres e incluir al menos una mayúscula, una minúscula y un dígito.";
 }

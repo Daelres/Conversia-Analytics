@@ -2,6 +2,7 @@ using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using Conversia.Domain.Common;
+using Conversia.Domain.Enums;
 using Conversia.Domain.Exceptions;
 
 namespace Conversia.Domain.Entities;
@@ -9,7 +10,8 @@ namespace Conversia.Domain.Entities;
 /// <summary>
 /// A WhatsApp number connected to a branch (a "line": the unit the platform bills). <see cref="ChannelKey"/> is the public identifier in the webhook URL (globally
 /// unique, unguessable); the webhook secret is generated once, shown to the caller in plaintext at creation and stored only
-/// as a SHA-256 hash.
+/// as a SHA-256 hash. The provider API key used to send messages is kept only encrypted (<see cref="ProviderApiKeyCiphertext"/>): the
+/// entity never sees the plaintext.
 /// </summary>
 public class WhatsAppChannel : BaseEntity
 {
@@ -21,6 +23,8 @@ public class WhatsAppChannel : BaseEntity
     private const int RandomBytes = 32;
     private const int MinPhoneDigits = 7;
     private const int MaxPhoneDigits = 15;
+    public const int ProviderApiKeyMaxLength = 256;
+    public const int ProviderApiKeyCiphertextMaxLength = 1024;
 
     public static readonly string DisplayPhoneNumberRuleText =
         $"debe tener entre {MinPhoneDigits} y {MaxPhoneDigits} dígitos y solo puede incluir '+', espacios, '-', '(' y ')'";
@@ -31,6 +35,13 @@ public class WhatsAppChannel : BaseEntity
         $"es opcional, no puede superar los {ProviderPhoneNumberIdMaxLength} caracteres y solo puede incluir letras, dígitos, '-' o '_'";
 
     public static readonly string ProviderPhoneNumberIdRuleMessage = $"El identificador del número en el proveedor {ProviderPhoneNumberIdRuleText}.";
+
+    public static readonly string ProviderApiKeyRuleText =
+        $"debe tener entre 1 y {ProviderApiKeyMaxLength} caracteres visibles, sin espacios ni tildes";
+
+    public const string ProviderEnvironmentRuleMessage = "El entorno del proveedor no es válido.";
+
+    public static readonly string ProviderApiKeyRuleMessage = $"La clave de API del proveedor {ProviderApiKeyRuleText}.";
 
     public Guid TenantId { get; private set; }
 
@@ -50,6 +61,19 @@ public class WhatsAppChannel : BaseEntity
     /// line quota of its agreement (<see cref="Tenant.MaxActiveLines"/>).
     /// </summary>
     public bool IsActive { get; private set; }
+
+    /// <summary>
+    /// The provider API key, encrypted by the application before it gets here (see <c>ISecretProtector</c>). Null while the channel has no
+    /// key. The plaintext is never stored and no response carries this value.
+    /// </summary>
+    public string? ProviderApiKeyCiphertext { get; private set; }
+
+    /// <summary>When the current key was stored; null exactly while there is none.</summary>
+    public DateTime? ProviderApiKeySetAt { get; private set; }
+
+    public WhatsAppProviderEnvironment ProviderEnvironment { get; private set; } = WhatsAppProviderEnvironment.Sandbox;
+
+    public bool HasProviderApiKey => ProviderApiKeyCiphertext is not null;
 
     // Required by EF Core for materialization.
     private WhatsAppChannel()
@@ -99,6 +123,34 @@ public class WhatsAppChannel : BaseEntity
 
     public void Deactivate() => IsActive = false;
 
+    /// <summary>Stores the encrypted provider API key (replacing any previous one) together with the environment it belongs to.</summary>
+    public void SetProviderCredentials(string apiKeyCiphertext, WhatsAppProviderEnvironment environment, DateTime setAt)
+    {
+        if (!Enum.IsDefined(environment))
+        {
+            throw new DomainException(ProviderEnvironmentRuleMessage);
+        }
+
+        // Everything is checked before anything is assigned.
+        var ciphertext = TextRules.Required(apiKeyCiphertext, ProviderApiKeyCiphertextMaxLength, "La clave de API cifrada del proveedor no es válida.");
+        var at = UtcTime.Normalize(setAt);
+
+        ProviderApiKeyCiphertext = ciphertext;
+        ProviderEnvironment = environment;
+        ProviderApiKeySetAt = at;
+    }
+
+    /// <summary>Changes the environment and keeps the stored key, if any.</summary>
+    public void SetProviderEnvironment(WhatsAppProviderEnvironment environment)
+        => ProviderEnvironment = Enum.IsDefined(environment) ? environment : throw new DomainException(ProviderEnvironmentRuleMessage);
+
+    /// <summary>Forgets the provider API key. The environment stays. Idempotent.</summary>
+    public void ClearProviderCredentials()
+    {
+        ProviderApiKeyCiphertext = null;
+        ProviderApiKeySetAt = null;
+    }
+
     /// <summary>True when <paramref name="providedSecret"/> hashes to the stored hash. Compared in constant time.</summary>
     public bool VerifyWebhookSecret(string? providedSecret)
         => CryptographicOperations.FixedTimeEquals(HashSecret(providedSecret ?? string.Empty), WebhookSecretHash);
@@ -137,6 +189,16 @@ public class WhatsAppChannel : BaseEntity
         var trimmed = id.Trim();
         return trimmed.Length <= ProviderPhoneNumberIdMaxLength
                && trimmed.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
+    }
+
+    /// <summary>
+    /// The plaintext key rule, applied to the trimmed value: visible ASCII only (0x21 to 0x7E). The key travels in an HTTP header, so
+    /// spaces, control characters and line breaks are refused here rather than at the provider.
+    /// </summary>
+    public static bool IsValidProviderApiKey(string? key)
+    {
+        var trimmed = key?.Trim();
+        return trimmed is { Length: >= 1 and <= ProviderApiKeyMaxLength } && trimmed.All(c => c is > ' ' and <= '~');
     }
 
     // 256 random bits as URL-safe base64 (43 characters, no padding).

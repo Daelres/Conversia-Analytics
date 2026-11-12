@@ -12,6 +12,7 @@ namespace Conversia.Infrastructure.Messages;
 /// <summary>
 /// The messages feed, the arrival counters and the webhook deliveries, read straight into the response shapes. Every query is untracked and
 /// scoped to the current tenant by the global query filters; none repeats a tenant predicate. The raw payload of a delivery is never selected.
+/// These are diagnostic views, not metrics: sandbox and real rows are both listed, whatever the company's mode, each with its mark (docs/SANDBOX.md).
 /// </summary>
 public sealed class MessageFeedQueries(ApplicationDbContext db) : IMessageFeedQueries
 {
@@ -61,6 +62,7 @@ public sealed class MessageFeedQueries(ApplicationDbContext db) : IMessageFeedQu
                     Message = m,
                     ct.DisplayName,
                     ct.WaId,
+                    c.IsSandbox,
                     ch.DisplayPhoneNumber,
                     BranchName = db.Branches.Where(b => b.Id == ch.BranchId).Select(b => b.Name).FirstOrDefault(),
                 })
@@ -78,6 +80,8 @@ public sealed class MessageFeedQueries(ApplicationDbContext db) : IMessageFeedQu
             Text = r.Message.Text,
             Line = new LineReference { ChannelId = r.Message.ChannelId, DisplayPhoneNumber = r.DisplayPhoneNumber, BranchName = r.BranchName },
             Contact = new MessageContact { DisplayName = r.DisplayName, MaskedWaId = WhatsAppIdMask.Mask(r.WaId) },
+            // The mark of the message's conversation: the one source of truth the metrics use too (docs/SANDBOX.md).
+            IsSandbox = r.IsSandbox,
         }).ToList(), total);
     }
 
@@ -156,6 +160,7 @@ public sealed class MessageFeedQueries(ApplicationDbContext db) : IMessageFeedQu
                     e.StoredMessageCount,
                     e.DuplicateMessageCount,
                     e.LastError,
+                    e.IsSandbox,
                 })
             .ToListAsync(cancellationToken);
 
@@ -173,6 +178,7 @@ public sealed class MessageFeedQueries(ApplicationDbContext db) : IMessageFeedQu
             DuplicateMessageCount = r.DuplicateMessageCount,
             // Stored sanitized already; sanitized again on the way out so that nothing older or hand-written can leak a secret or a number.
             LastError = string.IsNullOrWhiteSpace(r.LastError) ? null : WebhookErrors.SanitizeStored(r.LastError),
+            IsSandbox = r.IsSandbox,
         }).ToList(), total);
     }
 }

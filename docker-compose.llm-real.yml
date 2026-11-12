@@ -1,0 +1,14 @@
+# Second LLM overlay: the same local Development stack as docker-compose.llm-dev.yml, but calling the REAL Anthropic API (docs/DOCKER.md,
+# "Local LLM validation against the real API"). Put ANTHROPIC_API_KEY in your .env (never in a file of the repository), then:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.simulator.yml -f docker-compose.llm-dev.yml -f docker-compose.llm-real.yml up -d --build
+#
+# DEVELOPMENT ONLY, and it COSTS MONEY and SENDS DATA: every classified conversation (pseudonymized, see docs/CLASSIFICATION.md) goes to
+# the provider. Only SANDBOX conversations reach it (Classification:Llm:AllowRealClientNonSandbox=false, the default: simulator and webhook
+# conversations are read by the rules); sandbox text typed by staff is pseudonymized but may hold real data, so never paste real chats. Each call is logged by the API
+# with its tokens and estimated USD: `docker compose logs api | grep "LLM classification"`.
+services:
+  api:
+    environment:
+      Classification__Llm__Client: Anthropic
+      Anthropic__ApiKey: ${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in .env to call the real Anthropic API (or drop docker-compose.llm-real.yml to use Replay).}

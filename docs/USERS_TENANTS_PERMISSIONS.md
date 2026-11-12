@@ -72,9 +72,9 @@ public enum Permission
 | `UsersView` | 1 | `GET /api/users` |
 | `UsersManage` | 2 | creating users, granting and revoking permissions |
 | `OrganizationView` | 5 | `GET` on `/api/branches`, `/api/advisors` and `/api/channels` |
-| `OrganizationManage` | 6 | `POST` on `/api/branches`, `/api/advisors` and `/api/channels`, and `POST /api/channels/{id}/activate`, `/deactivate` and `/rotate-secret`; also shows the channel key and webhook path in `GET /api/channels` |
+| `OrganizationManage` | 6 | `POST` on `/api/branches`, `/api/advisors` and `/api/channels`, and `POST /api/channels/{id}/activate`, `/deactivate` and `/rotate-secret`, and `PUT`/`DELETE /api/channels/{id}/provider-credentials` (the provider API key of a channel, write-only, `docs/MESSAGING.md`); also shows the channel key and webhook path in `GET /api/channels` |
 | `ConversationsView` | 7 | `GET /api/conversations`, `GET /api/conversations/{id}` (the detail includes message text), `GET /api/messages/recent`, `GET /api/messages/summary` and `GET /api/webhook-events` |
-| `ConversationsManage` | 8 | `PUT /api/conversations/{id}/advisor` and `PUT /api/conversations/{id}/opportunity` |
+| `ConversationsManage` | 8 | `PUT /api/conversations/{id}/advisor`, `PUT /api/conversations/{id}/opportunity` and `POST /api/conversations/{id}/messages` (a person sends a WhatsApp message to the customer, `docs/MESSAGING.md`) |
 | `MetricsView` | 9 | every `GET /api/metrics/*` endpoint (docs/METRICS.md) |
 
 (`Organization*` gate the Conversia branches, advisors and WhatsApp channels; `Conversations*` the conversations captured from them.

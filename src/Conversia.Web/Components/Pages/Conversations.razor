@@ -28,8 +28,17 @@ else if (!Redirected)
     <div class="page" data-page="conversations">
         <PageHeader Eyebrow="Ventas" EyebrowIcon="message" Title="Conversaciones"
                     Description="Los chats de WhatsApp con tus clientes: quién los atiende, cuánto tardaron en responder y cómo terminaron.">
+            @if (_canSimulate)
+            {
+                <a class="btn btn--primary" href="@ConversationLinks.Simulate" data-testid="simulate-conversation"><Icon Name="plus" />Simular una conversación</a>
+            }
             <a class="btn btn--secondary" href="/mensajes" data-testid="to-messages"><Icon Name="activity" />Mensajes recibidos</a>
         </PageHeader>
+
+        @if (ConversationsNotice.Describe(Notice) is { } notice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">@notice</Alert>
+        }
 
         <ErrorAlert Message="@Message" />
 
@@ -172,9 +181,13 @@ else if (!Redirected)
                             <tbody>
                                 @foreach (var item in _page.Items)
                                 {
-                                    <tr data-testid="conversation-row" data-conversation-id="@item.Id" data-stage="@item.Opportunity.Stage" data-status="@item.Status">
+                                    <tr data-testid="conversation-row" data-conversation-id="@item.Id" data-stage="@item.Opportunity.Stage" data-status="@item.Status" data-sandbox="@(item.IsSandbox ? "true" : "false")">
                                         <th scope="row" data-label="Cliente">
                                             <a class="conversation__link" href="@ConversationLinks.Detail(item.Id)" data-testid="conversation-link">@ConversationFormat.ListTitle(item.Contact)</a>
+                                            @if (item.IsSandbox)
+                                            {
+                                                <Chip Tone="ChipTone.Warning" IconName="zap" data-testid="sandbox-chip">Sandbox</Chip>
+                                            }
                                             @if (!string.IsNullOrWhiteSpace(item.Contact.DisplayName))
                                             {
                                                 <span class="muted conversation__phone" data-testid="conversation-phone">@ConversationFormat.MaskedPhone(item.Contact.WaId)</span>
@@ -232,6 +245,9 @@ else if (!Redirected)
     private IReadOnlyList<BranchResponse>? _branches;
     private IReadOnlyList<AdvisorResponse>? _advisors;
     private DateTime _nowUtc;
+    private bool _canSimulate;
+
+    [SupplyParameterFromQuery(Name = "notice")] public string? Notice { get; set; }
 
     [SupplyParameterFromQuery(Name = "branch")] public string? BranchText { get; set; }
 
@@ -292,6 +308,7 @@ else if (!Redirected)
         }
 
         _page = listTask.Result.Value;
+        _canSimulate = profileTask.Result.Value!.TenantSandboxMode && profileTask.Result.Value!.Can(Permission.ConversationsManage);
         _branches = branchesTask.Result.IsSuccess ? branchesTask.Result.Value : null;
         _advisors = advisorsTask.Result.IsSuccess ? advisorsTask.Result.Value : null;
     }

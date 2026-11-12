@@ -22,6 +22,7 @@ public class Opportunity : BaseEntity
     public const string LossReasonRequiredMessage = "El motivo de pérdida es obligatorio cuando la etapa es Lost.";
     public const string LossReasonNotAllowedMessage = "El motivo de pérdida y el detalle solo se admiten cuando la etapa es Lost.";
     public const string LossReasonInvalidMessage = "El motivo de pérdida no es válido.";
+    public const string ObjectionInvalidMessage = "El tipo de objeción no es válido.";
 
     public Guid TenantId { get; private set; }
 
@@ -64,6 +65,92 @@ public class Opportunity : BaseEntity
 
     /// <summary>The codes of the rules behind the last classification (<c>outcome.won.advisor_confirmation,objection.price</c>); never customer text.</summary>
     public string? ClassificationRules { get; private set; }
+
+    /// <summary>Who set <see cref="ServiceInterest"/>: a <see cref="FieldSource.Manual"/> value is never overwritten by a classifier.</summary>
+    public FieldSource ServiceInterestSource { get; private set; } = FieldSource.Auto;
+
+    /// <summary>Who set <see cref="InterestReason"/>.</summary>
+    public FieldSource InterestReasonSource { get; private set; } = FieldSource.Auto;
+
+    /// <summary>Who set <see cref="Objection"/>.</summary>
+    public FieldSource ObjectionSource { get; private set; } = FieldSource.Auto;
+
+    /// <summary>
+    /// The classifier behind the last automatic write of <see cref="ServiceInterest"/>. Null on rows older than the column: unknown, read as
+    /// <see cref="ClassifierProvider.Rules"/> (never protected as LLM-sourced).
+    /// </summary>
+    public ClassifierProvider? ServiceInterestClassifiedBy { get; private set; }
+
+    /// <summary>The classifier behind the last automatic write of <see cref="InterestReason"/>; null = unknown (Rules).</summary>
+    public ClassifierProvider? InterestReasonClassifiedBy { get; private set; }
+
+    /// <summary>The classifier behind the last automatic write of <see cref="Objection"/>; null = unknown (Rules).</summary>
+    public ClassifierProvider? ObjectionClassifiedBy { get; private set; }
+
+    /// <summary>The classifier behind the last automatic write of the stage and its loss reason (diagnostics); null = none yet or unknown.</summary>
+    public ClassifierProvider? ClassifiedBy { get; private set; }
+
+    /// <summary>When a person last set, confirmed or reverted a descriptive field; null if nobody has.</summary>
+    public DateTime? DetailsChangedAt { get; private set; }
+
+    /// <summary>The user who last set, confirmed or reverted a descriptive field. An id only.</summary>
+    public Guid? DetailsChangedBy { get; private set; }
+
+    /// <summary>A person sets the service (a code, or null for none). Saving it, even unchanged, pins it <see cref="FieldSource.Manual"/>.</summary>
+    public void SetManualServiceInterest(string? code, DateTime now, Guid? changedBy = null)
+    {
+        ServiceInterest = NormalizeCode(code, ServiceInterestMaxLength, "El servicio de interés");
+        ServiceInterestSource = FieldSource.Manual;
+        RecordDetailsChange(now, changedBy);
+    }
+
+    /// <summary>A person sets the interest reason (a code, or null for none) and pins it <see cref="FieldSource.Manual"/>.</summary>
+    public void SetManualInterestReason(string? code, DateTime now, Guid? changedBy = null)
+    {
+        InterestReason = NormalizeCode(code, InterestReasonMaxLength, "El motivo de interés");
+        InterestReasonSource = FieldSource.Manual;
+        RecordDetailsChange(now, changedBy);
+    }
+
+    /// <summary>A person sets the objection and pins it <see cref="FieldSource.Manual"/>.</summary>
+    public void SetManualObjection(ObjectionType objection, DateTime now, Guid? changedBy = null)
+    {
+        if (!Enum.IsDefined(objection))
+        {
+            throw new DomainException(ObjectionInvalidMessage);
+        }
+
+        Objection = objection;
+        ObjectionSource = FieldSource.Manual;
+        RecordDetailsChange(now, changedBy);
+    }
+
+    /// <summary>A person hands a field back to the classifier: its source becomes <see cref="FieldSource.Auto"/>, its value stays until the next classification.</summary>
+    public void RevertDetailToAuto(OpportunityDetailField field, DateTime now, Guid? changedBy = null)
+    {
+        switch (field)
+        {
+            case OpportunityDetailField.ServiceInterest:
+                ServiceInterestSource = FieldSource.Auto;
+                break;
+            case OpportunityDetailField.InterestReason:
+                InterestReasonSource = FieldSource.Auto;
+                break;
+            case OpportunityDetailField.Objection:
+                ObjectionSource = FieldSource.Auto;
+                break;
+            default:
+                throw new DomainException("El campo no es válido.");
+        }
+
+        RecordDetailsChange(now, changedBy);
+    }
+
+    private void RecordDetailsChange(DateTime now, Guid? changedBy)
+    {
+        DetailsChangedAt = UtcTime.Normalize(now);
+        DetailsChangedBy = changedBy;
+    }
 
     // Required by EF Core for materialization.
     private Opportunity()
@@ -118,10 +205,13 @@ public class Opportunity : BaseEntity
     }
 
     /// <summary>
-    /// The classifier's reading of the conversation. The descriptive fields (service, reason, objection) always follow it. The stage follows it
-    /// too, except that a <see cref="StageSource.Manual"/> stage and its loss reason are never touched, an undetermined outcome leaves the
-    /// stage alone, and a loss for lack of an answer (set when the conversation closed idle) is only replaced by a decisive outcome (Won or
-    /// Lost), never by "still in follow-up". Applying the same reading twice changes nothing but <see cref="ClassifiedAt"/>.
+    /// The classifier's reading of the conversation. Each descriptive field (service, reason, objection) follows it unless a person set it
+    /// (<see cref="FieldSource.Manual"/>), and records which classifier wrote it. An <b>explicit rules fallback</b>
+    /// (<see cref="ClassificationUpdate.IsRulesFallback"/>: the LLM was meant to read the conversation but failed or was not admitted) never
+    /// overwrites a non-empty value the LLM produced; a plain rules reading overwrites it, so rolling back to the rules leaves nothing stale.
+    /// The stage follows the reading too, except that a <see cref="StageSource.Manual"/> stage and its loss reason are never touched, an
+    /// undetermined outcome leaves the stage alone, and a loss for lack of an answer (set when the conversation closed idle) is only replaced by
+    /// a decisive outcome (Won or Lost), never by "still in follow-up". Applying the same reading twice changes nothing but <see cref="ClassifiedAt"/>.
     /// </summary>
     public void ApplyClassification(ClassificationUpdate update, DateTime now)
     {
@@ -142,7 +232,7 @@ public class Opportunity : BaseEntity
 
         if (!Enum.IsDefined(update.Objection))
         {
-            throw new DomainException("El tipo de objeción no es válido.");
+            throw new DomainException(ObjectionInvalidMessage);
         }
 
         if (update.Confidence is < 0m or > 1m)
@@ -150,14 +240,34 @@ public class Opportunity : BaseEntity
             throw new DomainException("La confianza de la clasificación debe estar entre 0 y 1.");
         }
 
+        if (!Enum.IsDefined(update.Provider) || (update.IsRulesFallback && update.Provider != ClassifierProvider.Rules))
+        {
+            throw new DomainException("Solo una lectura de las reglas puede ser un respaldo de las reglas.");
+        }
+
         var service = NormalizeCode(update.ServiceInterest, ServiceInterestMaxLength, "El servicio de interés");
         var interest = NormalizeCode(update.InterestReason, InterestReasonMaxLength, "El motivo de interés");
         var rules = NormalizeCode(update.RuleCodes, ClassificationRulesMaxLength, "Las reglas de la clasificación");
         var at = UtcTime.Normalize(now);
 
-        ServiceInterest = service;
-        InterestReason = interest;
-        Objection = update.Objection;
+        if (Writable(ServiceInterestSource, ServiceInterestClassifiedBy, ServiceInterest is not null, update))
+        {
+            ServiceInterest = service;
+            ServiceInterestClassifiedBy = update.Provider;
+        }
+
+        if (Writable(InterestReasonSource, InterestReasonClassifiedBy, InterestReason is not null, update))
+        {
+            InterestReason = interest;
+            InterestReasonClassifiedBy = update.Provider;
+        }
+
+        if (Writable(ObjectionSource, ObjectionClassifiedBy, Objection != ObjectionType.None, update))
+        {
+            Objection = update.Objection;
+            ObjectionClassifiedBy = update.Provider;
+        }
+
         ClassificationConfidence = Math.Round(update.Confidence, 2);
         ClassificationRules = rules;
         ClassifiedAt = at;
@@ -180,9 +290,15 @@ public class Opportunity : BaseEntity
         }
 
         StageSource = StageSource.Auto;
+        ClassifiedBy = update.Provider;
         ApplyStage(stage, lossReason, at);
         LossDetail = null;
     }
+
+    // A person's value is never overwritten; an LLM value that is not empty survives an explicit rules fallback. A null producer (a row older
+    // than the column) is unknown and read as Rules.
+    private static bool Writable(FieldSource source, ClassifierProvider? producer, bool hasValue, ClassificationUpdate update)
+        => source != FieldSource.Manual && !(update.IsRulesFallback && producer == ClassifierProvider.Llm && hasValue);
 
     // A normalized code: lower-case ASCII letters, digits, '_' and ',' (a list of codes), at most maxLength long. Null or blank means "none".
     private static string? NormalizeCode(string? code, int maxLength, string subject)
@@ -235,6 +351,11 @@ public class Opportunity : BaseEntity
 /// What a classifier concluded, in the terms the opportunity stores. <paramref name="Stage"/> is null when the outcome is undetermined
 /// (the stage is left as it is); <paramref name="LossReason"/> goes with <see cref="OpportunityStage.Lost"/> only.
 /// </summary>
+/// <param name="Provider">The classifier that produced the reading; recorded per field on every automatic write.</param>
+/// <param name="IsRulesFallback">
+/// A rules reading applied because the LLM was meant to read the conversation and failed or was not admitted. Only then are non-empty
+/// LLM-sourced fields protected; it requires <paramref name="Provider"/> = <see cref="ClassifierProvider.Rules"/>.
+/// </param>
 public sealed record ClassificationUpdate(
     string? ServiceInterest,
     string? InterestReason,
@@ -242,5 +363,7 @@ public sealed record ClassificationUpdate(
     OpportunityStage? Stage,
     LossReason? LossReason,
     decimal Confidence,
-    string? RuleCodes);
+    string? RuleCodes,
+    ClassifierProvider Provider = ClassifierProvider.Rules,
+    bool IsRulesFallback = false);
 

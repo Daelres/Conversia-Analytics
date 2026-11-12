@@ -91,7 +91,7 @@ before it touches any tenant data. Every Conversia table carries `TenantId`, and
 
 ## Registering the webhook with 360dialog (sandbox)
 
-**Documentation only. Nothing in this repository calls 360dialog.**
+**Documentation only. Nothing in this repository registers a webhook at 360dialog** (the only call the API makes to 360dialog is sending a message, [`MESSAGING.md`](MESSAGING.md)).
 
 1. Create a branch and a channel through the `/organizacion` page or the API (`POST /api/branches`,
    `POST /api/channels`), after a platform administrator has activated the company and set a line quota, and keep the `webhookPath` and the
@@ -278,12 +278,26 @@ A review asked whether two ingestion workers that touch conversations A and B in
   conversation row and then its opportunity; assigning an advisor is a single `UPDATE` of one row. All of them take the **conversation row before its opportunity**, and nobody
   takes an opportunity row without holding its conversation, so there is no cycle: a path that waits (ingestion, a person's decision) waits for a path that does not.
 
+- **A person sending a message** (`POST /api/conversations/{id}/messages`, [`MESSAGING.md`](MESSAGING.md)) holds nothing while it calls the provider. To record the
+  sent message it takes the **tenant's advisory lock first, waiting for it** (`pg_advisory_xact_lock`, the same key ingestion tries), and only then the conversation row.
+  It therefore runs alone with respect to ingestion, exactly like a second ingestion transaction would, and it waits for a row only while nobody who holds that row
+  wants the tenant lock (the manual outcome and the jobs never take it). `TenantIngestionLock` is the one definition of the key for both sides.
+  Both waits are bounded by the transaction's `lock_timeout` and `statement_timeout` (`Messaging:RecordTimeoutSeconds`), so a stuck holder cannot hang the request.
+
+- **The LLM classifier** (`Classification:Provider=Llm`, Development only, docs/CLASSIFICATION.md) claims like the rules worker, but in Stage A it **calls the
+  model inside the claim transaction**, holding the conversation row for up to `Classification:Llm:TimeoutSeconds` (8 s, one attempt). Ingestion, a manual edit or
+  the auto-closer touching that conversation waits that long (an accepted Stage A limit; the hardening slice moves the call out of the transaction before the
+  gate is lifted). Ingestion takes the **contact row before the conversation row**; the classifier writes the contact profile **only after its commit**, in a
+  transaction of its own that takes the contact row alone, so it never holds the conversation while it waits for a contact (a deterministic two-session test,
+  `LlmClassificationTests.IngestionAndTheRunner_TakeContactAndConversationInAnOrderThatCannotDeadlock`, pins it).
+
 If a new code path ever locks several conversations and *waits* for them, it must either take the tenant lock first or lock them in `Id` order.
 
 ### Idempotency, in layers
 
 1. Same body twice on a channel: one `WebhookEvents` row (`(ChannelId, BodyHash)` unique); `200` both times.
-2. Same message inside different bodies: one `Messages` row (`(ChannelId, ProviderMessageId)` unique).
+2. Same message inside different bodies: one `Messages` row (`(ChannelId, ProviderMessageId)` unique). The same holds for a message sent through the API
+   whose echo arrives later under the same id ([`MESSAGING.md`](MESSAGING.md#recording-and-echoes)).
 3. Processing an event twice: the second pass finds every message already stored.
 
 ### Retries
@@ -341,7 +355,7 @@ description, no raw exception) and retried at the next one.
 
 See the README configuration table: `Webhooks:MaxBodyBytes`,
 `Webhooks:FailedAuthRateLimitPerMinute`, `Webhooks:ChannelRateLimitPerMinute`, `ForwardedHeaders:*`, `Webhooks:Processing:*`, `Webhooks:Retention:*`, `Webhooks:Health:*`, `Conversations:*` and
-`Dialog360:ApiKey` (bound, not used yet). Invalid values stop the API at startup naming the key.
+`Dialog360:ApiKey` (bound, not used by the API: the key that sends messages is stored per channel, [`MESSAGING.md`](MESSAGING.md)). Invalid values stop the API at startup naming the key.
 
 ## Logs
 

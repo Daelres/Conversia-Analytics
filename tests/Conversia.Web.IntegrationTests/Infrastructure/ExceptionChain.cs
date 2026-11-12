@@ -14,17 +14,6 @@ internal static class ExceptionChain
     public static Exception? FindRefusal(Exception root, string setting)
         => Flatten(root).FirstOrDefault(e => IsRefusalType(e) && e.Message.Contains(setting, StringComparison.Ordinal));
 
-    /// <summary>
-    /// Host start-up that was torn down under the failure: an <see cref="ObjectDisposedException"/> in the chain and no refusal
-    /// of any kind next to it, so the real reason is lost and the boot is worth repeating.
-    /// </summary>
-    public static bool IsDisposalNoise(Exception root)
-    {
-        var chain = Flatten(root).ToList();
-        return chain.Any(e => e is ObjectDisposedException)
-            && !chain.Any(IsRefusalType);
-    }
-
     private static bool IsRefusalType(Exception e)
         => e is not ObjectDisposedException and (InvalidOperationException or Microsoft.Extensions.Options.OptionsValidationException);
 

@@ -17,7 +17,7 @@ namespace Conversia.Infrastructure.Metrics;
 /// <para>
 /// This is raw SQL because EF Core cannot express ordered-set aggregates (percentiles) nor <c>AT TIME ZONE</c> bucketing, and raw SQL is
 /// not touched by the entities' tenant query filters: <b>every statement filters by <c>@tenant</c> itself</b> (the tenant of the current
-/// request), on each table it reads. The integration tests prove that no number depends on another tenant's data.
+/// request), on each table it reads, and by the sandbox mark of the conversation (real data, or sandbox data while the company is in sandbox mode). The integration tests prove that no number depends on another tenant's data.
 /// </para>
 /// </summary>
 public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantService tenant, MetricsOptions options) : IMetricsQueries
@@ -29,7 +29,11 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
     private const string Open = nameof(ConversationStatus.Open);
 
     // The filters a request can add, written once for the cohort and for the message volume. A null parameter means "no filter".
+    // The first line is not a request's choice (docs/METRICS.md, "Sandbox data"): every number counts real conversations only, unless the
+    // company is in sandbox mode, and then sandbox conversations only. It is here, and read from the company's row by the statement itself,
+    // so that no aggregation can forget it or be handed the wrong value.
     private const string ConversationFilters = """
+        AND c."IsSandbox" = (SELECT t."SandboxMode" FROM "Tenants" t WHERE t."Id" = @tenant)
         AND (@branch IS NULL OR c."BranchId" = @branch)
         AND (@advisor IS NULL OR c."AdvisorId" = @advisor)
         AND (NOT @unassigned OR c."AdvisorId" IS NULL)

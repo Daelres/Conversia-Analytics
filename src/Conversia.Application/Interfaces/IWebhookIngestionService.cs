@@ -1,7 +1,11 @@
 namespace Conversia.Application.Interfaces;
 
-/// <summary>The channel an authenticated webhook call belongs to.</summary>
-public sealed record WebhookChannelAccess(Guid ChannelId, Guid TenantId);
+/// <summary>The channel a delivery belongs to: the one an authenticated webhook call named, or the one the internal sandbox writes on.</summary>
+/// <param name="IsSandbox">
+/// True only for a delivery written by the internal sandbox's simulated customer (docs/SANDBOX.md): what it creates is sandbox data.
+/// <see cref="IWebhookIngestionService.AuthenticateAsync"/> never returns it, so nothing that arrives through the webhook can be one.
+/// </param>
+public sealed record WebhookChannelAccess(Guid ChannelId, Guid TenantId, bool IsSandbox = false);
 
 public enum WebhookStoreResult
 {

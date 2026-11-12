@@ -111,6 +111,31 @@ public class PlatformAdminService : IPlatformAdminService
         return await ReadSummaryAsync(tenantId, cancellationToken);
     }
 
+    public async Task<TenantSummaryResponse> SetSandboxModeAsync(
+        Guid adminId, Guid tenantId, SetSandboxModeRequest request, CancellationToken cancellationToken = default)
+    {
+        var enabled = request.Enabled ?? throw new DomainException("Indica si el modo sandbox queda activado o desactivado.");
+        var reason = Tenant.SandboxModeReason(request.Reason);
+
+        await using (var change = await _unitOfWork.BeginAsync(tenantId, cancellationToken) ?? throw new TenantNotFoundException())
+        {
+            var tenant = change.Tenant;
+            var previous = tenant.SandboxMode;
+            if (tenant.SetSandboxMode(enabled))
+            {
+                change.Record(PlatformAuditLog.Record(adminId, PlatformAuditLog.Actions.TenantSandboxModeChanged, tenantId, new Dictionary<string, object?>
+                {
+                    ["from"] = previous,
+                    ["to"] = enabled,
+                    ["reason"] = reason,
+                }));
+                await change.CommitAsync(cancellationToken);
+            }
+        }
+
+        return await ReadSummaryAsync(tenantId, cancellationToken);
+    }
+
     public async Task<TenantLineResponse> DeactivateChannelAsync(
         Guid adminId, Guid tenantId, Guid channelId, CancellationToken cancellationToken = default)
     {
@@ -164,5 +189,6 @@ public class PlatformAdminService : IPlatformAdminService
         to.LastActivityAt = from.LastActivityAt;
         to.StatusChangedAt = from.StatusChangedAt;
         to.StatusReason = from.StatusReason;
+        to.SandboxMode = from.SandboxMode;
     }
 }

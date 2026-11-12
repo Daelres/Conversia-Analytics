@@ -16,4 +16,10 @@ public class UserProfileResponse
     public bool IsOwner { get; set; }
 
     public IReadOnlyList<Permission> Permissions { get; set; } = Array.Empty<Permission>();
+
+    /// <summary>
+    /// Whether the caller's company is in the internal sandbox mode (docs/SANDBOX.md). Here, with the profile every page already loads,
+    /// so that every page can say so without another call. Read fresh per request, like the permissions.
+    /// </summary>
+    public bool TenantSandboxMode { get; set; }
 }

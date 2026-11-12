@@ -73,7 +73,8 @@ Nothing secret is baked into an image; everything below is supplied at run time.
 | `ConnectionStrings__DefaultConnection` | api | yes | Npgsql connection string. Add `GSS Encryption Mode=Disable`: the images ship no Kerberos libraries. |
 | `Jwt__SigningKey` | api | yes | At least 32 bytes. The API refuses to start without it. The migrator gets a throwaway value (it boots the API host to find the `DbContext` and never signs a token). |
 | `ErrorLogging__ReportKey` | api | no | At least 32 characters. Unset: the error report endpoint is off. Must equal the Web's `ErrorReporting__ApiKey`. |
-| `Dialog360__ApiKey` | api | no | Passed through; nothing calls 360dialog yet. |
+| `Dialog360__ApiKey` | api | no | Passed through; the API does not use it (keys are stored per channel). |
+| `Messaging__CredentialEncryptionKey` | api | no | Master key (base64 of 32 random bytes) of the stored 360dialog keys; unset, sending answers `503`; malformed, the API does not start (`docs/MESSAGING.md`). |
 | `PlatformAdmin__Email`, `PlatformAdmin__Password` | api | no | Both set: the API creates this platform administrator at startup when no one has the email (never overwrites). Empty = none. Password: at least 12 characters, not a placeholder, or the API will not start. Compose passes them from `PLATFORM_ADMIN_EMAIL` / `PLATFORM_ADMIN_PASSWORD`; add those two to your `.env` (they are not in `.env.example` yet) and **remove `PLATFORM_ADMIN_PASSWORD` once the account exists**: the API forgets the password in memory after the bootstrap, but the container's environment keeps it for as long as the variable is set. `docs/PLATFORM_ADMIN.md`. |
 | `PlatformAdmin__PasswordFile` | api | no | Instead of `PlatformAdmin__Password`: the path, inside the container, of a file that holds the bootstrap password (a Docker secret you mount; a trailing newline is dropped). Both set, or a file that is unreadable or empty, stop the API at startup with an error that names the key. Compose passes it from `PLATFORM_ADMIN_PASSWORD_FILE`. |
 | `Api__BaseUrl` | web | yes | Base URL of the API as seen from the Web container. |
@@ -132,6 +133,56 @@ It builds the three images with a throwaway tag (`smoke-<random>`), starts its o
 - failure mode: with PostgreSQL stopped the API `/health` answers 503 and Docker marks the container unhealthy without a crash loop; the Web stays healthy; everything recovers when PostgreSQL returns.
 
 It only creates and removes resources of its own project (`down -v --rmi local` plus its own tags) and never reads the repository's `.env`. CI runs it as the `docker` job of `.github/workflows/tests.yml`.
+
+## Local LLM validation over Replay
+
+> **Development only. Never in production.** The overlay runs the API in the `Development` environment (OpenAPI, developer error pages,
+> sandbox conversations included in the LLM path) and approves the LLM privacy switch for this local stack. The API itself refuses
+> `Classification:Provider=Llm` and `Classification:Llm:Client=Replay` in any other environment. Because Development exposes OpenAPI and
+> developer error pages, the overlay publishes the API and the Web on **127.0.0.1 only**: it replaces the base port mappings with
+> `ports: !override` (a plain `ports:` list would be merged with the base `0.0.0.0` mapping; needs Docker Compose 2.24+). Check with
+> `docker compose -f docker-compose.yml -f docker-compose.simulator.yml -f docker-compose.llm-dev.yml config | grep -A3 ports`.
+
+`docker-compose.llm-dev.yml` turns on the LLM classifier (docs/CLASSIFICATION.md, "The LLM provider") over the **replay** client: no API key,
+no network call, zero cost. Every conversation gets a fixed, valid reading (or a canned one from `Classification__Llm__ReplayPath`), so the
+whole path runs end to end: pseudonymizer, preprocessor, prompt, mapper, Won guard, breaker, log line and the profile write.
+
+```bash
+cp .env.example .env    # if not done yet; fill in POSTGRES_PASSWORD and JWT_SIGNING_KEY
+docker compose -f docker-compose.yml -f docker-compose.simulator.yml -f docker-compose.llm-dev.yml up -d --build
+```
+
+Compose merges the `environment` maps: the simulator overlay shortens both debounces to 5 s (`Classification__DebounceSeconds`,
+`Classification__Llm__DebounceSeconds`; the LLM default is 300 s) and the LLM overlay sets `Provider=Llm`, `Client=Replay`,
+`PrivacyApproved=true`, `TimeoutSeconds=8`, `MaxRetries=0`. Then:
+
+1. Create a company and a line, and play conversations through the webhook with the simulator (docs/SIMULATOR.md), or turn on the company's
+   internal sandbox and start a simulated conversation from `/conversaciones/simular` (docs/SANDBOX.md).
+2. Wait for the debounce (about 5 s) and look for the call in the API log:
+   `docker compose logs api | grep "LLM classification"`. Each line carries the ids, `Sandbox`, provider, model (`replay`), status, the four
+   token counters, the estimated USD (0 with replay) and the preprocessor statistics, never text.
+3. Tear down: `docker compose -f docker-compose.yml -f docker-compose.simulator.yml -f docker-compose.llm-dev.yml down` (add `-v` to drop the data).
+
+### Against the real API
+
+`docker-compose.llm-real.yml` switches the same stack to the real Anthropic API. It **costs money and sends data** (pseudonymized
+conversations) to the provider: use synthetic conversations only. It always goes on top of `docker-compose.llm-dev.yml`, which keeps the ports
+on loopback. With the real client **only sandbox conversations** are sent (`Classification:Llm:AllowRealClientNonSandbox=false`, the
+default); simulator conversations arrive through the webhook as real ones, so they are read by the rules unless you set that switch, which is
+meant only for after the privacy review and the processor agreement. Sandbox text is typed by staff and may still contain real data: it goes
+through the pseudonymizer like everything else, but never paste a real customer chat into it. Put the key in your local `.env` (never in a file of the repository):
+
+```bash
+# .env
+ANTHROPIC_API_KEY=<your key>
+```
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.simulator.yml -f docker-compose.llm-dev.yml -f docker-compose.llm-real.yml up -d --build
+```
+
+Compose stops with a clear message if `ANTHROPIC_API_KEY` is empty. The overlay maps it to `Anthropic__ApiKey` and sets
+`Classification__Llm__Client=Anthropic`; the log line of each call then shows real tokens (cache reads included) and the estimated USD.
 
 ## Troubleshooting
 

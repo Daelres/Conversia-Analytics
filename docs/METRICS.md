@@ -53,6 +53,26 @@ A conversation the business started (a promotion nobody answered) is not a sales
 to the period it **started** in, whatever happens later; its current state (stage, first response) is what is measured, so a number
 for a past period can still change when its conversations are classified, decided by hand or answered late.
 
+### Sandbox data
+
+Conversations created by the internal sandbox ([SANDBOX.md](SANDBOX.md)) carry `Conversations.IsSandbox`. One condition, part of the
+filter every aggregation shares (`MetricsQueries.ConversationFilters`), decides which kind is counted:
+
+| The company's sandbox mode | Counted |
+|---|---|
+| Off (the normal case) | Real conversations only. Sandbox data is **excluded** from every number, breakdown, chart and alert |
+| On | Sandbox conversations **only**. Real data is hidden, not deleted, and comes back unchanged when the mode goes off |
+
+It applies to all nine aggregations (conversion, first response, loss reasons, objections, conversations per day, messages per day,
+conversations and inbound messages per hour of the week, and the unanswered list), in every grouping, and so to `summary`,
+`conversion`, `first-response`, `loss-reasons`, `volume` and `alerts`. The statement reads the mode from the company's row itself
+(`c."IsSandbox" = (SELECT t."SandboxMode" FROM "Tenants" t WHERE t."Id" = @tenant)`), so no caller passes it and no aggregation can
+forget it. The comparison period of the alerts goes through the same filter. Messages are counted through their conversation, so a
+message is sandbox data exactly when its conversation is. `SandboxModeTests` checks each aggregation on both sides.
+
+Real webhooks that arrive while the mode is on are stored as real data and are counted again as soon as it goes off. There are no
+exports; one that is added must use the same filter.
+
 ## Conversion
 
 Each cohort conversation has one opportunity, whose stage is one of **Won**, **Lost**, **InFollowUp** or **New** (not classified yet, or nothing could be read).

@@ -5,6 +5,7 @@ using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Messages;
 using Conversia.Application.DTOs.Metrics;
 using Conversia.Application.DTOs.Organization;
+using Conversia.Application.DTOs.Sandbox;
 using Conversia.Application.DTOs.Tenants;
 using Conversia.Application.DTOs.Users;
 using Conversia.Domain.Enums;
@@ -61,6 +62,12 @@ public interface IApiClient
     /// <summary><c>PUT /api/conversations/{id}/opportunity</c>: a person decides the outcome.</summary>
     Task<ApiResult<OpportunityResponse>> SetOpportunityOutcomeAsync(string token, Guid id, SetOpportunityOutcomeRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// <c>POST /api/conversations/{id}/messages</c>: sends a plain-text WhatsApp message to the customer of the conversation and stores it.
+    /// A refusal carries its <see cref="ApiResult{T}.ProblemCode"/> (docs/MESSAGING.md); the API makes one attempt and so does this call.
+    /// </summary>
+    Task<ApiResult<MessageResponse>> SendMessageAsync(string token, Guid id, SendMessageRequest request, CancellationToken cancellationToken = default);
+
     // ---- messages and webhook deliveries (ConversationsView) ----
 
     Task<ApiResult<PagedResponse<RecentMessageItem>>> GetRecentMessagesAsync(string token, RecentMessagesQuery query, CancellationToken cancellationToken = default);
@@ -88,6 +95,29 @@ public interface IApiClient
     /// <summary>The answer carries the NEW webhook secret: the only time it is ever given.</summary>
     Task<ApiResult<CreateChannelResponse>> RotateChannelSecretAsync(string token, Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// <c>PUT /api/channels/{id}/provider-credentials</c>: stores the provider API key of the channel (write-only: no answer carries it)
+    /// and its environment. A request without a key keeps the stored one and changes only the environment.
+    /// </summary>
+    Task<ApiResult<ChannelResponse>> SetProviderCredentialsAsync(string token, Guid id, SetProviderCredentialsRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary><c>DELETE /api/channels/{id}/provider-credentials</c>: removes the stored key. Idempotent.</summary>
+    Task<ApiResult<ChannelResponse>> RemoveProviderCredentialsAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    // ---- the internal sandbox of the caller's company (docs/SANDBOX.md) ----
+
+    /// <summary>
+    /// <c>POST /api/sandbox/conversations</c>: a simulated customer writes for the first time. The message goes into the ingestion queue,
+    /// so the answer names no conversation. A refusal carries its <see cref="ApiResult{T}.ProblemCode"/> (<see cref="SandboxFailure"/>).
+    /// </summary>
+    Task<ApiResult<SandboxMessageAcceptedResponse>> StartSandboxConversationAsync(string token, StartSandboxConversationRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary><c>POST /api/sandbox/conversations/{id}/customer-messages</c>: the simulated customer of a sandbox conversation writes again.</summary>
+    Task<ApiResult<SandboxMessageAcceptedResponse>> SendSandboxCustomerMessageAsync(string token, Guid id, SandboxCustomerMessageRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary><c>DELETE /api/sandbox/data</c>: removes every sandbox row of the company, and nothing else.</summary>
+    Task<ApiResult<SandboxDataDeletedResponse>> DeleteSandboxDataAsync(string token, CancellationToken cancellationToken = default);
+
     // ---- the caller's own company (any status) ----
 
     /// <summary><c>GET /api/tenant</c>: where the company stands (status and line quota). Answered while the company is pending or suspended too.</summary>
@@ -107,6 +137,9 @@ public interface IApiClient
 
     /// <summary><c>PUT /api/admin/tenants/{id}/line-quota</c>; a quota below the active lines is a 409.</summary>
     Task<ApiResult<TenantSummaryResponse>> SetTenantLineQuotaAsync(string token, Guid id, SetLineQuotaRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary><c>PUT /api/admin/tenants/{id}/sandbox-mode</c>: switches the internal sandbox of a company on or off, with the reason. Idempotent.</summary>
+    Task<ApiResult<TenantSummaryResponse>> SetTenantSandboxModeAsync(string token, Guid id, SetSandboxModeRequest request, CancellationToken cancellationToken = default);
 
     /// <summary><c>POST /api/admin/tenants/{id}/channels/{channelId}/deactivate</c>: forces a line off. Idempotent.</summary>
     Task<ApiResult<TenantLineResponse>> DeactivateTenantLineAsync(string token, Guid id, Guid channelId, CancellationToken cancellationToken = default);

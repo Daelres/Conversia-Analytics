@@ -37,6 +37,7 @@ internal static class TooManyRequestsResponse
         {
             ErrorReportRateLimitingExtensions.PolicyName => ProblemTexts.TooManyReportsDetail,
             HeavyQueryRateLimitingExtensions.PolicyName => ProblemTexts.TooManyQueriesDetail,
+            MessageSendRateLimitingExtensions.PolicyName => ProblemTexts.TooManyMessagesDetail,
             _ => ProblemTexts.TooManyLoginsDetail,
         };
     }

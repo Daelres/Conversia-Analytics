@@ -1,4 +1,5 @@
 using Conversia.Domain.Entities;
+using Conversia.Domain.Enums;
 using Conversia.Domain.Exceptions;
 
 namespace Conversia.Domain.UnitTests.Entities;
@@ -135,6 +136,100 @@ public class OrganizationEntitiesTests
     [InlineData(null, false)]
     public void ChannelKeyShape_RejectsShortOrUnsafeKeys(string? key, bool wellFormed)
         => Assert.Equal(wellFormed, WhatsAppChannel.IsWellFormedChannelKey(key));
+
+    // ---- WhatsAppChannel: provider credentials -----------------------------------------
+
+    private static readonly DateTime SetAt = new(2026, 11, 9, 14, 30, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void Channel_StartsWithoutProviderCredentials_InTheSandboxEnvironment()
+    {
+        var (channel, _) = WhatsAppChannel.Create(Tenant, BranchId, "3001234567");
+
+        Assert.False(channel.HasProviderApiKey);
+        Assert.Null(channel.ProviderApiKeyCiphertext);
+        Assert.Null(channel.ProviderApiKeySetAt);
+        Assert.Equal(WhatsAppProviderEnvironment.Sandbox, channel.ProviderEnvironment);
+    }
+
+    [Fact]
+    public void Channel_SetProviderCredentials_KeepsTheCiphertextTheEnvironmentAndWhen()
+    {
+        var (channel, _) = WhatsAppChannel.Create(Tenant, BranchId, "3001234567");
+
+        channel.SetProviderCredentials("v1.1.ciphertext", WhatsAppProviderEnvironment.Production, SetAt.AddTicks(7));
+
+        Assert.True(channel.HasProviderApiKey);
+        Assert.Equal("v1.1.ciphertext", channel.ProviderApiKeyCiphertext);
+        Assert.Equal(WhatsAppProviderEnvironment.Production, channel.ProviderEnvironment);
+        Assert.Equal(SetAt, channel.ProviderApiKeySetAt); // whole microseconds, as PostgreSQL keeps them
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("with\0nul")]
+    public void Channel_SetProviderCredentials_RejectsAnUnusableCiphertext_AndChangesNothing(string ciphertext)
+    {
+        var (channel, _) = WhatsAppChannel.Create(Tenant, BranchId, "3001234567");
+
+        Assert.Throws<DomainException>(() => channel.SetProviderCredentials(ciphertext, WhatsAppProviderEnvironment.Production, SetAt));
+        Assert.Throws<DomainException>(() => channel.SetProviderCredentials(
+            new string('c', WhatsAppChannel.ProviderApiKeyCiphertextMaxLength + 1), WhatsAppProviderEnvironment.Production, SetAt));
+        Assert.Throws<DomainException>(() => channel.SetProviderCredentials("v1.1.ciphertext", (WhatsAppProviderEnvironment)99, SetAt));
+
+        Assert.False(channel.HasProviderApiKey);
+        Assert.Equal(WhatsAppProviderEnvironment.Sandbox, channel.ProviderEnvironment);
+    }
+
+    [Fact]
+    public void Channel_SetProviderEnvironment_ChangesOnlyTheEnvironment()
+    {
+        var (channel, _) = WhatsAppChannel.Create(Tenant, BranchId, "3001234567");
+        channel.SetProviderCredentials("v1.1.ciphertext", WhatsAppProviderEnvironment.Sandbox, SetAt);
+
+        channel.SetProviderEnvironment(WhatsAppProviderEnvironment.Production);
+
+        Assert.Equal(WhatsAppProviderEnvironment.Production, channel.ProviderEnvironment);
+        Assert.Equal("v1.1.ciphertext", channel.ProviderApiKeyCiphertext);
+        Assert.Equal(SetAt, channel.ProviderApiKeySetAt);
+        Assert.Throws<DomainException>(() => channel.SetProviderEnvironment((WhatsAppProviderEnvironment)99));
+    }
+
+    [Fact]
+    public void Channel_ClearProviderCredentials_ForgetsTheKeyAndWhen_AndIsIdempotent()
+    {
+        var (channel, _) = WhatsAppChannel.Create(Tenant, BranchId, "3001234567");
+        channel.SetProviderCredentials("v1.1.ciphertext", WhatsAppProviderEnvironment.Production, SetAt);
+
+        channel.ClearProviderCredentials();
+        channel.ClearProviderCredentials();
+
+        Assert.False(channel.HasProviderApiKey);
+        Assert.Null(channel.ProviderApiKeyCiphertext);
+        Assert.Null(channel.ProviderApiKeySetAt);
+        Assert.Equal(WhatsAppProviderEnvironment.Production, channel.ProviderEnvironment);
+    }
+
+    [Theory]
+    [InlineData("abc123XYZ_-.", true)]
+    [InlineData("  padded-key  ", true)] // judged trimmed, as it is stored
+    [InlineData("", false)]
+    [InlineData("   ", false)]
+    [InlineData(null, false)]
+    [InlineData("two words", false)]
+    [InlineData("line\nbreak", false)] // it travels in an HTTP header
+    [InlineData("tab\tkey", false)]
+    [InlineData("clave-ñ", false)]
+    public void Channel_IsValidProviderApiKey_AcceptsOnlyVisibleAsciiWithoutSpaces(string? key, bool valid)
+        => Assert.Equal(valid, WhatsAppChannel.IsValidProviderApiKey(key));
+
+    [Fact]
+    public void Channel_IsValidProviderApiKey_EnforcesTheMaximumLength()
+    {
+        Assert.True(WhatsAppChannel.IsValidProviderApiKey(new string('k', WhatsAppChannel.ProviderApiKeyMaxLength)));
+        Assert.False(WhatsAppChannel.IsValidProviderApiKey(new string('k', WhatsAppChannel.ProviderApiKeyMaxLength + 1)));
+    }
 }
 
 public class TextRulesTests

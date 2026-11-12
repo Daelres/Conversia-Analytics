@@ -44,3 +44,13 @@ public sealed class LineActionInput
 {
     public string? Confirm { get; set; }
 }
+
+/// <summary>The confirmation form of switching the sandbox mode of a company: the reason, which is required and audited.</summary>
+public sealed class SandboxModeInput
+{
+    [Display(Name = "Motivo")]
+    [Conversia.Application.Validation.TrimmedText(Tenant.SandboxModeReasonMaxLength)]
+    public string? Reason { get; set; }
+
+    public SetSandboxModeRequest ToRequest(bool enabled) => new() { Enabled = enabled, Reason = Reason?.Trim() };
+}

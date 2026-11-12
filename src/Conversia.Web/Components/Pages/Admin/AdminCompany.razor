@@ -73,6 +73,31 @@ else if (!Redirected)
             </Card>
         }
 
+        @if (_company is not null)
+        {
+            <Card Title="Modo sandbox" Subtitle="Pruebas internas sin 360dialog: la empresa simula clientes y nada sale por WhatsApp." IconName="zap" data-testid="sandbox-card">
+                <div class="stack">
+                    <dl class="kv">
+                        <div>
+                            <dt>Modo sandbox ahora</dt>
+                            <dd><Chip Tone="@(_company.SandboxMode ? ChipTone.Warning : ChipTone.Neutral)" IconName="@(_company.SandboxMode ? "zap" : "minus")" data-testid="company-sandbox" data-enabled="@(_company.SandboxMode ? "true" : "false")">@(_company.SandboxMode ? "Activado" : "Desactivado")</Chip></dd>
+                        </div>
+                    </dl>
+                    <p class="muted">Mientras está activado, las métricas de la empresa muestran solo datos de prueba y sus mensajes no llegan a ningún teléfono. Cada cambio pide un motivo y queda en la auditoría.</p>
+                    <div class="cluster-md" data-testid="sandbox-actions">
+                        @if (_company.SandboxMode)
+                        {
+                            <a class="btn btn--primary" href="/admin/empresas/@Id/sandbox/@AdminSandboxAction.DisableRoute" data-action="@AdminSandboxAction.DisableRoute"><Icon Name="zap" />Desactivar el modo sandbox</a>
+                        }
+                        else
+                        {
+                            <a class="btn btn--secondary" href="/admin/empresas/@Id/sandbox/@AdminSandboxAction.EnableRoute" data-action="@AdminSandboxAction.EnableRoute"><Icon Name="zap" />Activar el modo sandbox</a>
+                        }
+                    </div>
+                </div>
+            </Card>
+        }
+
         @* Always rendered: a POST can only be dispatched to a form that exists in the render tree. *@
         <Card Title="Cupo de líneas" Subtitle="Cuántas líneas de WhatsApp puede tener activas a la vez, según su acuerdo comercial." IconName="phone" data-testid="quota-card">
             <div class="stack">

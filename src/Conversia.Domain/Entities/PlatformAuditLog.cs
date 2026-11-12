@@ -22,6 +22,7 @@ public class PlatformAuditLog : BaseEntity
         public const string TenantStatusChanged = "tenant.status_changed";
         public const string TenantQuotaChanged = "tenant.quota_changed";
         public const string ChannelDeactivated = "channel.deactivated";
+        public const string TenantSandboxModeChanged = "tenant.sandbox_mode_changed";
     }
 
     public Guid AdminId { get; private set; }

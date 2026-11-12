@@ -13,6 +13,10 @@ public class Tenant : BaseEntity
 
     public static readonly string StatusReasonRuleMessage = $"El motivo {TextRules.RuleText(StatusReasonMaxLength, required: false)}.";
 
+    public const int SandboxModeReasonMaxLength = 200;
+
+    public static readonly string SandboxModeReasonRuleMessage = $"El motivo {TextRules.RuleText(SandboxModeReasonMaxLength)}.";
+
     public static readonly string MaxActiveLinesRuleMessage = $"El cupo de líneas debe ser un número entero entre 0 y {MaxLinesLimit}.";
 
     public string Name { get; private set; } = string.Empty;
@@ -29,6 +33,12 @@ public class Tenant : BaseEntity
     public Guid? StatusChangedBy { get; private set; }
 
     public string? StatusReason { get; private set; }
+
+    /// <summary>
+    /// The internal sandbox (docs/SANDBOX.md): while it is on, nothing of the company goes to the WhatsApp provider, a simulated customer can
+    /// write, and the metrics show sandbox data only. Off by default; only a platform administrator changes it.
+    /// </summary>
+    public bool SandboxMode { get; private set; }
 
     // Required by EF Core for materialization.
     private Tenant()
@@ -97,4 +107,19 @@ public class Tenant : BaseEntity
 
         MaxActiveLines = maxActiveLines;
     }
+
+    /// <summary>Switches the internal sandbox on or off. Returns false, and changes nothing, when it already was that way.</summary>
+    public bool SetSandboxMode(bool enabled)
+    {
+        if (SandboxMode == enabled)
+        {
+            return false;
+        }
+
+        SandboxMode = enabled;
+        return true;
+    }
+
+    /// <summary>The reason an administrator gives for switching the sandbox: required, trimmed, at most <see cref="SandboxModeReasonMaxLength"/> characters.</summary>
+    public static string SandboxModeReason(string? reason) => TextRules.Required(reason, SandboxModeReasonMaxLength, SandboxModeReasonRuleMessage);
 }

@@ -81,6 +81,12 @@ public sealed partial class ClassificationRuleSet
 
     public CancellationPhrases Cancellation { get; set; } = new();
 
+    /// <summary>
+    /// SHA-256 (lower-case hex) of the rules as they were loaded, serialized canonically: an input of the LLM snapshot hash, because the rules
+    /// feed the Won guard and the catalog, so editing the file must invalidate stored hashes. Computed on each call (the set is mutable).
+    /// </summary>
+    public string Fingerprint() => Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(this, JsonOptions)));
+
     /// <summary>The rules shipped with the application: Spanish (Colombia), laser hair removal.</summary>
     public static ClassificationRuleSet LoadDefault()
     {

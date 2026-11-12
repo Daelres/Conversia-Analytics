@@ -70,6 +70,90 @@ public class ConversationClassificationTests
     private Task<Seeded> SeedAsync(ChannelFixture f, DateTime start, IReadOnlyList<Msg>? messages = null, Action<Domain.Entities.Opportunity>? configure = null)
         => SeedConversationAsync(_factory.Services, f, start, messages ?? RefusedChat, configureOpportunity: configure, requestClassification: true);
 
+    // ---- The snapshot the classifier reads ---------------------------------------------------------------------
+
+    [Fact]
+    public async Task TheSnapshot_CarriesMessageIds_TheTenant_AndTheKnownNamesAndNumbers()
+    {
+        // What the pseudonymizer masks and the snapshot hash reads (design D9, D23): ids of the messages, the contact's name and number,
+        // the assigned advisor, the branch and the channel number. Synthetic values only.
+        using var f = await NewTenantAsync();
+        Guid advisorId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var advisor = Domain.Entities.Advisor.Create(f.TenantId, f.Branch.Id, "Asesora De Prueba");
+            db.Add(advisor);
+            await db.SaveChangesAsync();
+            advisorId = advisor.Id;
+        }
+
+        var seeded = await SeedConversationAsync(_factory.Services, f, NewEra(), RefusedChat, advisorId: advisorId, waId: "573009990001");
+
+        using var read = _factory.Services.CreateScope();
+        read.ServiceProvider.GetRequiredService<Application.Interfaces.ITenantContext>().SetTenant(f.TenantId); // as the runner does after the claim
+        var context = read.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var conversation = await context.Conversations.IgnoreQueryFilters().SingleAsync(c => c.Id == seeded.ConversationId);
+        var messageIds = await context.Messages.IgnoreQueryFilters().Where(m => m.ConversationId == seeded.ConversationId).OrderBy(m => m.SentAt).Select(m => m.Id).ToListAsync();
+
+        var snapshot = await ConversationClassificationRunner.ReadSnapshotAsync(context, conversation, includeKnownValues: true, CancellationToken.None);
+
+        Assert.Equal(messageIds, snapshot.Messages.Select(m => m.Id!.Value));
+        Assert.Equal(f.TenantId, snapshot.TenantId);
+        Assert.Equal(("Cliente", "Asesora De Prueba"), (snapshot.ContactName, snapshot.AdvisorName));
+        Assert.Equal(new[] { "Asesora De Prueba", "Cliente", f.Branch.Name }.Order(StringComparer.Ordinal), snapshot.Names.Order(StringComparer.Ordinal));
+        Assert.Equal(["573005550100", "573009990001"], snapshot.Numbers.Order(StringComparer.Ordinal));
+        Assert.Equal(f.Branch.Name, snapshot.BranchName);
+    }
+
+    private sealed class CommandCounter : Microsoft.EntityFrameworkCore.Diagnostics.DbCommandInterceptor
+    {
+        public int Commands;
+
+        public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<System.Data.Common.DbDataReader>> ReaderExecutingAsync(
+            System.Data.Common.DbCommand command, Microsoft.EntityFrameworkCore.Diagnostics.CommandEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<System.Data.Common.DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref Commands);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task TheRulesPath_ReadsWhatItReadBefore_AndTheLlmPathAddsOneQueryAndAMargin()
+    {
+        // Rules: the messages (each cut at 1,000 characters) and the branch, nothing else. LLM: one more query for the known values, and
+        // each message read 64 characters beyond the cap so a number straddling it is masked before the cap is applied.
+        using var f = await NewTenantAsync();
+        var longText = new string('a', 995) + " 3001234567 " + new string('b', 100); // the number straddles the 1,000 cap
+        var seeded = await SeedConversationAsync(_factory.Services, f, NewEra(), [In(0, longText), Out(60, "Hola")], waId: "573009990002");
+
+        async Task<(int Commands, ConversationSnapshot Snapshot)> ReadAsync(bool includeKnownValues)
+        {
+            using var scope = _factory.Services.CreateScope();
+            scope.ServiceProvider.GetRequiredService<Application.Interfaces.ITenantContext>().SetTenant(f.TenantId);
+            var counter = new CommandCounter();
+            var options = new DbContextOptionsBuilder<ApplicationDbContext>(scope.ServiceProvider.GetRequiredService<DbContextOptions<ApplicationDbContext>>())
+                .AddInterceptors(counter).Options;
+            await using var db = new ApplicationDbContext(options, scope.ServiceProvider.GetRequiredService<Application.Interfaces.ICurrentTenantService>());
+            var conversation = await db.Conversations.IgnoreQueryFilters().AsNoTracking().SingleAsync(c => c.Id == seeded.ConversationId);
+            counter.Commands = 0;
+            var snapshot = await ConversationClassificationRunner.ReadSnapshotAsync(db, conversation, includeKnownValues, CancellationToken.None);
+            return (counter.Commands, snapshot);
+        }
+
+        var rules = await ReadAsync(includeKnownValues: false);
+        var llm = await ReadAsync(includeKnownValues: true);
+
+        Assert.Equal(2, rules.Commands);
+        Assert.Equal(((string?)null, (string?)null, 0, 0), (rules.Snapshot.ContactName, rules.Snapshot.AdvisorName, rules.Snapshot.Names.Count, rules.Snapshot.Numbers.Count));
+        Assert.Equal(ConversationClassificationRunner.MaxCharactersPerMessage, rules.Snapshot.Messages[0].Text!.Length);
+        Assert.Equal(3, llm.Commands);
+        Assert.Equal(ConversationClassificationRunner.ReadCharactersPerMessage, llm.Snapshot.Messages[0].Text!.Length);
+        Assert.Contains("3001234567", llm.Snapshot.Messages[0].Text);
+        Assert.Contains("573009990002", llm.Snapshot.Numbers);
+    }
+
     // ---- Ingestion flags what changed -------------------------------------------------------------------------
 
     [Fact]

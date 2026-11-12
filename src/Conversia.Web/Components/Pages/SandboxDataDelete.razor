@@ -1,0 +1,110 @@
+@page "/organizacion/sandbox/eliminar-datos"
+@attribute [Authorize]
+@using Conversia.Domain.Enums
+@inherits AuthenticatedPageBase
+@inject OneTimeSubmissions Submissions
+
+<PageTitle>Eliminar los datos de prueba - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="sandbox-delete">
+        <PageHeader Eyebrow="Organización" EyebrowIcon="building" Title="Eliminar los datos de prueba"
+                    Description="Borra todo lo que creó el modo sandbox en tu empresa.">
+            <a class="btn btn--secondary" href="/organizacion"><Icon Name="arrow-left" />Volver a organización</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        @* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller
+           without OrganizationManage who forges one must still reach the API and be refused there, not crash here. *@
+        <div hidden="@(!ShowForm)">
+            <Card Title="¿Eliminar todos los datos de prueba?" IconName="trash" data-testid="sandbox-delete-confirm">
+                <div class="stack">
+                    <p class="muted" data-testid="confirm-effect">Se eliminan las conversaciones marcadas como «Sandbox», con sus mensajes, sus clientes simulados y sus registros de entrega. Las conversaciones reales, sus mensajes y sus clientes no se tocan. Esta acción no se puede deshacer.</p>
+                    <EditForm Model="Input" FormName="delete-sandbox-data" OnValidSubmit="RunAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="sandbox-delete-form">
+                        <input type="hidden" name="@($"{nameof(Input)}.{nameof(SandboxDataInput.SubmissionId)}")" value="@_submissionId" />
+                        <div class="form-actions">
+                            @if (ShowForm)
+                            {
+                                <button type="submit" class="btn btn--danger" data-testid="sandbox-delete-submit"><Icon Name="trash" />Sí, eliminar los datos de prueba</button>
+                            }
+                            <a class="btn btn--ghost" href="/organizacion">Cancelar</a>
+                        </div>
+                    </EditForm>
+                </div>
+            </Card>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _canManage;
+    private string _submissionId = OneTimeSubmissions.NewId();
+    private SandboxDataInput? _input;
+
+    [SupplyParameterFromForm(FormName = "delete-sandbox-data")]
+    private SandboxDataInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    private bool ShowForm => _canManage && !Redirected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var profile = await Api.GetMyProfileAsync(Token!);
+        if (await TryFailAsync(profile))
+        {
+            return;
+        }
+
+        Shell.Remember(profile.Value!);
+        _canManage = profile.Value!.Can(Permission.OrganizationManage);
+        if (!_canManage)
+        {
+            Deny();
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        if (!Submissions.TryClaim(Input.SubmissionId))
+        {
+            Message = "Este formulario ya se envió. Revisa la lista de conversaciones.";
+            await LoadAsync();
+            return;
+        }
+
+        var result = await Api.DeleteSandboxDataAsync(Token!);
+        if (result.IsSuccess)
+        {
+            RedirectTo(OrganizationNotice.Url(OrganizationNotice.SandboxDataDeleted));
+            return;
+        }
+
+        await TryFailAsync(result);
+        if (!Redirected && !Denied)
+        {
+            await LoadAsync();
+        }
+    }
+}

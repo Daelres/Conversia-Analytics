@@ -11,6 +11,7 @@ internal static class ProblemDetailsErrors
     public const string TenantNotActiveCode = "tenant_not_active";
 
     private const int MaxDetailLength = 300;
+    private const int MaxCodeLength = 64;
 
     /// <summary>The <c>detail</c> of a problem document (the API's Spanish message), trimmed and capped; null when there is none.</summary>
     public static string? TryReadDetail(string body)
@@ -53,6 +54,16 @@ internal static class ProblemDetailsErrors
             return null;
         }
     }
+
+    /// <summary>
+    /// The machine <c>code</c> of a problem document when it has the shape of one (lower-case words joined by underscores); null otherwise.
+    /// The value decides what a page says, so nothing that merely sits in that field is carried.
+    /// </summary>
+    public static string? TryReadProblemCode(string body)
+        => TryReadCode(body) is { Code: var code } && IsMachineName(code) ? code : null;
+
+    private static bool IsMachineName(string code)
+        => code.Length <= MaxCodeLength && char.IsAsciiLetterLower(code[0]) && code.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '_');
 
     /// <summary>Null when the body is not a recognisable problem document.</summary>
     public static IReadOnlyDictionary<string, string[]>? TryParse(string body)

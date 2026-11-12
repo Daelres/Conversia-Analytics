@@ -39,10 +39,10 @@ Fuera del MVP: respuestas automáticas del bot, conteo de personas o análisis d
 
 - **Backend:** .NET 10 (LTS), C#, ASP.NET Core Web API. La base del repo partió de una plantilla interna de DR, adaptada de SQL Server a PostgreSQL y ya reescrita para este producto (ver `docs/decisiones.md`).
 - **Base de datos:** PostgreSQL (se descartó SQL Server por costos). ORM: EF Core con Npgsql.
-- **WhatsApp:** 360dialog como proveedor de la API de WhatsApp Business (por validar).
+- **WhatsApp:** 360dialog como proveedor de la API de WhatsApp Business (por validar). Ingesta por webhook y envío manual de texto con clave de API por canal cifrada (docs/MESSAGING.md); modo sandbox interno por empresa para pruebas sin 360dialog (docs/SANDBOX.md).
 - **Infraestructura:** Azure.
 - **Frontend del dashboard:** Blazor Web.
-- **Análisis de texto / IA:** por definir (clasificación de intención, extracción de entidades).
+- **Análisis de texto / IA:** reglas en español (por defecto) y Claude Haiku 5.5 vía el SDK oficial de Anthropic (`Classification:Provider=Llm`), con seudonimización y preprocesamiento para ahorrar tokens; solo en Development hasta completar el endurecimiento del diseño llm-extraction (docs/CLASSIFICATION.md).
 
 ## Arquitectura propuesta (inicial, abierta a cambios)
 
@@ -80,7 +80,7 @@ WhatsApp ─► 360dialog ─► Webhook (API .NET) ─► Cola / procesamiento 
 
 - ¿Cómo se capturan los mensajes que los asesores envían desde su teléfono o WhatsApp Web? (define la viabilidad técnica de todo el producto).
 - Tecnología del dashboard: hoy es Blazor Web; falta confirmar si basta para el dashboard ejecutivo (React, Power BI embebido, otra).
-- Motor de clasificación: reglas, modelo de IA vía API, o combinación.
+- Motor de clasificación: híbrido (modelo de IA con reglas como respaldo) implementado en Development; falta validarlo con la API real y datos del piloto, y completar el endurecimiento antes de producción.
 - Nombre definitivo del producto.
 
 ## Cómo trabajar en este repo (instrucciones para Claude)
@@ -97,6 +97,7 @@ WhatsApp ─► 360dialog ─► Webhook (API .NET) ─► Cola / procesamiento 
 Conversia.slnx
 global.json, .editorconfig, .config/dotnet-tools.json   # dotnet-ef 10.0.11 como herramienta local
 docker-compose.yml, docker-compose.simulator.yml, .env.example, .dockerignore
+docker-compose.llm-dev.yml, docker-compose.llm-real.yml   # solo desarrollo: clasificador con IA sobre Replay (sin clave) o contra la API real (docs/DOCKER.md)
 .github/workflows/tests.yml
 README.md                    # README del proyecto (en inglés): qué es, arranque con Docker, configuración, API
 docs/
@@ -104,8 +105,10 @@ docs/
   ARCHITECTURE.md, EXTENDING.md, WORKFLOW.md, ERRORS.md, USERS_TENANTS_PERMISSIONS.md   # arquitectura y guías técnicas del proyecto
   PLATFORM_ADMIN.md          # administrador de plataforma: aprobación de empresas, cupo de líneas activas, API /api/admin, arranque, modelo de seguridad y runbook
   WEBHOOKS.md                # ingesta del webhook de 360dialog (endpoint, mapeo, reintentos, cierre de conversaciones, formato no verificado)
-  CLASSIFICATION.md          # clasificador de conversaciones (reglas en español; cómo conectar un LLM)
+  MESSAGING.md               # envío manual de mensajes por 360dialog: endpoints, pantallas de la Web, clave de API por canal cifrada, errores y límites del sandbox
+  CLASSIFICATION.md          # clasificador de conversaciones: reglas en español y proveedor LLM (Claude Haiku 5.5, solo Development por ahora; opciones, costos, fallos)
   METRICS.md                 # definición exacta de cada métrica del tablero, alertas y configuración
+  SANDBOX.md                 # modo sandbox interno por empresa: quién lo activa, qué se simula y qué es real, reglas de datos y métricas, límites
   SIMULATOR.md               # simulador de webhooks (solo desarrollo): uso, seguridad y cómo probar con el sandbox de 360dialog
   PRUEBAS_SANDBOX.md         # guía de la fase de pruebas con el sandbox de 360dialog (en español) y lista de aceptación
   DOCKER.md                  # las tres imágenes (api, migrator, web): build, variables, health checks, multi-arch y prueba de humo
@@ -114,7 +117,7 @@ src/
   Conversia.Application/     # referencia Domain
   Conversia.Infrastructure/  # referencia Application; EF Core + Npgsql, migraciones en Persistence/Migrations
   Conversia.API/             # controllers (incluye /api/admin, solo para el administrador de plataforma); referencia Application e Infrastructure
-  Conversia.Web/             # Blazor Web; referencia Application y habla con la API por HTTP. `/panel` es el tablero ejecutivo (aterrizaje tras iniciar sesión); sus piezas viven en Components/Dashboard y Dashboard/; `/conversaciones` y `/conversaciones/{id}` son el listado y el detalle de chats (Components/Conversations); `/organizacion` administra sucursales, asesores y números (el secreto del webhook se muestra una sola vez, Components/Organization); `/mensajes` y `/mensajes/eventos` muestran los mensajes que el servicio ha leído y las entregas del webhook para comprobar que llegan (Components/Messages, docs/WEBHOOKS.md); `/cuenta-pendiente` es el aterrizaje de una empresa pendiente o suspendida; `/admin` es el área del administrador de plataforma (login, empresas, cupo de líneas, auditoría) con sesión y cookie propias, Components/Pages/Admin, docs/PLATFORM_ADMIN.md
+  Conversia.Web/             # Blazor Web; referencia Application y habla con la API por HTTP. `/panel` es el tablero ejecutivo (aterrizaje tras iniciar sesión); sus piezas viven en Components/Dashboard y Dashboard/; `/conversaciones` y `/conversaciones/{id}` son el listado y el detalle de chats; el detalle trae el redactor para enviar un mensaje de texto a mano (Components/Conversations, `MessageComposer.razor`, docs/MESSAGING.md); `/organizacion` administra sucursales, asesores y números (el secreto del webhook se muestra una sola vez, Components/Organization) y, por número, la clave de API de 360dialog para enviar: `/organizacion/canales/{id}/clave-api` la guarda o reemplaza (nunca se vuelve a mostrar) y `/organizacion/canales/{id}/quitar-clave` la quita; `/mensajes` y `/mensajes/eventos` muestran los mensajes que el servicio ha leído y las entregas del webhook para comprobar que llegan (Components/Messages, docs/WEBHOOKS.md); con el modo sandbox activo (docs/SANDBOX.md) todas las páginas muestran un aviso, `/conversaciones/simular` inicia una conversación simulada, el detalle de una conversación de prueba ofrece un segundo redactor «Escribir como el cliente» y `/organizacion/sandbox/eliminar-datos` borra los datos de prueba; `/cuenta-pendiente` es el aterrizaje de una empresa pendiente o suspendida; `/admin` es el área del administrador de plataforma (login, empresas, cupo de líneas, modo sandbox, auditoría) con sesión y cookie propias, Components/Pages/Admin, docs/PLATFORM_ADMIN.md
 docker/healthcheck.sh        # sonda de salud de los contenedores (bash /dev/tcp; las imágenes no traen curl)
 scripts/                     # docker-build.sh (construye las tres imágenes) y docker-smoke-test.sh (prueba de aceptación de las imágenes; corre en CI)
 tools/

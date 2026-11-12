@@ -37,13 +37,14 @@ internal static partial class TestHelpers
         bool closed = false,
         string? waId = null,
         Action<Opportunity>? configureOpportunity = null,
-        bool requestClassification = false)
+        bool requestClassification = false,
+        bool sandbox = false)
     {
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        var contact = Contact.Create(tenantId, waId ?? UniqueWaId(), "Cliente", startedAt);
-        var conversation = Conversation.Start(tenantId, contact.Id, channelId, branchId, startedAt, source);
+        var contact = Contact.Create(tenantId, waId ?? (sandbox ? Contact.NewSandboxWaId(Random.Shared) : UniqueWaId()), "Cliente", startedAt, sandbox);
+        var conversation = Conversation.Start(tenantId, contact.Id, channelId, branchId, startedAt, source, isSandbox: sandbox);
         if (advisorId is { } advisor)
         {
             conversation.AssignAdvisor(advisor);
@@ -79,8 +80,8 @@ internal static partial class TestHelpers
     internal static Task<Seeded> SeedConversationAsync(
         IServiceProvider services, ChannelFixture f, DateTime startedAt, IReadOnlyList<Msg> messages,
         ConversationSource source = ConversationSource.Organic, Guid? advisorId = null, bool closed = false, string? waId = null,
-        Action<Opportunity>? configureOpportunity = null, bool requestClassification = false)
-        => SeedConversationAsync(services, f.TenantId, f.Branch.Id, f.Channel.Id, startedAt, messages, source, advisorId, closed, waId, configureOpportunity, requestClassification);
+        Action<Opportunity>? configureOpportunity = null, bool requestClassification = false, bool sandbox = false)
+        => SeedConversationAsync(services, f.TenantId, f.Branch.Id, f.Channel.Id, startedAt, messages, source, advisorId, closed, waId, configureOpportunity, requestClassification, sandbox);
 
     /// <summary>The stored conversation and its opportunity, bypassing the tenant filter.</summary>
     internal static async Task<(Conversation Conversation, Opportunity Opportunity)> LoadAsync(IServiceProvider services, Guid conversationId)

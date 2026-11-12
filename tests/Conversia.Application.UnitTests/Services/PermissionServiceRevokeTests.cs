@@ -13,7 +13,7 @@ public class PermissionServiceRevokeTests
     private readonly Mock<IUserPermissionRepository> _userPermissionRepository = new();
     private readonly Guid _callerTenantId = Guid.NewGuid();
 
-    private PermissionService CreateSut() => new(_userRepository.Object, _userPermissionRepository.Object);
+    private PermissionService CreateSut() => new(_userRepository.Object, _userPermissionRepository.Object, Mock.Of<ITenantRepository>());
 
     private User UserInTenant(Guid tenantId) => User.Create(tenantId, "member@acme.test", "hash", isOwner: false);
 

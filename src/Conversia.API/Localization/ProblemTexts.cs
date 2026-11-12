@@ -21,12 +21,17 @@ public static class ProblemTexts
     public const string DuplicateBranchNameTitle = "Sucursal duplicada";
     public const string InvalidRequestTitle = "Solicitud no válida";
     public const string QueryTimeoutTitle = "Consulta demasiado lenta";
+    public const string MessageNotSentTitle = "Mensaje no enviado";
+    public const string MessageNotRecordedTitle = "Mensaje enviado sin registrar";
+    public const string CredentialsUnavailableTitle = "Credenciales no disponibles";
+    public const string SandboxRefusedTitle = "Mensaje simulado no aceptado";
 
     public const string UnexpectedTitle = "Ocurrió un error inesperado";
     public const string UnexpectedDetail = "Ocurrió un error inesperado. Inténtalo de nuevo más tarde.";
 
     public const string TooManyRequestsTitle = "Demasiadas solicitudes";
     public const string TooManyLoginsDetail = "Demasiados intentos de inicio de sesión. Inténtalo de nuevo más tarde.";
+    public const string TooManyMessagesDetail = "Demasiados mensajes enviados en poco tiempo. Espera unos segundos e inténtalo de nuevo.";
     public const string TooManyQueriesDetail = "Demasiadas consultas en poco tiempo. Espera unos segundos e inténtalo de nuevo.";
     public const string TooManyWebhooksDetail = "Demasiadas llamadas al webhook desde esta dirección. Inténtalo de nuevo más tarde.";
     public const string WebhookUnauthorizedTitle = "Webhook no autorizado";

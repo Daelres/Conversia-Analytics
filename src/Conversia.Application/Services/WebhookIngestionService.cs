@@ -54,7 +54,8 @@ public class WebhookIngestionService : IWebhookIngestionService
             channel.ChannelId,
             SHA256.HashData(body.Span),
             Encoding.UTF8.GetString(body.Span),
-            _timeProvider.GetUtcNow().UtcDateTime);
+            _timeProvider.GetUtcNow().UtcDateTime,
+            channel.IsSandbox);
 
         try
         {

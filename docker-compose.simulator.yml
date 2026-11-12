@@ -9,5 +9,7 @@ services:
     environment:
       # A conversation is classified once it has been quiet this long (default 60 s).
       Classification__DebounceSeconds: "5"
+      # The same for the LLM path (default 300 s), when docker-compose.llm-dev.yml turns it on; ignored with the rules.
+      Classification__Llm__DebounceSeconds: "5"
       # The job that closes idle conversations (older than Conversations:AutoCloseAfterDays) runs this often (default every 15 minutes).
       Conversations__AutoCloseIntervalMinutes: "1"

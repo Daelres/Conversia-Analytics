@@ -134,4 +134,34 @@ public class TenantTests
         Assert.Throws<DomainException>(() => tenant.SetMaxActiveLines(quota));
         Assert.Equal(0, tenant.MaxActiveLines);
     }
+
+    [Fact]
+    public void SandboxMode_StartsOff_AndSetSandboxModeSaysWhetherItChanged()
+    {
+        var tenant = Tenant.Create("Acme Corp");
+
+        Assert.False(tenant.SandboxMode);
+        Assert.False(tenant.SetSandboxMode(false));
+        Assert.True(tenant.SetSandboxMode(true));
+        Assert.True(tenant.SandboxMode);
+        Assert.False(tenant.SetSandboxMode(true));
+        Assert.True(tenant.SetSandboxMode(false));
+        Assert.False(tenant.SandboxMode);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void SandboxModeReason_IsRequired(string? reason)
+        => Assert.Throws<DomainException>(() => Tenant.SandboxModeReason(reason));
+
+    [Fact]
+    public void SandboxModeReason_IsTrimmedAndBounded()
+    {
+        Assert.Equal("Pruebas internas", Tenant.SandboxModeReason("  Pruebas internas  "));
+        Assert.Equal(200, Tenant.SandboxModeReason(new string('x', 200)).Length);
+        Assert.Throws<DomainException>(() => Tenant.SandboxModeReason(new string('x', 201)));
+        Assert.Throws<DomainException>(() => Tenant.SandboxModeReason("bad\0reason"));
+    }
 }

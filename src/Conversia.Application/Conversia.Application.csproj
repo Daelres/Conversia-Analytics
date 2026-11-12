@@ -6,11 +6,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- The default dictionaries of the rule-based classifier (Spanish, Colombia). A deployment can replace them with Classification:RulesPath. -->
     <EmbeddedResource Include="Classification\Rules\ClassificationRules.es-CO.json" WithCulture="false" LogicalName="Conversia.Application.Classification.ClassificationRules.es-CO.json" />
+    <!-- The static system prompt of the LLM provider: the cacheable prefix of every request (no dates, ids or tenant data in it). -->
+    <EmbeddedResource Include="Classification\Llm\system-prompt.es-CO.md" WithCulture="false" LogicalName="Conversia.Application.Classification.Llm.system-prompt.es-CO.md" />
   </ItemGroup>
 
   <ItemGroup>

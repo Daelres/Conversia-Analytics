@@ -15,10 +15,12 @@ namespace Conversia.API.Controllers;
 public class ConversationsController : ControllerBase
 {
     private readonly IConversationService _conversations;
+    private readonly IMessageSendingService _messages;
 
-    public ConversationsController(IConversationService conversations)
+    public ConversationsController(IConversationService conversations, IMessageSendingService messages)
     {
         _conversations = conversations;
+        _messages = messages;
     }
 
     /// <summary>The caller's conversations, newest first, filtered by branch, advisor, stage, source, status, start date and whether they are unanswered.</summary>
@@ -45,4 +47,14 @@ public class ConversationsController : ControllerBase
     [Authorize(Policy = nameof(Permission.ConversationsManage))]
     public async Task<ActionResult<OpportunityResponse>> SetOutcome(Guid id, SetOpportunityOutcomeRequest request, CancellationToken cancellationToken)
         => Ok(await _conversations.SetOutcomeAsync(id, request, User.GetUserId(), cancellationToken));
+
+    /// <summary>
+    /// A person sends a plain-text WhatsApp message to the customer of the conversation, through the conversation's channel and its
+    /// provider credentials. 201 with the stored Outbound message once the provider accepted it; every refusal has its own code (docs/MESSAGING.md).
+    /// </summary>
+    [HttpPost("{id:guid}/messages")]
+    [Authorize(Policy = nameof(Permission.ConversationsManage))]
+    [EnableRateLimiting(MessageSendRateLimitingExtensions.PolicyName)]
+    public async Task<ActionResult<MessageResponse>> SendMessage(Guid id, SendMessageRequest request, CancellationToken cancellationToken)
+        => StatusCode(StatusCodes.Status201Created, await _messages.SendTextAsync(id, request, cancellationToken));
 }

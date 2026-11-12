@@ -90,4 +90,87 @@ public class OneTimeSubmissionsTests
 
         Assert.True(provider.GetRequiredService<OneTimeSubmissions>().TryClaim(OneTimeSubmissions.NewId()));
     }
+
+    // ---- claims that belong to somebody: a user sending a message into a conversation ----
+
+    private const string Ana = "user-ana";
+    private const string Luis = "user-luis";
+    private const string Chat = "conversation-1";
+
+    [Fact]
+    public void A_claim_of_a_user_is_made_once_and_a_replay_is_refused()
+    {
+        var submissions = new OneTimeSubmissions();
+
+        Assert.True(submissions.TryClaim(Ana, Chat, Id(1)));
+        Assert.False(submissions.TryClaim(Ana, Chat, Id(1)));
+    }
+
+    [Fact]
+    public void The_same_id_under_another_user_or_another_conversation_is_another_claim()
+    {
+        var submissions = new OneTimeSubmissions();
+
+        Assert.True(submissions.TryClaim(Ana, Chat, Id(1)));
+        Assert.True(submissions.TryClaim(Luis, Chat, Id(1)));
+        Assert.True(submissions.TryClaim(Ana, "conversation-2", Id(1)));
+        Assert.True(submissions.TryClaim(Id(1))); // and the claims without an owner are a world of their own
+    }
+
+    [Fact]
+    public void Made_up_ids_of_one_user_never_make_the_guard_forget_the_claim_of_another()
+    {
+        var submissions = new OneTimeSubmissions(capacity: 50);
+        Assert.True(submissions.TryClaim(Ana, Chat, Id(1)));
+
+        for (var n = 0; n < 5_000; n++)
+        {
+            Assert.True(submissions.TryClaim(Luis, Chat, Id(100 + n)));
+            submissions.TryClaim(Luis, $"made-up-{n}", Id(100 + n));
+            submissions.TryClaim(Id(100 + n));
+        }
+
+        Assert.False(submissions.TryClaim(Ana, Chat, Id(1))); // still remembered: the message is not sent twice
+    }
+
+    [Fact]
+    public void A_user_who_goes_over_the_limit_only_loses_their_own_oldest_claims()
+    {
+        var submissions = new OneTimeSubmissions();
+        for (var n = 0; n <= OneTimeSubmissions.OwnerCapacity; n++)
+        {
+            Assert.True(submissions.TryClaim(Luis, Chat, Id(n)));
+        }
+
+        Assert.True(submissions.TryClaim(Luis, Chat, Id(0))); // the oldest was forgotten
+        Assert.False(submissions.TryClaim(Luis, Chat, Id(OneTimeSubmissions.OwnerCapacity))); // the newest was not
+    }
+
+    [Fact]
+    public void A_claim_of_a_user_is_forgotten_after_fifteen_minutes_and_its_owner_with_it()
+    {
+        var clock = new ManualClock();
+        var submissions = new OneTimeSubmissions(clock);
+        Assert.True(submissions.TryClaim(Ana, Chat, Id(1)));
+        Assert.Equal(1, submissions.Owners);
+
+        clock.Advance(OneTimeSubmissions.Lifetime + TimeSpan.FromSeconds(1));
+        Assert.True(submissions.TryClaim(Luis, Chat, Id(2)));
+
+        Assert.Equal(1, submissions.Owners); // nothing is kept for somebody whose claims all expired
+        Assert.True(submissions.TryClaim(Ana, Chat, Id(1)));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("forged")]
+    public void A_blank_or_foreign_id_is_never_accepted_for_a_user_either(string? id)
+        => Assert.False(new OneTimeSubmissions().TryClaim(Ana, Chat, id));
+
+    [Theory]
+    [InlineData("", Chat)]
+    [InlineData(Ana, "")]
+    public void A_claim_without_its_owner_or_its_context_is_refused(string owner, string context)
+        => Assert.False(new OneTimeSubmissions().TryClaim(owner, context, Id(1)));
 }

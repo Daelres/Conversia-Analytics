@@ -21,7 +21,7 @@ public class ClassifierGuaranteeTests
     private static string Plain(string phrase) => phrase.Trim().Trim('^', '$', ',', '*').Trim();
 
     // Everything a customer could say according to the rules, plus the customer lines of the golden set.
-    private static readonly string[] CustomerLines =
+    internal static readonly string[] CustomerLines =
     [
         .. RulesFile.Phrases().Select(p => Plain(p.Phrase)).Where(p => p.Length > 0).Distinct(),
         .. ConversationClassifierGoldenSetTests.AllChats
@@ -32,7 +32,7 @@ public class ClassifierGuaranteeTests
     ];
 
     // What the business says: its own confirmations and proposals, and filler.
-    private static readonly string[] AdvisorLines =
+    internal static readonly string[] AdvisorLines =
     [
         .. RulesFile.Phrases().Where(p => p.Path is "advisorConfirmation" or "advisorScheduleStatement" or "bookingProposal" or "proposalCue" or "dayTime").Select(p => Plain(p.Phrase)),
         .. ConversationClassifierGoldenSetTests.AllChats
@@ -44,7 +44,7 @@ public class ClassifierGuaranteeTests
 
     private static readonly string[] Joiners = [". ", ", ", "? ", " ", "! ", " pero "];
 
-    private static string Compose(Random random, string[] lines)
+    internal static string Compose(Random random, string[] lines)
     {
         var count = random.Next(1, 4);
         var text = new StringBuilder();
@@ -60,7 +60,7 @@ public class ClassifierGuaranteeTests
         return text.ToString().Replace("\n", " ", StringComparison.Ordinal);
     }
 
-    private static string RandomChat(Random random, bool withAdvisor)
+    internal static string RandomChat(Random random, bool withAdvisor)
     {
         var script = new StringBuilder();
         var messages = random.Next(1, 8);
