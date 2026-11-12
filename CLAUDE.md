@@ -39,10 +39,10 @@ Fuera del MVP: respuestas automáticas del bot, conteo de personas o análisis d
 
 - **Backend:** .NET 10 (LTS), C#, ASP.NET Core Web API. La base del repo partió de una plantilla interna de DR, adaptada de SQL Server a PostgreSQL y ya reescrita para este producto (ver `docs/decisiones.md`).
 - **Base de datos:** PostgreSQL (se descartó SQL Server por costos). ORM: EF Core con Npgsql.
-- **WhatsApp:** 360dialog como proveedor de la API de WhatsApp Business (por validar).
+- **WhatsApp:** 360dialog como proveedor de la API de WhatsApp Business (por validar). Ingesta por webhook y envío manual de texto con clave de API por canal cifrada (docs/MESSAGING.md); modo sandbox interno por empresa para pruebas sin 360dialog (docs/SANDBOX.md).
 - **Infraestructura:** Azure.
 - **Frontend del dashboard:** Blazor Web.
-- **Análisis de texto / IA:** por definir (clasificación de intención, extracción de entidades).
+- **Análisis de texto / IA:** reglas en español (por defecto) y Claude Haiku 5.5 vía el SDK oficial de Anthropic (`Classification:Provider=Llm`), con seudonimización y preprocesamiento para ahorrar tokens; solo en Development hasta completar el endurecimiento del diseño llm-extraction (docs/CLASSIFICATION.md).
 
 ## Arquitectura propuesta (inicial, abierta a cambios)
 
@@ -80,7 +80,7 @@ WhatsApp ─► 360dialog ─► Webhook (API .NET) ─► Cola / procesamiento 
 
 - ¿Cómo se capturan los mensajes que los asesores envían desde su teléfono o WhatsApp Web? (define la viabilidad técnica de todo el producto).
 - Tecnología del dashboard: hoy es Blazor Web; falta confirmar si basta para el dashboard ejecutivo (React, Power BI embebido, otra).
-- Motor de clasificación: reglas, modelo de IA vía API, o combinación.
+- Motor de clasificación: híbrido (modelo de IA con reglas como respaldo) implementado en Development; falta validarlo con la API real y datos del piloto, y completar el endurecimiento antes de producción.
 - Nombre definitivo del producto.
 
 ## Cómo trabajar en este repo (instrucciones para Claude)
