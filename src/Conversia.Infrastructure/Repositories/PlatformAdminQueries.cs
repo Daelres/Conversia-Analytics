@@ -57,7 +57,8 @@ public class PlatformAdminQueries : IPlatformAdminQueries
                 _db.Branches.IgnoreQueryFilters().Where(b => b.Id == c.BranchId).Select(b => b.Name).FirstOrDefault(),
                 c.IsActive))
             .ToListAsync(cancellationToken);
-        return new TenantAdminDetail(summary, lines);
+        var licenses = await _db.LineLicenses.AsNoTracking().CountAsync(l => l.AssignedTenantId == tenantId && l.Status == LineLicenseStatus.Assigned, cancellationToken);
+        return new TenantAdminDetail(summary, lines, licenses);
     }
 
     public async Task<ReadPage<PlatformAuditEntry>> ListAuditAsync(Guid? tenantId, int page, int pageSize, CancellationToken cancellationToken = default)
@@ -102,7 +103,12 @@ public class PlatformAdminQueries : IPlatformAdminQueries
                 .Max(m => (DateTime?)m.SentAt),
             t.StatusChangedAt,
             t.StatusReason,
-            t.SandboxMode));
+            t.SandboxMode,
+            t.AiEnabled,
+            t.AiTermsVersion,
+            t.AiEnabledChangedAt,
+            t.AiMonthlyConversationQuota,
+            t.SendRateLimitPerMinute));
 
     private static string EscapeLike(string text)
         => text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);

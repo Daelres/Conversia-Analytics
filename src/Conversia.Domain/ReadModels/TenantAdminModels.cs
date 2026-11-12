@@ -20,12 +20,18 @@ public sealed record TenantAdminSummary(
     DateTime? LastActivityAt,
     DateTime? StatusChangedAt,
     string? StatusReason,
-    bool SandboxMode = false);
+    bool SandboxMode = false,
+    bool AiEnabled = false,
+    string? AiTermsVersion = null,
+    DateTime? AiEnabledChangedAt = null,
+    int? AiMonthlyConversationQuota = null,
+    int? SendRateLimitPerMinute = null);
 
 /// <summary>A WhatsApp line of a company: the number, its branch and whether it is switched on. No customer data.</summary>
 public sealed record TenantAdminLine(Guid ChannelId, string DisplayPhoneNumber, string? BranchName, bool IsActive);
 
-public sealed record TenantAdminDetail(TenantAdminSummary Summary, IReadOnlyList<TenantAdminLine> Lines);
+/// <param name="AssignedLicenses">Line licences of the platform assigned to the company.</param>
+public sealed record TenantAdminDetail(TenantAdminSummary Summary, IReadOnlyList<TenantAdminLine> Lines, int AssignedLicenses = 0);
 
 public sealed record PlatformAuditEntry(
     Guid Id, DateTime OccurredAt, Guid AdminId, string? AdminEmail, string Action, Guid? TenantId, string Details);

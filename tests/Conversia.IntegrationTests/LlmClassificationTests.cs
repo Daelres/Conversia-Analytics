@@ -160,7 +160,8 @@ public class LlmClassificationTests
         Llm = LlmOptions.Default(development: true) with { Client = LlmOptions.ReplayClient, PrivacyApproved = true, DebounceSeconds = 300 },
     };
 
-    private ConversationClassificationRunner LlmRunner(TimeProvider clock, ILlmClient model, ILogger<ConversationClassificationRunner>? logger = null, ClassificationOptions? options = null)
+    private ConversationClassificationRunner LlmRunner(
+        TimeProvider clock, ILlmClient model, ILogger<ConversationClassificationRunner>? logger = null, ClassificationOptions? options = null, IAiUsageMeter? meter = null)
     {
         options ??= LlmRunnerOptions();
         var rules = ClassificationRuleSet.LoadDefault();
@@ -173,7 +174,7 @@ public class LlmClassificationTests
             new LlmClassifierSettings(llm.Model, llm.ExtractAgeRange, llm.Preprocessing.Fingerprint, rules.Fingerprint(), llm.HashKey));
         var coordinator = new ClassificationCoordinator(
             new RuleBasedConversationClassifier(rules), classifier, new LlmCircuitBreaker(llm.BreakerFailures, TimeSpan.FromSeconds(llm.BreakerCooldownSeconds)),
-            NullAiUsageMeter.Instance,
+            meter ?? NullAiUsageMeter.Instance,
             new LlmCoordinatorSettings(llm.MaxFallbackRetries, options.RetryDelay, llm.IncludeSandbox, LlmOptions.ProbeDeferral, LlmOptions.MaxJitterSeconds, llm.Pricing, llm.SandboxOnly),
             new Random(3), clock);
         return new ConversationClassificationRunner(
@@ -242,6 +243,36 @@ public class LlmClassificationTests
         }
 
         Assert.DoesNotContain(capture.Entries, e => e.Mentions("caro") || e.Mentions("mujer") || e.Mentions("3001234567"));
+    }
+
+    [Fact]
+    public async Task WithTheMeteredMeter_ACompanyWithTheAiOff_IsReadByTheRules_AndOnceSwitchedOn_EveryCallIsRecorded()
+    {
+        using var f = await StartChannelAsync(_factory, _client);
+        var start = NewEra();
+        var clock = new FixedTimeProvider(start.AddDays(1));
+        var meter = new Infrastructure.Classification.Usage.AiUsageMeter(
+            _factory.Services.GetRequiredService<IServiceScopeFactory>(), AiQuotaSettings.Default, clock, NullLogger<Infrastructure.Classification.Usage.AiUsageMeter>.Instance);
+        var model = new FakeModel { Answer = _ => Json("lost", "price", "price", [OtherService]) };
+        var seeded = await SeedConversationAsync(_factory.Services, f, start, PricedChat, requestClassification: true);
+
+        await DrainAsync(LlmRunner(clock, model, meter: meter));
+
+        Assert.Equal(0, model.Calls); // the AI is off by default: the rules read it
+        Assert.False((await LoadAsync(_factory.Services, seeded.ConversationId)).Conversation.ClassificationDirty);
+
+        await ExecuteAsync($"UPDATE \"Tenants\" SET \"AiEnabled\" = true WHERE \"Id\" = {f.TenantId}");
+        await ExecuteAsync($"UPDATE \"Conversations\" SET \"ClassificationDirty\" = true WHERE \"Id\" = {seeded.ConversationId}");
+        clock.Advance(TimeSpan.FromHours(1)); // past the retry delay of the first reading
+        await DrainAsync(LlmRunner(clock, model, meter: meter));
+
+        Assert.Equal(1, model.Calls);
+        using var scope = _factory.Services.CreateScope();
+        var row = await scope.ServiceProvider.GetRequiredService<ApplicationDbContext>().AiUsageMonths.IgnoreQueryFilters().AsNoTracking()
+            .SingleAsync(u => u.TenantId == f.TenantId);
+        Assert.Equal((AiQuotaSettings.Default.MonthOf(clock.GetUtcNow().UtcDateTime), false, 1, 1), (row.Month, row.IsSandbox, row.ConversationsAnalyzed, row.Calls));
+        Assert.Equal((1200L, 80L, 2900L), (row.InputTokens, row.OutputTokens, row.CacheReadTokens));
+        Assert.Equal(LlmPricing.Default.Estimate(new LlmUsage(1200, 80, 2900, 0)), row.EstimatedUsd);
     }
 
     [Fact]
@@ -455,6 +486,7 @@ public class LlmClassificationTests
         using var f = await StartChannelAsync(_factory, _client);
         var start = new DateTime(1950, 1, 1, 12, 0, 0, DateTimeKind.Utc);
         var seeded = await SeedConversationAsync(_factory.Services, f, start, PricedChat, requestClassification: true);
+        await ExecuteAsync($"UPDATE \"Tenants\" SET \"AiEnabled\" = true WHERE \"Id\" = {f.TenantId}"); // the host meters: the AI is off by default
         await using var host = WebhookHost(_factory, new()
         {
             ["Classification:Provider"] = "Llm",

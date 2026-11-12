@@ -106,6 +106,26 @@ public class ExceptionHandlingMiddleware
         {
             await WriteMessagingProblemAsync(context, ex);
         }
+        catch (LineLicenseNotFoundException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.LineLicenseNotFoundTitle, ex.Message);
+        }
+        catch (LineLicenseConflictException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.LineLicenseConflictTitle, ex.Message, ("code", ex.Code));
+        }
+        catch (DuplicateLineLicenseException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.LineLicenseConflictTitle, ex.Message, ("code", "license_duplicate"));
+        }
+        catch (LicenseRequiredException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.LicenseRequiredTitle, ex.Message, ("code", LicenseRequiredException.Code));
+        }
+        catch (ConcurrencyConflictException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.ConcurrentChangeTitle, ex.Message, ("code", "concurrent_change"));
+        }
         catch (SandboxException ex)
         {
             await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.SandboxRefusedTitle, ex.Message, ("code", ex.Code));

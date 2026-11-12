@@ -48,6 +48,24 @@ public class AdminTenantsController : ControllerBase
     public async Task<ActionResult<TenantSummaryResponse>> SetSandboxMode(Guid id, SetSandboxModeRequest request, CancellationToken cancellationToken)
         => Ok(await _admin.SetSandboxModeAsync(AdminId, id, request, cancellationToken));
 
+    /// <summary>
+    /// Switches the AI on or off for a company (docs/CLASSIFICATION.md, "Usage and quota"): the reason is required, and the version of the terms
+    /// the company accepted is required to switch it on. Audited (<c>tenant.ai_enabled_changed</c>). Idempotent.
+    /// </summary>
+    [HttpPut("tenants/{id:guid}/ai-enabled")]
+    public async Task<ActionResult<TenantSummaryResponse>> SetAiEnabled(Guid id, SetAiEnabledRequest request, CancellationToken cancellationToken)
+        => Ok(await _admin.SetAiEnabledAsync(AdminId, id, request, cancellationToken));
+
+    /// <summary>The company's monthly AI quota (0 to 1,000,000 distinct conversations); null resets it to the deployment default.</summary>
+    [HttpPut("tenants/{id:guid}/ai-quota")]
+    public async Task<ActionResult<TenantSummaryResponse>> SetAiQuota(Guid id, SetAiQuotaRequest request, CancellationToken cancellationToken)
+        => Ok(await _admin.SetAiQuotaAsync(AdminId, id, request, cancellationToken));
+
+    /// <summary>The company's send rate limit per minute (all its users together); null resets it to <c>Messaging:TenantSendRateLimitPerMinute</c>.</summary>
+    [HttpPut("tenants/{id:guid}/send-rate-limit")]
+    public async Task<ActionResult<TenantSummaryResponse>> SetSendRateLimit(Guid id, SetSendRateLimitRequest request, CancellationToken cancellationToken)
+        => Ok(await _admin.SetSendRateLimitAsync(AdminId, id, request, cancellationToken));
+
     /// <summary>Forces a line off whatever the company wants. Idempotent.</summary>
     [HttpPost("tenants/{id:guid}/channels/{channelId:guid}/deactivate")]
     public async Task<ActionResult<TenantLineResponse>> DeactivateChannel(Guid id, Guid channelId, CancellationToken cancellationToken)

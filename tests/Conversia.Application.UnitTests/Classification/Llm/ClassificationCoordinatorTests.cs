@@ -30,12 +30,40 @@ public class ClassificationCoordinatorTests
         A: Listo, quedó agendada tu cita para el sábado a las 3
         """);
 
+    /// <summary>A meter that admits as told and records what the coordinator reports.</summary>
     private sealed class Meter(AiAdmission admission) : IAiUsageMeter
     {
-        public Task<AiAdmission> CheckAdmissionAsync(Guid tenantId, CancellationToken cancellationToken = default) => Task.FromResult(admission);
+        public List<(Guid TenantId, bool IsSandbox)> Checks { get; } = [];
+
+        public List<AiUsageRecord> Successes { get; } = [];
+
+        public List<AiUsageRecord> Failures { get; } = [];
+
+        /// <summary>Whether the token each record was written with was already cancelled.</summary>
+        public List<bool> RecordedWithCancelledToken { get; } = [];
+
+        public Task<AiAdmission> CheckAdmissionAsync(Guid tenantId, bool isSandbox, CancellationToken cancellationToken = default)
+        {
+            Checks.Add((tenantId, isSandbox));
+            return Task.FromResult(admission);
+        }
+
+        public Task RecordSuccessAsync(AiUsageRecord record, CancellationToken cancellationToken = default)
+        {
+            RecordedWithCancelledToken.Add(cancellationToken.IsCancellationRequested);
+            Successes.Add(record);
+            return Task.CompletedTask;
+        }
+
+        public Task RecordFailureAsync(AiUsageRecord record, CancellationToken cancellationToken = default)
+        {
+            RecordedWithCancelledToken.Add(cancellationToken.IsCancellationRequested);
+            Failures.Add(record);
+            return Task.CompletedTask;
+        }
     }
 
-    private sealed record Setup(ClassificationCoordinator Coordinator, FakeLlmClient Client, LlmCircuitBreaker Breaker, FixedTimeProvider Clock);
+    private sealed record Setup(ClassificationCoordinator Coordinator, FakeLlmClient Client, LlmCircuitBreaker Breaker, FixedTimeProvider Clock, Meter Meter);
 
     private static Setup New(
         Func<LlmRequest, LlmCompletion> answer, int breakerFailures = 5, bool includeSandbox = true, AiAdmission admission = AiAdmission.Allowed,
@@ -45,8 +73,9 @@ public class ClassificationCoordinatorTests
         var breaker = new LlmCircuitBreaker(breakerFailures, TimeSpan.FromSeconds(300));
         var settings = new LlmCoordinatorSettings(maxFallbackRetries, RetryDelay, includeSandbox, TimeSpan.FromSeconds(30), MaxJitterSeconds: 30, LlmPricing.Default, sandboxOnly);
         clock ??= new FixedTimeProvider(Now);
-        var coordinator = new ClassificationCoordinator(RulesClassifier, LlmConversationClassifierTests.New(client), breaker, new Meter(admission), settings, new Random(7), clock);
-        return new Setup(coordinator, client, breaker, clock);
+        var meter = new Meter(admission);
+        var coordinator = new ClassificationCoordinator(RulesClassifier, LlmConversationClassifierTests.New(client), breaker, meter, settings, new Random(7), clock);
+        return new Setup(coordinator, client, breaker, clock, meter);
     }
 
     private static ClassificationContext Context(bool sandbox = false, string? lastHash = null) => new(Guid.NewGuid(), Guid.NewGuid(), sandbox, lastHash);
@@ -388,7 +417,138 @@ public class ClassificationCoordinatorTests
 
     [Fact]
     public async Task TheNullMeter_AdmitsEveryTenant()
-        => Assert.Equal(AiAdmission.Allowed, await NullAiUsageMeter.Instance.CheckAdmissionAsync(Guid.NewGuid()));
+        => Assert.Equal(AiAdmission.Allowed, await NullAiUsageMeter.Instance.CheckAdmissionAsync(Guid.NewGuid(), isSandbox: false));
+
+    // ---- usage recording (design D13): every call is recorded, success or failure; nothing is recorded without a call ----
+
+    [Fact]
+    public async Task ASuccessfulCall_IsRecordedOnce_WithItsTokensItsEstimatedCostAndTheSandboxFlag()
+    {
+        var setup = New(_ => Completed(Answer()));
+        var context = Context(sandbox: true);
+
+        var decision = await setup.Coordinator.DecideAsync(Refused, context, Now);
+
+        Assert.Equal([(context.TenantId, true)], setup.Meter.Checks);
+        var record = Assert.Single(setup.Meter.Successes);
+        Assert.Empty(setup.Meter.Failures);
+        Assert.Equal((context.TenantId, context.ConversationId, true), (record.TenantId, record.ConversationId, record.IsSandbox));
+        Assert.Equal(decision.Call!.Usage, record.Usage);
+        Assert.Equal(decision.Call.EstimatedUsd, record.EstimatedUsd);
+        Assert.True(record.EstimatedUsd > 0m);
+    }
+
+    [Fact]
+    public async Task AWonTheGuardDisagreedWith_IsRecordedAsADisagreement()
+    {
+        var setup = New(_ => Completed(Answer("won", wonLine: 2)));
+
+        await setup.Coordinator.DecideAsync(Refused, Context(), Now);
+
+        Assert.True(Assert.Single(setup.Meter.Successes).WonDisagreement);
+    }
+
+    [Fact]
+    public async Task AnUnusableAnswer_IsRecordedAsAFailure_WithTheTokensItBilled()
+    {
+        var setup = New(_ => Completed(null, LlmStopReason.Refusal));
+
+        var decision = await setup.Coordinator.DecideAsync(Refused, Context(), Now);
+
+        Assert.Empty(setup.Meter.Successes);
+        var record = Assert.Single(setup.Meter.Failures);
+        Assert.Equal(decision.Call!.Usage, record.Usage);
+        Assert.True(record.Usage.InputTokens > 0);
+        Assert.Equal(LlmPricing.Default.Estimate(record.Usage), record.EstimatedUsd);
+    }
+
+    [Theory]
+    [InlineData(LlmFailureKind.Timeout)]
+    [InlineData(LlmFailureKind.Unavailable)]
+    public async Task ACallThatMayHaveBeenProcessed_ButReportedNoUsage_IsRecordedWithTheEstimatedInputCost(LlmFailureKind kind)
+    {
+        var setup = New(Throws(kind));
+
+        await setup.Coordinator.DecideAsync(Refused, Context(), Now);
+
+        var record = Assert.Single(setup.Meter.Failures);
+        var request = Assert.Single(setup.Client.Requests);
+        var sent = request.SystemPrompt.Length + request.ContextBlock.Length + request.UserContent.Length;
+        Assert.Equal(new LlmUsage(PromptFormat.EstimateTokens(sent), 0, 0, 0), record.Usage);
+        Assert.Equal(LlmPricing.Default.Estimate(record.Usage), record.EstimatedUsd);
+        Assert.True(record.EstimatedUsd > 0m);
+    }
+
+    [Theory]
+    [InlineData(LlmFailureKind.RateLimited)]
+    [InlineData(LlmFailureKind.Misconfigured)]
+    public async Task ACallRefusedAtTheDoor_IsRecordedAsACall_AtNoCost(LlmFailureKind kind)
+    {
+        var setup = New(Throws(kind));
+
+        await setup.Coordinator.DecideAsync(Refused, Context(), Now);
+
+        var record = Assert.Single(setup.Meter.Failures);
+        Assert.Equal((LlmUsage.None, 0m), (record.Usage, record.EstimatedUsd));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ACallThatReturned_IsRecordedEvenIfTheBudgetRanOutMeanwhile_ThenTheCancellationIsHonoured(bool succeeded)
+    {
+        using var budget = new CancellationTokenSource();
+        var setup = New(_ =>
+        {
+            budget.Cancel(); // the claim budget runs out while the provider answers: the money is spent
+            return succeeded ? Completed(Answer()) : Completed(null, LlmStopReason.Refusal);
+        });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => setup.Coordinator.DecideAsync(Refused, Context(), Now, budget.Token));
+
+        Assert.Single(succeeded ? setup.Meter.Successes : setup.Meter.Failures);
+        Assert.Equal([false], setup.Meter.RecordedWithCancelledToken);
+    }
+
+    [Fact]
+    public async Task AProbeWhoseBudgetRanOut_StillTellsTheBreakerItsOutcome()
+    {
+        using var budget = new CancellationTokenSource();
+        var calls = 0;
+        var setup = New(_ =>
+        {
+            if (++calls == 1)
+            {
+                throw new LlmCallException(LlmFailureKind.Timeout, "FakeException");
+            }
+
+            budget.Cancel();
+            return Completed(Answer());
+        }, breakerFailures: 1);
+        await setup.Coordinator.DecideAsync(Refused, Context(), Now);
+        var due = Now.AddSeconds(300);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => setup.Coordinator.DecideAsync(Refused, Context(), due, budget.Token));
+
+        Assert.Equal(BreakerState.Closed, setup.Breaker.State(due));
+    }
+
+    [Theory]
+    [InlineData(AiAdmission.AiDisabled)]
+    [InlineData(AiAdmission.TenantUsdCeiling)]
+    public async Task NoCall_RecordsNothing(AiAdmission admission)
+    {
+        var refused = New(_ => Completed(Answer()), admission: admission);
+        var unchanged = New(_ => Completed(Answer()));
+        var first = await unchanged.Coordinator.DecideAsync(Refused, Context(), Now);
+        unchanged.Meter.Successes.Clear();
+
+        await refused.Coordinator.DecideAsync(Refused, Context(), Now);
+        await unchanged.Coordinator.DecideAsync(Refused, Context(lastHash: first.SnapshotHash), Now);
+
+        Assert.Empty(refused.Meter.Successes.Concat(refused.Meter.Failures));
+        Assert.Empty(unchanged.Meter.Successes.Concat(unchanged.Meter.Failures));
+    }
 
     [Fact]
     public void ThePrice_IsPerMillionTokens_ForEachKindOfToken()

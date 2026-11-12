@@ -1,0 +1,23 @@
+@using Conversia.Application.DTOs.Admin
+@* How the manual sends ended, by outcome: "sent" or the stable code of the refusal (docs/MESSAGING.md). *@
+<div class="table-wrap" role="region" aria-label="Envíos por resultado" tabindex="0">
+    <table class="table">
+        <caption class="sr-only">Envíos manuales por resultado</caption>
+        <thead><tr><th scope="col">Resultado</th><th scope="col">Reales</th><th scope="col">Sandbox</th></tr></thead>
+        <tbody>
+            @foreach (var outcome in Outcomes)
+            {
+                <tr data-testid="outcome-row" data-outcome="@outcome.Outcome">
+                    <th scope="row">@(outcome.Outcome == "sent" ? "Enviado" : outcome.Outcome)</th>
+                    <td>@MetricsFormat.Whole(outcome.Real)</td>
+                    <td>@MetricsFormat.Whole(outcome.Sandbox)</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<SendOutcomeResponse> Outcomes { get; set; } = [];
+}

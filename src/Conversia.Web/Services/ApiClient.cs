@@ -176,6 +176,39 @@ public sealed class ApiClient : IApiClient
     public Task<ApiResult<TenantLineResponse>> DeactivateTenantLineAsync(string token, Guid id, Guid channelId, CancellationToken cancellationToken = default)
         => SendAsync<TenantLineResponse>(HttpMethod.Post, $"api/admin/tenants/{id}/channels/{channelId}/deactivate", token, body: null, isUsable: null, cancellationToken);
 
+    public Task<ApiResult<TenantSummaryResponse>> SetTenantAiEnabledAsync(string token, Guid id, SetAiEnabledRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<TenantSummaryResponse>(HttpMethod.Put, $"api/admin/tenants/{id}/ai-enabled", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<TenantSummaryResponse>> SetTenantAiQuotaAsync(string token, Guid id, SetAiQuotaRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<TenantSummaryResponse>(HttpMethod.Put, $"api/admin/tenants/{id}/ai-quota", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<TenantSummaryResponse>> SetTenantSendRateLimitAsync(string token, Guid id, SetSendRateLimitRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<TenantSummaryResponse>(HttpMethod.Put, $"api/admin/tenants/{id}/send-rate-limit", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<TenantMonitoringResponse>> GetAdminTenantMonitoringAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<TenantMonitoringResponse>(HttpMethod.Get, $"api/admin/tenants/{id}/monitoring", token, body: null, response => response.Days is not null, cancellationToken);
+
+    public Task<ApiResult<PlatformOverviewResponse>> GetAdminMonitoringAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<PlatformOverviewResponse>(HttpMethod.Get, "api/admin/monitoring", token, body: null, response => response.Flags is not null && response.Health is not null, cancellationToken);
+
+    public Task<ApiResult<PagedResponse<LineLicenseResponse>>> GetAdminLicensesAsync(string token, AdminLicensesQuery query, CancellationToken cancellationToken = default)
+        => SendAsync<PagedResponse<LineLicenseResponse>>(HttpMethod.Get, "api/admin/licenses" + AdminQueryString.Build(query), token, body: null, response => response.Items is not null, cancellationToken);
+
+    public Task<ApiResult<LineLicenseResponse>> GetAdminLicenseAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<LineLicenseResponse>(HttpMethod.Get, $"api/admin/licenses/{id}", token, body: null, response => response.Id != Guid.Empty, cancellationToken);
+
+    public Task<ApiResult<LineLicenseResponse>> CreateAdminLicenseAsync(string token, CreateLineLicenseRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<LineLicenseResponse>(HttpMethod.Post, "api/admin/licenses", token, request, response => response.Id != Guid.Empty, cancellationToken);
+
+    public Task<ApiResult<LineLicenseResponse>> AssignAdminLicenseAsync(string token, Guid id, AssignLineLicenseRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<LineLicenseResponse>(HttpMethod.Post, $"api/admin/licenses/{id}/assign", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<LineLicenseResponse>> ReleaseAdminLicenseAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<LineLicenseResponse>(HttpMethod.Post, $"api/admin/licenses/{id}/release", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<LineLicenseResponse>> RetireAdminLicenseAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<LineLicenseResponse>(HttpMethod.Post, $"api/admin/licenses/{id}/retire", token, body: null, isUsable: null, cancellationToken);
+
     public Task<ApiResult<PagedResponse<AuditEntryResponse>>> GetAdminAuditAsync(string token, AdminAuditQuery query, CancellationToken cancellationToken = default)
         => SendAsync<PagedResponse<AuditEntryResponse>>(HttpMethod.Get, "api/admin/audit" + AdminQueryString.Build(query), token, body: null, response => response.Items is not null, cancellationToken);
 

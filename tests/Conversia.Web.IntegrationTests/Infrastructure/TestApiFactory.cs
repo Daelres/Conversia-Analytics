@@ -97,6 +97,9 @@ public sealed class TestApiFactory : WebApplicationFactory<ApiHost::Program>, IA
         // Background jobs of the conversations are driven by hand in the tests that need them (their runners are called directly).
         builder.UseSetting("Conversations:AutoCloseEnabled", "false");
         builder.UseSetting("Classification:Enabled", "false");
+        builder.UseSetting("Usage:Retention:Enabled", "false");
+        builder.UseSetting("Messaging:TenantSendLimitRefresh:Enabled", "false");
+        builder.UseSetting("PlatformMonitoring:OverviewCacheSeconds", "0"); // each test reads its own state
 
         builder.ConfigureServices(services =>
         {

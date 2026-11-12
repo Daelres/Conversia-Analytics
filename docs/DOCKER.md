@@ -157,7 +157,9 @@ Compose merges the `environment` maps: the simulator overlay shortens both debou
 `PrivacyApproved=true`, `TimeoutSeconds=8`, `MaxRetries=0`. Then:
 
 1. Create a company and a line, and play conversations through the webhook with the simulator (docs/SIMULATOR.md), or turn on the company's
-   internal sandbox and start a simulated conversation from `/conversaciones/simular` (docs/SANDBOX.md).
+   internal sandbox and start a simulated conversation from `/conversaciones/simular` (docs/SANDBOX.md). **Switch the AI on for the company
+   first** (`/admin/empresas/{id}/ia/activar`, docs/PLATFORM_ADMIN.md): it is off by default and, while it is off, the rules read everything
+   and no call is made. Each call is then recorded in the company's usage (`/admin/empresas/{id}`, "Inteligencia artificial").
 2. Wait for the debounce (about 5 s) and look for the call in the API log:
    `docker compose logs api | grep "LLM classification"`. Each line carries the ids, `Sandbox`, provider, model (`replay`), status, the four
    token counters, the estimated USD (0 with replay) and the preprocessor statistics, never text.
@@ -183,6 +185,22 @@ docker compose -f docker-compose.yml -f docker-compose.simulator.yml -f docker-c
 
 Compose stops with a clear message if `ANTHROPIC_API_KEY` is empty. The overlay maps it to `Anthropic__ApiKey` and sets
 `Classification__Llm__Client=Anthropic`; the log line of each call then shows real tokens (cache reads included) and the estimated USD.
+
+## Upgrade notes
+
+### Platform limits, licences and AI usage (migration `AddPlatformLimitsLicensesAndUsage`)
+
+* **AI off by default, Development included.** Every company, existing ones too, starts with the AI switched off. The Replay and real-API
+  overlays above make no LLM call until the platform administrator switches the AI on for the company (`/admin/empresas/{id}/ia/activar`, with a
+  reason and the version of the accepted terms; docs/PLATFORM_ADMIN.md, "Upgrade notes"). Do it before testing.
+* **Index builds without blocking writes.** The migration creates `IX_WebhookEvents_ReceivedAt` and `IX_Conversations_TenantId_ClosedAt` with
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS`, each outside the migration's transaction, so webhooks and conversations keep being written while
+  they build (on a large table it can take a while; the migrator waits). The rest of the migration (new columns with defaults and new tables)
+  runs in its own transaction first. If the migrator is interrupted during a concurrent build, PostgreSQL may leave the index `INVALID`:
+  check with `SELECT c.relname, i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE c.relname IN
+  ('IX_WebhookEvents_ReceivedAt', 'IX_Conversations_TenantId_ClosedAt');`, drop an invalid one (`DROP INDEX CONCURRENTLY "<name>";`) and run the
+  migrator again. Rolling back (`dotnet ef database update AddLlmClassificationState`) drops them `CONCURRENTLY` too. Verified on a fresh
+  database, on one at the previous migration with data, and back.
 
 ## Troubleshooting
 

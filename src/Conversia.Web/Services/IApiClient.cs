@@ -144,5 +144,27 @@ public interface IApiClient
     /// <summary><c>POST /api/admin/tenants/{id}/channels/{channelId}/deactivate</c>: forces a line off. Idempotent.</summary>
     Task<ApiResult<TenantLineResponse>> DeactivateTenantLineAsync(string token, Guid id, Guid channelId, CancellationToken cancellationToken = default);
 
+    Task<ApiResult<TenantSummaryResponse>> SetTenantAiEnabledAsync(string token, Guid id, SetAiEnabledRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<TenantSummaryResponse>> SetTenantAiQuotaAsync(string token, Guid id, SetAiQuotaRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<TenantSummaryResponse>> SetTenantSendRateLimitAsync(string token, Guid id, SetSendRateLimitRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<TenantMonitoringResponse>> GetAdminTenantMonitoringAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PlatformOverviewResponse>> GetAdminMonitoringAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PagedResponse<LineLicenseResponse>>> GetAdminLicensesAsync(string token, AdminLicensesQuery query, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<LineLicenseResponse>> GetAdminLicenseAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<LineLicenseResponse>> CreateAdminLicenseAsync(string token, CreateLineLicenseRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<LineLicenseResponse>> AssignAdminLicenseAsync(string token, Guid id, AssignLineLicenseRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<LineLicenseResponse>> ReleaseAdminLicenseAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<LineLicenseResponse>> RetireAdminLicenseAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
     Task<ApiResult<PagedResponse<AuditEntryResponse>>> GetAdminAuditAsync(string token, AdminAuditQuery query, CancellationToken cancellationToken = default);
 }

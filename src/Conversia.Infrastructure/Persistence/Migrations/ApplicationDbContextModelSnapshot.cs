@@ -69,6 +69,79 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.ToTable("Advisors", (string)null);
                 });
 
+            modelBuilder.Entity("Conversia.Domain.Entities.AiUsageConversation", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("Month")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("TenantId", "Month", "ConversationId");
+
+                    b.HasIndex("Month");
+
+                    b.ToTable("AiUsageConversations", (string)null);
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.AiUsageMonth", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("Month")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("IsSandbox")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("CacheReadTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("CacheWriteTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Calls")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ConversationsAnalyzed")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("EstimatedUsd")
+                        .HasPrecision(12, 6)
+                        .HasColumnType("numeric(12,6)");
+
+                    b.Property<DateTime?>("ExhaustedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("FailedCalls")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("InputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OutputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("UsdCeilingReachedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("WonDisagreements")
+                        .HasColumnType("integer");
+
+                    b.HasKey("TenantId", "Month", "IsSandbox");
+
+                    b.HasIndex("Month");
+
+                    b.ToTable("AiUsageMonths", (string)null);
+                });
+
             modelBuilder.Entity("Conversia.Domain.Entities.Branch", b =>
                 {
                     b.Property<Guid>("Id")
@@ -306,6 +379,8 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("\"Status\" = 'Open'");
 
+                    b.HasIndex("TenantId", "ClosedAt");
+
                     b.HasIndex("TenantId", "StartedAt");
 
                     b.HasIndex("TenantId", "Status", "LastMessageAt");
@@ -445,6 +520,95 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.ToTable("ErrorLogs", (string)null);
                 });
 
+            modelBuilder.Entity("Conversia.Domain.Entities.LineLicense", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AssignedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("AssignedTenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ChannelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("CustomerOwned")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal>("MonthlyCostUsd")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("PhoneDigits")
+                        .IsRequired()
+                        .HasMaxLength(15)
+                        .HasColumnType("character varying(15)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ProviderChannelId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("ReleasedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("RetiredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PhoneDigits")
+                        .IsUnique()
+                        .HasFilter("\"Status\" <> 'Retired'");
+
+                    b.HasIndex("AssignedTenantId", "Status");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("LineLicenses", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_LineLicenses_Assignment", "(\"Status\" = 'Assigned') = (\"AssignedTenantId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_LineLicenses_CustomerOwnedCost", "NOT \"CustomerOwned\" OR \"MonthlyCostUsd\" = 0");
+
+                            t.HasCheckConstraint("CK_LineLicenses_MonthlyCostUsd", "\"MonthlyCostUsd\" BETWEEN 0 AND 10000");
+                        });
+                });
+
             modelBuilder.Entity("Conversia.Domain.Entities.Message", b =>
                 {
                     b.Property<Guid>("Id")
@@ -504,6 +668,31 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "SentAt");
 
                     b.ToTable("Messages", (string)null);
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.MessageSendOutcome", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("IsSandbox")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Outcome")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Count")
+                        .HasColumnType("integer");
+
+                    b.HasKey("TenantId", "Day", "IsSandbox", "Outcome");
+
+                    b.HasIndex("Day");
+
+                    b.ToTable("MessageSendOutcomes", (string)null);
                 });
 
             modelBuilder.Entity("Conversia.Domain.Entities.Opportunity", b =>
@@ -720,6 +909,21 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("AiEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTime?>("AiEnabledChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("AiMonthlyConversationQuota")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AiTermsVersion")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -738,6 +942,9 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
+
+                    b.Property<int?>("SendRateLimitPerMinute")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -764,7 +971,11 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.ToTable("Tenants", null, t =>
                         {
+                            t.HasCheckConstraint("CK_Tenants_AiMonthlyConversationQuota", "\"AiMonthlyConversationQuota\" IS NULL OR \"AiMonthlyConversationQuota\" BETWEEN 0 AND 1000000");
+
                             t.HasCheckConstraint("CK_Tenants_MaxActiveLines", "\"MaxActiveLines\" BETWEEN 0 AND 1000");
+
+                            t.HasCheckConstraint("CK_Tenants_SendRateLimitPerMinute", "\"SendRateLimitPerMinute\" IS NULL OR \"SendRateLimitPerMinute\" BETWEEN 1 AND 1000000");
                         });
                 });
 
@@ -917,6 +1128,8 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ReceivedAt");
+
                     b.HasIndex("ChannelId", "BodyHash")
                         .IsUnique();
 
@@ -1019,6 +1232,24 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("Conversia.Domain.Entities.AiUsageConversation", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.AiUsageMonth", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Conversia.Domain.Entities.Branch", b =>
                 {
                     b.HasOne("Conversia.Domain.Entities.Tenant", null)
@@ -1087,6 +1318,15 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.MessageSendOutcome", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

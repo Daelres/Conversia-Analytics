@@ -40,6 +40,100 @@ public class Tenant : BaseEntity
     /// </summary>
     public bool SandboxMode { get; private set; }
 
+    public const int AiTermsVersionMaxLength = 50;
+
+    public const int AiChangeReasonMaxLength = 200;
+
+    public const int MaxAiMonthlyConversationQuota = 1_000_000;
+
+    public const int MaxSendRateLimitPerMinute = 1_000_000;
+
+    public static readonly string AiTermsVersionRuleMessage =
+        $"La versión de los términos aceptados {TextRules.RuleText(AiTermsVersionMaxLength)}. Es obligatoria para activar la IA.";
+
+    public static readonly string AiChangeReasonRuleMessage = $"El motivo {TextRules.RuleText(AiChangeReasonMaxLength)}.";
+
+    public static readonly string AiQuotaRuleMessage =
+        $"El cupo mensual de conversaciones analizadas con IA debe ser un número entero entre 0 y {MaxAiMonthlyConversationQuota}, o vacío para usar el valor por defecto.";
+
+    public static readonly string SendRateLimitRuleMessage = SendRateLimitRuleMessageFor(MaxSendRateLimitPerMinute);
+
+    /// <summary>
+    /// Whether the conversations of the company may be read by the LLM (docs/CLASSIFICATION.md). Off by default; only the platform
+    /// administrator switches it, with a reason and the version of the terms the company accepted (both audited).
+    /// </summary>
+    public bool AiEnabled { get; private set; }
+
+    /// <summary>The version of the AI terms the company accepted when the AI was last switched on. Kept when it is switched off (evidence).</summary>
+    public string? AiTermsVersion { get; private set; }
+
+    public DateTime? AiEnabledChangedAt { get; private set; }
+
+    /// <summary>Distinct conversations the LLM may analyse per month (America/Bogota). Null: the deployment default.</summary>
+    public int? AiMonthlyConversationQuota { get; private set; }
+
+    /// <summary>Messages the company's users may send per minute, all together. Null: the deployment default (<c>Messaging:TenantSendRateLimitPerMinute</c>).</summary>
+    public int? SendRateLimitPerMinute { get; private set; }
+
+    /// <summary>
+    /// Switches the AI on or off. Returns false, and changes nothing, when it already was that way. Switching on needs the terms version
+    /// (validated before anything is assigned); switching off keeps the last version accepted.
+    /// </summary>
+    public bool SetAiEnabled(bool enabled, string? termsVersion, DateTime now)
+    {
+        var terms = enabled ? TextRules.Required(termsVersion, AiTermsVersionMaxLength, AiTermsVersionRuleMessage) : null;
+        // The same state is a no-op, except new terms accepted while the AI is on: that is consent evidence too.
+        if (AiEnabled == enabled && (!enabled || string.Equals(terms, AiTermsVersion, StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        var at = UtcTime.Normalize(now);
+        AiEnabled = enabled;
+        AiEnabledChangedAt = at;
+        if (enabled)
+        {
+            AiTermsVersion = terms;
+        }
+
+        return true;
+    }
+
+    public void SetAiMonthlyConversationQuota(int? quota)
+    {
+        if (quota is < 0 or > MaxAiMonthlyConversationQuota)
+        {
+            throw new DomainException(AiQuotaRuleMessage);
+        }
+
+        AiMonthlyConversationQuota = quota;
+    }
+
+    /// <summary>The rule with the deployment's maximum (<c>Messaging:TenantSendRateLimitMaxPerMinute</c>).</summary>
+    public static string SendRateLimitRuleMessageFor(int maxPerMinute)
+        => $"El límite de envíos por minuto debe ser un número entero entre 1 y {maxPerMinute}, o vacío para usar el valor por defecto.";
+
+    /// <summary>
+    /// Sets the company's own send limit (null: the default). <paramref name="maxPerMinute"/> is the deployment's maximum, itself never above
+    /// <see cref="MaxSendRateLimitPerMinute"/>: an administrator cannot give one company the whole provider budget by mistake.
+    /// </summary>
+    public void SetSendRateLimitPerMinute(int? limit, int maxPerMinute)
+    {
+        var max = Math.Min(maxPerMinute, MaxSendRateLimitPerMinute);
+        if (limit is { } value && (value < 1 || value > max))
+        {
+            throw new DomainException(SendRateLimitRuleMessageFor(max));
+        }
+
+        SendRateLimitPerMinute = limit;
+    }
+
+    /// <summary>The reason an administrator gives for changing a company's limit (AI quota, send limit): required, like the AI switch's.</summary>
+    public static string LimitChangeReason(string? reason) => TextRules.Required(reason, AiChangeReasonMaxLength, AiChangeReasonRuleMessage);
+
+    /// <summary>The reason an administrator gives for switching the AI: required, trimmed, at most <see cref="AiChangeReasonMaxLength"/> characters.</summary>
+    public static string AiChangeReason(string? reason) => TextRules.Required(reason, AiChangeReasonMaxLength, AiChangeReasonRuleMessage);
+
     // Required by EF Core for materialization.
     private Tenant()
     {

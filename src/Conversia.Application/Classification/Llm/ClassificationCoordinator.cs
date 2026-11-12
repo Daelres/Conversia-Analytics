@@ -49,13 +49,15 @@ public sealed record ClassificationDecision(
 /// <list type="number">
 /// <item>The rules read the REAL snapshot, always: they are the fallback and the Won guard's reference.</item>
 /// <item>A sandbox conversation goes to the plain rules unless <see cref="LlmCoordinatorSettings.IncludeSandbox"/>.</item>
-/// <item>Tenant admission (<see cref="IAiUsageMeter"/>; Stage A admits everyone): not admitted = the rules, flag cleared, LLM-sourced fields protected.</item>
+/// <item>Tenant admission (<see cref="IAiUsageMeter"/>: the AI switch, the deployment cap, the company's quota and USD ceiling): not admitted =
+/// the rules, flag cleared, LLM-sourced fields protected.</item>
 /// <item>Call reduction: no customer text after preprocessing = the plain rules, no call; the same snapshot hash as the applied LLM
 /// reading = <see cref="ClassificationCompletion.Unchanged"/>, no call (nothing the model reads changed).</item>
 /// <item>The breaker: open = the rules, uncounted, deferred to about the reopen time plus jitter; half-open with a probe in flight =
 /// deferred <see cref="LlmCoordinatorSettings.ProbeDeferral"/>.</item>
 /// <item>One call. Transport failure: rules, uncounted, retried after the retry delay, fed to the breaker. Content failure: rules, counted.
-/// Success: the <see cref="WonGuard"/> over the rules reading, then the LLM reading.</item>
+/// Success: the <see cref="WonGuard"/> over the rules reading, then the LLM reading. Every call is recorded by the meter (success or
+/// failure, tokens and estimated cost) before the decision is returned.</item>
 /// </list>
 /// </summary>
 public sealed class ClassificationCoordinator
@@ -108,7 +110,7 @@ public sealed class ClassificationCoordinator
             return Plain(rules, RealClientSandboxOnly, now);
         }
 
-        var admission = await _meter.CheckAdmissionAsync(context.TenantId, cancellationToken);
+        var admission = await _meter.CheckAdmissionAsync(context.TenantId, context.IsSandbox, cancellationToken);
         if (admission != AiAdmission.Allowed)
         {
             return new ClassificationDecision(
@@ -152,27 +154,58 @@ public sealed class ClassificationCoordinator
             // The breaker gets the time the call ENDED: a call that took the whole timeout must not shorten the cooldown.
             var ended = DatabasePrecision(_time.GetUtcNow().UtcDateTime);
             var report = Report(attempt, prepared, StatusOf(kind), null);
+            var billed = BilledUsage(kind, attempt.Usage, prepared);
+            // The call reached the provider: its cost is recorded whatever happened to the caller's budget meanwhile, and the breaker learns
+            // the outcome; only then is the caller's cancellation honoured.
+            await _meter.RecordFailureAsync(
+                new AiUsageRecord(context.TenantId, context.ConversationId, context.IsSandbox, billed, _settings.Pricing.Estimate(billed)), CancellationToken.None);
+            ClassificationDecision failed;
             if (kind == LlmFailureKind.Misconfigured)
             {
                 _breaker.RecordMisconfiguration(ticket, ended, attempt.Error ?? "misconfigured");
-                return Fallback(rules, "misconfigured", kind, countAsLlmFailure: false, now, report);
+                failed = Fallback(rules, "misconfigured", kind, countAsLlmFailure: false, now, report);
             }
-
-            if (kind.IsTransport())
+            else if (kind.IsTransport())
             {
                 _breaker.RecordTransportFailure(ticket, ended);
-                return Fallback(rules, "transport_failure", kind, countAsLlmFailure: false, now, report);
+                failed = Fallback(rules, "transport_failure", kind, countAsLlmFailure: false, now, report);
+            }
+            else
+            {
+                // An unusable answer says nothing about the transport: it neither resets nor feeds the breaker.
+                _breaker.Abandon(ticket);
+                failed = Fallback(rules, "content_failure", kind, countAsLlmFailure: true, now, report);
             }
 
-            // An unusable answer says nothing about the transport: it neither resets nor feeds the breaker.
-            _breaker.Abandon(ticket);
-            return Fallback(rules, "content_failure", kind, countAsLlmFailure: true, now, report);
+            cancellationToken.ThrowIfCancellationRequested();
+            return failed;
         }
 
         _breaker.RecordSuccess(ticket);
         var guarded = WonGuard.Apply(attempt.Result!, rules);
-        return new ClassificationDecision(
-            ClassificationCompletion.Llm, guarded.Result, "llm", prepared.SnapshotHash, null, false, now, Report(attempt, prepared, "succeeded", guarded));
+        var succeeded = Report(attempt, prepared, "succeeded", guarded);
+        await _meter.RecordSuccessAsync(
+            new AiUsageRecord(context.TenantId, context.ConversationId, context.IsSandbox, attempt.Usage, succeeded.EstimatedUsd, guarded.WonDisagreement),
+            CancellationToken.None);
+        cancellationToken.ThrowIfCancellationRequested();
+        return new ClassificationDecision(ClassificationCompletion.Llm, guarded.Result, "llm", prepared.SnapshotHash, null, false, now, succeeded);
+    }
+
+    /// <summary>
+    /// What a failed call may have cost (design D13): the usage the provider reported; when it reported none for a call that reached it and may
+    /// have been processed (a timeout, a 5xx or a dropped connection), the estimated input of the prompt sent; a call refused at the door (429,
+    /// 401/403/404) costs nothing.
+    /// </summary>
+    private static LlmUsage BilledUsage(LlmFailureKind kind, LlmUsage reported, PreparedLlmCall prepared)
+    {
+        if (reported != LlmUsage.None || kind is not (LlmFailureKind.Timeout or LlmFailureKind.Unavailable))
+        {
+            return reported;
+        }
+
+        var prompt = prepared.Prompt;
+        var characters = prompt.SystemPrompt.Length + prompt.ContextBlock.Length + prompt.UserContent.Length;
+        return new LlmUsage(PromptFormat.EstimateTokens(characters), 0, 0, 0);
     }
 
     private static ClassificationDecision Plain(ClassificationResult rules, string reason, DateTime now)

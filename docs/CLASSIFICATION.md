@@ -287,8 +287,8 @@ the snapshot hash (`SnapshotHasher`): changing either invalidates the reuse of s
 
 `Classification:Provider=Llm` reads conversations with Claude Haiku 5.5 (`claude-haiku-5-5`) through the official Anthropic C# SDK, with the
 rules as fallback and as the Won guard. **Stage A: Development only.** The API refuses `Llm` in any other environment until the release gate
-of the design is lifted (the hardening slice, the golden-set evaluation, the per-tenant switch and quota with their screens, the privacy
-entry). `Shadow` (rules and LLM side by side) is not available yet.
+of the design is lifted (the hardening slice, the golden-set evaluation, the company's own usage screen, the privacy entry; the per-company
+switch, quota and caps and their administrator screens exist, see "Usage and quota"). `Shadow` (rules and LLM side by side) is not available yet.
 
 ### End to end
 
@@ -300,12 +300,13 @@ worker claims a conversation (FOR UPDATE SKIP LOCKED, after Classification:Llm:D
             2. sandbox conversation and IncludeSandbox=false ............ plain rules, no call
                real client and a NON-sandbox conversation, unless
                AllowRealClientNonSandbox=true ............................ plain rules, no call (Information line with ids)
-            3. tenant admission (Stage A: NullAiUsageMeter admits everyone) . not admitted: rules, fallback protection, cleared
+            3. tenant admission (AiUsageMeter: switch, cap, quota, ceiling) . not admitted: rules, fallback protection, cleared
             4. Pseudonymizer -> ConversationPreprocessor -> LlmPromptBuilder
                no customer line left ..................................... plain rules, no call
                snapshot hash == Conversation.LastLlmSnapshotHash .......... nothing changed: no call, stored reading kept
             5. circuit breaker open / probe in flight .................... rules (fallback), deferred, no call
             6. ONE call (ILlmClient, <= 8 s, no retry) -> LlmResultMapper (strict) -> WonGuard
+               the call's usage is recorded at once (own scope and transaction): success or failure, tokens, estimated USD
   └─ apply to the opportunity + complete the conversation (+ profile marked PENDING on it), commit (still the claim transaction)
   └─ log line of the call, with the claim-transaction duration (Warning above ClaimWarningMilliseconds)
   └─ AFTER the commit: contact profile (age range, gender) in its own short transaction, Contact row only; then the pending marker cleared
@@ -411,6 +412,65 @@ Read only with `Classification:Provider=Llm`; every value is validated at startu
 | `Classification:Llm:ReplayPath` | *(none)* | file | Canned answers of the replay client: `{"responses": {"<snapshot hash>": {<answer>}}}`. Checked at startup. |
 | `Classification:Llm:Pricing:InputPerMTok` / `OutputPerMTok` / `CacheReadPerMTok` / `CacheWritePerMTok` | `0.10` / `0.50` / `0.01` / `0.125` | 0 to 1000 | USD per million tokens for `EstimatedUsd` (Haiku 5.5 up to 100K-token prompts). An estimate: check the price page before budgeting. |
 | `Classification:Llm:Preprocessing:*` | see above | see above | The preprocessor. |
+
+The quota keys are read **whatever the provider** (the administrator sees each company's effective quota):
+
+| Key | Default | Range | Meaning |
+|---|---|---|---|
+| `Classification:Quota:DefaultMonthlyConversations` | `500` | 0 to 1,000,000 | The monthly quota of a company without its own. |
+| `Classification:Quota:TenantMonthlyUsdPerQuotaUnit` | `0.02` | 0 to 100 | The company's USD ceiling per conversation of its quota (500 = 10 USD). |
+| `Classification:Quota:DeploymentMonthlyUsdCap` | `20` | 0 to 1,000,000 | The deployment's monthly USD cap, sandbox included. 0 = no LLM at all. |
+| `Classification:Quota:TimeZone` | `America/Bogota` | IANA id | The zone of the month. |
+| `Classification:Quota:SandboxMonthlyUsdPerCompany` | `2` | 0 to 10,000 | The most a company's sandbox conversations may spend a month. |
+
+### Usage and quota
+
+Every call to the model is **recorded**, not only logged (`AiUsageMeter`, design D12, D13, D18), and every company is **admitted** before a call:
+
+1. **The switch.** `Tenant.AiEnabled` is **off by default**; only the platform administrator turns it on, with a reason and the version of the
+   AI terms the company accepted (audited as `tenant.ai_enabled_changed`, docs/PLATFORM_ADMIN.md, "Limits"). Off = the rules read everything
+   (a normal state, nothing counted). This applies in Development too: to try the LLM locally, switch the AI on for the company first.
+2. **The deployment cap.** When the estimated USD of every company this month (sandbox included: it is real money with the real client)
+   reaches `Classification:Quota:DeploymentMonthlyUsdCap`, every company is read by the rules until the month ends (one Warning per month and
+   instance).
+3. **The company's quota and ceiling** (real conversations only). The quota is distinct conversations analysed successfully in the month
+   (`Tenant.AiMonthlyConversationQuota`, default `Classification:Quota:DefaultMonthlyConversations`; 0 = none); the ceiling is the quota
+   times `Classification:Quota:TenantMonthlyUsdPerQuotaUnit`. Reaching either = rules only until the month ends (the moment is kept and
+   logged once).
+
+The **month** is the America/Bogota month (`Classification:Quota:TimeZone`) at the moment of the increment: a call admitted at 23:59:58 on 31
+October that succeeds at 00:00:02 on 1 November counts in November.
+
+**What is recorded** (`AiUsageMonths`, one row per company, month and sandbox flag; never text):
+
+| Event | Conversations analysed | Calls | Failed calls | Tokens and USD |
+|---|---|---|---|---|
+| Usable answer | +1 the first time the conversation is read that month (`AiUsageConversations` keeps the distinct set) | +1 | | the provider's usage and its estimated cost |
+| Unusable answer (refused, truncated, invalid) | | +1 | +1 | the usage it billed |
+| Timeout or 5xx without usage | | +1 | +1 | the **estimated input** of the prompt sent (characters / 3), since it may have been processed |
+| 429 or 401/403/404 | | +1 | +1 | 0 (refused at the door) |
+| Not admitted, unchanged hash, no customer text, breaker open | nothing (no call) | | | |
+
+The record runs in a scope and a short transaction of its own (the month row is created if missing and locked, the conversation inserted
+`ON CONFLICT DO NOTHING`, the counters incremented), so a rollback of the classification never loses it, concurrent calls never lose an
+increment, and a failure to record is logged (ids, tokens, USD) without stopping the classification. **Sandbox usage** (docs/SANDBOX.md) is
+recorded in its own row (`IsSandbox`): it never counts against the company's quota or ceiling, but it has its own per-company bound
+(`Classification:Quota:SandboxMonthlyUsdPerCompany`, reached = `SandboxUsdCeiling`, the rules read the sandbox until the month ends) and it
+counts against the deployment cap.
+
+**Never lost silently.** Once the provider answered, the cost exists: the record is written whatever happened to the classification's budget
+(it has its own 3-second limit, then the classification honours its cancellation), and the circuit breaker is told the outcome first. A record
+that cannot be written is logged at Error with event id 4101 `AiUsageNotRecorded` (ids, tokens and USD, never text; alert on it) and counted
+in the administrator's overview (`ai_usage_lost`); the classification goes on.
+
+**Retention.** The month rows stay (they are the evidence of what was spent). The distinct conversation sets are kept for the current and
+the previous month only (purged every 6 hours). A future suppression of a contact must also delete its conversation ids from them
+(docs/decisiones.md).
+
+**Known limits.** Admission is a read without a reservation: with N instances (and, after the hardening slice, N workers), a company can go
+over its quota by the calls in flight, and the deployment over its cap by those calls' cost (design D12). `NullAiUsageMeter` (admits every
+company, records nothing) remains only for unit tests and the hand-built coordinators of the Stage A integration tests. The tenant's own
+usage page (`GET /api/tenant/ai-usage`) is not built yet; the administrator sees each company's usage (docs/PLATFORM_ADMIN.md, "Monitoring").
 
 ### Running it locally
 

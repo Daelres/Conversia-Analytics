@@ -4,6 +4,7 @@ using Conversia.Application.Classification;
 using Conversia.Application.Classification.Llm;
 using Conversia.Infrastructure.Classification;
 using Conversia.Infrastructure.Classification.Llm;
+using Conversia.Infrastructure.Classification.Usage;
 using Conversia.Infrastructure.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -24,6 +25,11 @@ public static partial class ClassificationServiceCollectionExtensions
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(options);
+
+        // The AI quota settings are read whatever the provider: the administrator sees each company's effective quota (docs/PLATFORM_ADMIN.md).
+        services.AddSingleton(PlatformAdministrationServiceCollectionExtensions.GetValidatedQuota(configuration));
+        services.AddSingleton<AiUsageMeter>(); // also the purge of the distinct conversation sets (UsageRetentionService)
+        services.AddSingleton<IAiUsageLossCounter>(sp => sp.GetRequiredService<AiUsageMeter>());
 
         // The rules classifier is always there: it is the Rules provider, the LLM's fallback and the Won guard's reference.
         services.AddSingleton(_ => new RuleBasedConversationClassifier(rules));
@@ -64,7 +70,8 @@ public static partial class ClassificationServiceCollectionExtensions
                 rules.Fingerprint(), llm.HashKey)));
         services.AddSingleton(sp => new LlmCircuitBreaker(
             llm.BreakerFailures, TimeSpan.FromSeconds(llm.BreakerCooldownSeconds), sp.GetRequiredService<ILoggerFactory>().CreateLogger<LlmCircuitBreaker>()));
-        services.TryAddSingleton<IAiUsageMeter>(NullAiUsageMeter.Instance);
+        // The metered admission and usage record (design D12, D13, D18): every company starts with the AI off until the administrator switches it on.
+        services.TryAddSingleton<IAiUsageMeter>(sp => sp.GetRequiredService<AiUsageMeter>());
         services.AddSingleton(sp => new ClassificationCoordinator(
             sp.GetRequiredService<RuleBasedConversationClassifier>(),
             sp.GetRequiredService<LlmConversationClassifier>(),

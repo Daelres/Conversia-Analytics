@@ -8,7 +8,7 @@ and sets how many lines it may have switched on, according to its commercial agr
 | Role | Belongs to | Signs in at | Can |
 |---|---|---|---|
 | Company user (owner or member) | one company | `POST /api/auth/login` | Everything its permissions allow **inside its company**, while the company is Active. |
-| Platform administrator | no company | `POST /api/admin/auth/login` | List companies, read their business summary, change their status, set their line quota, switch a line off, read the audit trail. **Nothing else**: no conversations, messages, contacts, metrics or users. |
+| Platform administrator | no company | `POST /api/admin/auth/login` | List companies, read their business summary, change their status, set their limits (lines, AI, sends), switch a line off, manage the 360dialog line licence inventory, monitor the service with counts only, read the audit trail. **Nothing else**: no conversations, messages, contacts, a company's metrics or users. |
 
 The two never cross: each has its own token audience and signing key, and a token of one kind is a `401` on the endpoints of the other (see
 [Security model](#security-model)).
@@ -51,6 +51,101 @@ channels)`: 4 because the pilot customer has four branches, and never below what
   active lines under that lock, so parallel activations (and a quota change at the same moment) can never leave more active lines than the quota.
   The lock is per company; it does not slow other companies.
 
+## Limits
+
+Each company has its limits; every one has a deployment default, and the administrator can give a company its own value (and take it back).
+The company detail (`GET /api/admin/tenants/{id}`) returns them as they apply now in `limits`: each effective value and whether it is the
+default.
+
+| Limit | Default | Company value | Where it is enforced |
+|---|---|---|---|
+| Active lines (`maxActiveLines`) | 0 at registration | 0 to 1000 (`PUT .../line-quota`) | Switching a line on (above). |
+| AI switch (`aiEnabled`) | **off** | on/off with a reason; switching on needs the version of the AI terms the company accepted (`PUT .../ai-enabled`). New terms while it is on are a change too (audited with the previous version); the same terms again write nothing | The classifier's admission (docs/CLASSIFICATION.md, "Usage and quota"). |
+| AI monthly quota (`aiMonthlyConversationQuota`) | `Classification:Quota:DefaultMonthlyConversations` (500) | 0 to 1,000,000 distinct conversations a month (America/Bogota); `null` = default; a reason is required (`PUT .../ai-quota`) | The same admission. The company's USD ceiling is the quota times `Classification:Quota:TenantMonthlyUsdPerQuotaUnit` (0.02: 500 = 10 USD). |
+| Sends per minute (`sendRateLimitPerMinute`) | `Messaging:TenantSendRateLimitPerMinute` (120) | 1 to `Messaging:TenantSendRateLimitMaxPerMinute` (default 10 times the deployment limit, 1,200; at most 1,000,000), all its users together; `null` = default; a reason is required (`PUT .../send-rate-limit`) | The company send limiter (docs/MESSAGING.md). The instance that saved it applies it on the next send; every other instance reloads the company values every 30 s. A new value starts a fresh one-minute window. |
+
+A company's **sandbox** conversations (docs/SANDBOX.md) are outside its quota and ceiling but have their own bound,
+`Classification:Quota:SandboxMonthlyUsdPerCompany` (2 USD a month by default): one company's tests cannot spend the deployment cap.
+
+The deployment's monthly AI cap (`Classification:Quota:DeploymentMonthlyUsdCap`, 20 USD) is not per company: when every company's estimated
+USD of the month (sandbox included) reaches it, every company is read by the rules until the month ends.
+
+## Line licences
+
+The platform keeps an **inventory of 360dialog line licences**: one per number contracted with the provider, with what it costs per month (for
+reporting, not a bill). Who owns the numbers is not decided yet, so the model works both ways: a licence Conversia resells has its cost; one
+the customer owns (it pays 360dialog itself) is marked `customerOwned` with cost 0.
+
+```
+create ──> Available ──(assign to a company)──> Assigned ──(release)──> Available ──(retire)──> Retired
+```
+
+* Only the administrator creates, assigns, releases and retires licences; every change is audited (`license.created`, `license.assigned`,
+  `license.released`, `license.retired`). A licence must be released before it is retired; one number has at most one live licence (a
+  retired one is history, and the number can be licensed again).
+* **The number is masked**: after creation the API, the Web and the audit trail show only its last 4 digits (`•••• 1234`). The full digits are
+  stored (they are what matches the company's line) and never leave the API.
+* **Linking**: a licence assigned to a company is linked to the company's line with the same number (same digits, or the same 360dialog id)
+  when the administrator assigns it (if the company already registered the number), when the company registers it, or when the company
+  switches it on. One licence backs one line that is on.
+* **The switch `Licensing:RequireAssignedLicense`** (default `false`):
+  * `false` (today's deployments): lines work exactly as before; licences are linked only for reporting and releasing one leaves its line as
+    it is.
+  * `true`: a company can switch a line on only if a licence assigned to it matches that number and is not backing another line that is on
+    (`409` `license_required`: "Esta línea no tiene una licencia de 360dialog asignada a tu empresa..."). Releasing a licence switches its
+    linked line off in the same transaction (the audit entry says `lineDeactivated: true`). Lines already on when the switch is turned on
+    keep working until someone switches them off: assign their licences first.
+* Assigning and releasing lock the company's row like every change to its lines, so they never interleave with a line being switched on; the
+  licence row also carries a concurrency token, so two administrators changing the same licence at once get one success and one `409`
+  `concurrent_change`.
+
+## Monitoring
+
+`GET /api/admin/monitoring` (platform) and `GET /api/admin/tenants/{id}/monitoring` (one company) say how the service runs **with counts only**:
+no message text, no number, no contact, no conversation, no webhook payload, no error message. `/admin/monitoreo` and the company page show
+them.
+
+| Section | Platform | One company |
+|---|---|---|
+| Health | The `/health` checks of the instance that answered (name and status). | |
+| Backlog | Pending webhook deliveries and the oldest one's wait; conversations waiting for classification, the oldest wait, and the ones stopped after repeated failures (Active companies only). | The same, for the company. |
+| Deliveries | Last 24 hours and 7 days: deliveries, messages stored, duplicates, skipped, failed deliveries. **Real and sandbox apart.** | The same, plus the last real delivery. |
+| AI | This month: conversations analysed, calls, failed calls, tokens, estimated USD, real and sandbox apart; the deployment USD against its cap; the provider and the circuit breaker **of the instance that answered** (it is per process; its transitions are also logged as Warnings). | The company's state (`Disabled`, `Ok`, `Warning` at 80 %, `Exhausted`), its quota and ceiling, this month real and sandbox, the last three months. |
+| Errors | Errors of the last 24 hours and the 10 most frequent fingerprints (count and last time). | The company's. |
+| Sends | Manual sends of the last 7 days by outcome (`sent` or the problem code, docs/MESSAGING.md), real and sandbox. | The company's. |
+| Days | | Last 14 days (America/Bogota): messages in and out, conversations opened and closed, real and sandbox apart. |
+| Lines | | Active lines against the quota, assigned licences, the last real activity. |
+
+### Threshold flags
+
+The overview raises a flag (with a Spanish message and its numbers) when a threshold is reached. No email or notification is sent: the
+administrator looks at `/admin/monitoreo`. Thresholds are configuration (`PlatformMonitoring:*`, validated at startup):
+
+| Flag | Raised when | Key (default) |
+|---|---|---|
+| `health` | A health check is Degraded (warning) or Unhealthy (critical). | |
+| `webhook_backlog` | Pending deliveries reach the threshold. | `WebhookBacklog` (500) |
+| `webhook_backlog_age` | The oldest pending delivery waits this many minutes. | `WebhookOldestPendingMinutes` (10) |
+| `classification_backlog` | Waiting classifications reach the threshold. | `ClassificationBacklog` (500) |
+| `classification_backlog_age` | The oldest waits this many minutes. | `ClassificationOldestMinutes` (60) |
+| `classification_stopped` | Any conversation stopped after repeated failures (critical). | |
+| `failed_deliveries` | Failed real deliveries of the last 24 hours reach this percentage, with at least `MinDeliveriesForRate` deliveries (critical). | `FailedDeliveryRatePercent` (5), `MinDeliveriesForRate` (20) |
+| `errors` | Errors of the last 24 hours reach the threshold. | `ErrorsLast24h` (20) |
+| `send_failures` | Real sends of the last 7 days that did not go out reach this percentage, with at least `MinSendsForRate` sends. | `SendFailureRatePercent` (20), `MinSendsForRate` (10) |
+| `silent_companies` | An Active company, out of sandbox mode, with real lines on, had no real delivery for this many hours. | `SilentLineHours` (24) |
+| `ai_limited_companies` | A company with the AI on used up its quota or its USD ceiling this month. | |
+| `ai_deployment_cap` | The deployment's monthly AI cap is reached (critical). | |
+| `ai_usage_lost` | The answering instance could not write a usage record since it started (critical): the cost is only in its log, event id 4101 `AiUsageNotRecorded` (Error). Alert on that event. | |
+| `llm_breaker_open` | The LLM circuit breaker of the answering instance is open or probing. | |
+
+Every monitoring statement runs with a 10-second command timeout, and each list (silent companies, companies with the AI used up, errors)
+is one statement that also returns its total. The platform overview is cached in each API process for `PlatformMonitoring:OverviewCacheSeconds`
+(20 s by default, 0 to 300; 0 turns it off): it is the same for every administrator and holds nothing of a single company. A company's view is
+never cached.
+
+The send counters (`MessageSendOutcomes`, one row per company, day, sandbox flag and outcome) are kept 90 days; the overview lists at most 20
+companies per list (the totals are exact). Every list is one grouped query, whatever the number of companies.
+
 ## Endpoints
 
 All under `/api/admin`, policy `PlatformAdmin`, Spanish `application/problem+json` errors, an unknown id is always the same `404`
@@ -60,11 +155,22 @@ All under `/api/admin`, policy `PlatformAdmin`, Spanish `application/problem+jso
 |---|---|---|
 | POST | `/api/admin/auth/login` | `{email, password}` to `{token, adminId, expiresAt}`. Anonymous, rate limited. Wrong email, wrong password and a deactivated administrator are the **same** `401`. |
 | GET | `/api/admin/tenants` | Query `status` (`Pending`/`Active`/`Suspended`), `search` (part of the name, case-insensitive), `page`, `pageSize`. Items: `id, name, status, maxActiveLines, activeLines, registeredLines, ownerEmail, registeredAt, lastActivityAt` (time of the latest real message, null if none: sandbox messages are not activity, [SANDBOX.md](SANDBOX.md)), `statusChangedAt, statusReason, sandboxMode`. |
-| GET | `/api/admin/tenants/{id}` | The same plus `lines` (`channelId, displayPhoneNumber, branchName, isActive`: business facts only, no webhook key) and the last 10 `recentAudit` entries. |
+| GET | `/api/admin/tenants/{id}` | The same plus `lines` (`channelId, displayPhoneNumber, branchName, isActive`: business facts only, no webhook key), the last 10 `recentAudit` entries, `limits` (see [Limits](#limits)) and the assigned `licenses` (masked). The listing also carries `aiEnabled`. |
 | PUT | `/api/admin/tenants/{id}/status` | `{status, reason?}` (reason up to 500 characters). `409` for an invalid transition. |
 | PUT | `/api/admin/tenants/{id}/line-quota` | `{maxActiveLines}` (0 to 1000). `409` below the active lines. |
 | PUT | `/api/admin/tenants/{id}/sandbox-mode` | `{enabled, reason}` (reason **required**, 1 to 200 characters). Switches the internal sandbox of the company on or off ([SANDBOX.md](SANDBOX.md)). Idempotent: the value it already has writes nothing. |
+| PUT | `/api/admin/tenants/{id}/ai-enabled` | `{enabled, reason, termsVersion}`: reason required (1 to 200 characters); `termsVersion` required to switch on (up to 50). Idempotent. |
+| PUT | `/api/admin/tenants/{id}/ai-quota` | `{monthlyConversations, reason}` (0 to 1,000,000, or `null` for the default; reason 1 to 200 characters). |
+| PUT | `/api/admin/tenants/{id}/send-rate-limit` | `{perMinute, reason}` (1 to `Messaging:TenantSendRateLimitMaxPerMinute`, or `null` for the default; reason 1 to 200 characters). Above the maximum: `400` naming it. |
+| GET | `/api/admin/tenants/{id}/monitoring` | The company's counts (see [Monitoring](#monitoring)). |
 | POST | `/api/admin/tenants/{id}/channels/{channelId}/deactivate` | Forces a line off. Idempotent. A channel of another company is `404`. |
+| GET | `/api/admin/monitoring` | The platform overview and its flags. |
+| GET | `/api/admin/licenses` | Query `status` (`Available`/`Assigned`/`Retired`), `tenantId`, `page`, `pageSize`. Numbers masked. |
+| GET | `/api/admin/licenses/{id}` | One licence (`404` "Licencia no encontrada."). |
+| POST | `/api/admin/licenses` | `{phoneNumber, providerChannelId?, monthlyCostUsd, customerOwned, notes?}` to `201`. `409` `license_duplicate` for a number that has a live licence. |
+| POST | `/api/admin/licenses/{id}/assign` | `{tenantId}`. `409` `license_not_available` unless Available. |
+| POST | `/api/admin/licenses/{id}/release` | `409` `license_not_assigned` unless Assigned. With `RequireAssignedLicense`, switches the linked line off. |
+| POST | `/api/admin/licenses/{id}/retire` | `409` `license_assigned` while Assigned. |
 | GET | `/api/admin/audit` | Query `tenantId?`, `page`, `pageSize`. Newest first. |
 
 For the companies' side: `GET /api/tenant` (any signed-in user, allowed in every status) returns `name, status, maxActiveLines, activeLines, registeredLines, sandboxMode`.
@@ -79,7 +185,10 @@ The `403` of a company that is not Active carries the stable machine code (`"cod
 
 Every change writes a row to `PlatformAuditLogs`: the administrator's id, an action code, the company, a small JSON of the old and new values and
 the time. Actions: `tenant.status_changed` (`from`, `to`, `reason`), `tenant.quota_changed` (`from`, `to`), `tenant.sandbox_mode_changed` (`from`, `to`, `reason`), `channel.deactivated`
-(`channelId`, `displayPhoneNumber`). Refused changes and no-ops (same quota, line already off) write nothing. Rows hold ids, statuses, numbers and
+(`channelId`, `displayPhoneNumber`), `tenant.ai_enabled_changed` (`from`, `to`, `reason`, `termsVersion`: the evidence of the company's consent),
+`tenant.ai_quota_changed` and `tenant.send_rate_limit_changed` (`from`, `to`, `reason`; `null` = default), the AI switch also with `previousTermsVersion`, `license.created` (`licenseId`, `number` masked,
+`customerOwned`, `monthlyCostUsd`), `license.assigned` (`licenseId`, `number`, `channelId`), `license.released` (`licenseId`, `number`, `channelId`,
+`lineDeactivated`) and `license.retired` (`licenseId`, `number`). Refused changes and no-ops (same quota, line already off) write nothing. Rows hold ids, statuses, numbers and
 the reason the administrator typed: never a secret, a message or customer data. There is no foreign key on the company, so the trail survives it.
 
 **Personal data and retention.** The reason is free text, so it is the one place a person could type something personal. The status form says so
@@ -96,6 +205,24 @@ change it. Each change needs a reason and is audited. What the mode does, its da
 
 The administrator still sees **no** conversation, message, contact or metric of the company, sandbox or real: the switch and the audit
 entry are all there is on this side.
+
+### Numbers: in full on a company's lines, masked in the licence inventory
+
+The company detail shows each of its **lines** with the full number (`displayPhoneNumber`), as it did before this feature: it is the company's
+own business number, the administrator needs it to talk to the company and to 360dialog about that line, and it is the number the company
+itself registered. The **licence inventory** masks the number to its last 4 digits everywhere (API, Web, audit): a licence can sit unassigned
+in the inventory, can be assigned to any company and outlives it, so the full number is kept only where it is needed (to match a line) and the
+lists and the audit trail never repeat it.
+
+## Upgrade notes
+
+* **AI off by default.** With this version every company has `AiEnabled = false`, existing ones included (the migration adds the column with
+  that default), and in **every environment, Development too**. While it is off the rules read everything and no LLM call is made, so a test
+  against the real API (or over Replay, docs/DOCKER.md) shows no call. Before testing: sign in at `/admin`, open the company, "Activar la IA",
+  give a reason and the terms version (`PUT /api/admin/tenants/{id}/ai-enabled` `{"enabled": true, "reason": "...", "termsVersion": "..."}`),
+  and, with the real client, keep `Classification:Llm:AllowRealClientNonSandbox=false` unless the privacy review allows real conversations.
+* **Limits need a reason.** `PUT .../ai-quota` and `PUT .../send-rate-limit` now refuse a body without `reason`.
+* **Index builds.** The migration builds two indexes `CONCURRENTLY` (docs/DOCKER.md, "Upgrade notes").
 
 ## Bootstrap of the first administrator
 
@@ -131,7 +258,11 @@ the value never sits in the environment) and recreate the `api` service. To rota
 * **Revocation.** The policy also checks, per request, that the administrator still exists and is active: deleting or deactivating one cuts its tokens
   off at once.
 * **Least privilege.** The admin API returns business facts only. The only queries that look across companies are in `PlatformAdminQueries`
-  (and the pre-existing webhook lookup, login and workers); they project scalars (counts, the owner's email, the latest message time, a branch name).
+  and `PlatformMonitoringQueries` (and the pre-existing webhook lookup, login, workers and the AI usage meter); they project scalars (counts,
+  the owner's email, the latest message time, a branch name, tokens and USD, error fingerprints). `WebhookEvents.RawPayload`, message text,
+  contacts and error messages are never selected. `AdminDtoGuardTests` pins that every admin answer (`*Response` of `DTOs.Admin`) holds
+  scalars only and no member named like private content; the licence inventory (`LineLicenses`) is a platform table whose company is data
+  (`AssignedTenantId`), not a tenant column.
   `TenantFilterGuardTests` pins the exact list of source files that call `IgnoreQueryFilters()` and the only two unfiltered tables with a `TenantId`
   (`ErrorLogs`, `PlatformAuditLogs`).
 * **Login.** Uniform `401`; one password verification on every failure path (a decoy hash for unknown/deactivated accounts, built at startup so even
@@ -162,6 +293,10 @@ The Web (`src/Conversia.Web`) has two separate areas. Everything is static serve
 | `/admin/empresas/{id}/lineas/{channelId}/desactivar` | administrator | The confirmation of switching a line off. |
 | `/admin/empresas/{id}/sandbox/{activar\|desactivar}` | administrator | The confirmation of switching the internal sandbox mode, with a **required** reason (up to 200 characters). The company page has the card "Modo sandbox" and the listing marks the companies that are in it ([SANDBOX.md](SANDBOX.md)). |
 | `/admin/auditoria` | administrator | The audit trail in words, newest first, 20 per page, optionally for one company (`empresa`). |
+| `/admin/monitoreo` | administrator | The overview: flags, health, backlogs, deliveries, AI this month, sends by outcome, frequent errors, silent companies, companies with the AI used up. |
+| `/admin/empresas/{id}` (sections) | administrator | Besides the above: "Límites" (each effective limit and whether it is the default; AI quota and send limit forms, empty = default), "Inteligencia artificial" (state, accepted terms, usage this month, real and sandbox), "Licencias de 360dialog" and "Monitoreo" (counts and the last 14 days). |
+| `/admin/empresas/{id}/ia/{activar\|desactivar}` | administrator | The confirmation of switching the AI, with a required reason and, to switch on, the version of the accepted terms. |
+| `/admin/licencias`, `/admin/licencias/nueva`, `/admin/licencias/{id}` | administrator | The licence inventory (filter by state), the new licence form and one licence with its assign, release and retire forms. |
 | `POST /admin/logout` | administrator | Ends only the administrator's session. |
 
 Every operating page of the company side (`/panel`, `/conversaciones`, `/organizacion`, `/users`, `/`, the permission forms) sends the person to
@@ -213,11 +348,26 @@ stops the Web, naming the key) and absent when empty.
 * **Stop a company**: `PUT .../status` `{"status":"Suspended","reason":"..."}`. Its lines stop receiving (the provider sees `401`); events already
   stored wait and are processed after reactivation.
 * **See what changed**: `GET /api/admin/audit?tenantId=...`.
+* **Switch the AI on for a company**: only after it accepted the AI terms. `/admin/empresas/{id}/ia/activar` (or `PUT .../ai-enabled`) with the
+  reason and the terms version; set its quota if it is not the default.
+* **Give a company a line**: create the licence (`/admin/licencias/nueva`), assign it to the company; the company registers the number and
+  switches it on (with `RequireAssignedLicense=true`, only then can it). To take it back: release (the line goes off when licences are
+  required), then retire if the number was cancelled with 360dialog.
+* **Turning `Licensing:RequireAssignedLicense` on**: assign a licence to every line already on first (the flag does not switch off lines that
+  are on; they would just not come back on after being switched off).
+* **A flag on `/admin/monitoreo`**: `webhook_backlog`/`_age` or `health`: check the API is running its worker and the database (docs/WEBHOOKS.md);
+  `failed_deliveries`: look at `/mensajes/eventos` of the company and the error registry; `classification_backlog`/`_stopped`: see
+  docs/CLASSIFICATION.md, "The worker"; `silent_companies`: confirm with the company that its numbers still point to Conversia (360dialog
+  webhook) and are not suspended; `ai_limited_companies`: raise the company's quota or wait for the month to end; `ai_deployment_cap`: raise
+  `Classification:Quota:DeploymentMonthlyUsdCap` (restart) if the spend is expected; `llm_breaker_open`: the provider fails, the rules read
+  meanwhile; `send_failures`: look at the outcome codes (docs/MESSAGING.md).
 
 ## Limits
 
 * No endpoint to create, list or deactivate administrators, or to change their password: the bootstrap and the database are the only ways.
-* The administrator's Web area is deliberately small (companies, one company, audit). There is no page to create administrators or change their password (see above).
+* The administrator's Web area is deliberately small (companies, one company, monitoring, licences, audit). There is no page to create administrators or change their password (see above).
+* Monitoring is read on demand (no history of its own, no notifications); the breaker shown is the answering instance's.
+* The company list cannot be filtered by AI state yet; the overview lists the companies that used it up.
 * The Web shows the audit trail with the company names of the first 100 companies; beyond that a company is shown by a short id.
 * While a company is suspended, its provider (360dialog) keeps getting `401` for its webhooks and may retry or disable the callback by its own rules;
   messages sent in that period are not captured.

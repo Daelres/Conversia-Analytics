@@ -236,6 +236,10 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Messaging:CredentialEncryptionKey` | API | *(unset)* | Master key that encrypts each channel's 360dialog API key: base64 of exactly 32 random bytes (`openssl rand -base64 32`). **Unset: the API runs and sending answers `503`**; malformed: the API does not start. In compose it comes from `CREDENTIAL_ENCRYPTION_KEY`. Set it as a secret, never in a committed file. |
 | `Messaging:CredentialEncryptionKeyId` | API | `1` | Id written in front of every value the master key encrypts. 1 to 32 letters, digits, `-` or `_`. |
 | `Messaging:SendRateLimitPerMinute`, `Messaging:TenantSendRateLimitPerMinute` | API | `30`, `120` | `POST /api/conversations/{id}/messages` per minute and user, and per minute and company (sliding windows); the next one answers `429` with `Retry-After`. Whole numbers >= 1. |
+| `Licensing:RequireAssignedLicense` | API | `false` | `true`: a company can switch a line on only with a 360dialog licence assigned to it for that number, and releasing the licence switches the line off. `false`: lines work as before and licences are linked for reporting only. `docs/PLATFORM_ADMIN.md`, "Line licences". |
+| `Usage:Retention:Enabled`, `Messaging:TenantSendLimitRefresh:Enabled` | API | `true`, `true` | The purge of the AI distinct conversation sets (older than the previous month) and of the send counters (older than 90 days), every 6 hours; and the reload of the per-company send limits every 30 s. Switch them off only in tests: without the reload an instance only knows the limits saved through itself. |
+| `PlatformMonitoring:*` | API | see docs | Thresholds of the administrator's monitoring flags (`OverviewCacheSeconds` 20, the per-process cache of the overview, 0 to 300; `WebhookBacklog` 500, `WebhookOldestPendingMinutes` 10, `ClassificationBacklog` 500, `ClassificationOldestMinutes` 60, `FailedDeliveryRatePercent` 5 with `MinDeliveriesForRate` 20, `SilentLineHours` 24, `ErrorsLast24h` 20, `SendFailureRatePercent` 20 with `MinSendsForRate` 10). Validated at startup. `docs/PLATFORM_ADMIN.md`, "Monitoring". |
+| `Messaging:TenantSendRateLimitMaxPerMinute` | API | 10 x `TenantSendRateLimitPerMinute` (1200) | The most a company's own send limit (set by the platform administrator) may be. At least `TenantSendRateLimitPerMinute`, at most 1,000,000. |
 | `Messaging:RecordTimeoutSeconds` | API | `30` | Limit of each statement and lock wait of the transaction that records a sent message; past it the answer is `500` `message_sent_not_recorded`. 1 to 300. |
 | `Dialog360:SandboxBaseUrl`, `Dialog360:ProductionBaseUrl` | API | `https://waba-sandbox.360dialog.io`, `https://waba-v2.360dialog.io` | Where a channel of each environment sends. Absolute `https` URL (`http` only for loopback). |
 | `Dialog360:TimeoutSeconds` | API | `15` | Time limit of a call to 360dialog. 1 to 120. |
@@ -274,6 +278,7 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Classification:Llm:HashKey` | API | *(none)* | Optional secret (base64, 32+ bytes) of the stored conversation hash (HMAC-SHA256). Unset: plain SHA-256 (Development). |
 | `Classification:Llm:BaseUrl` | API | `https://api.anthropic.com` | Endpoint of the real client, https only; `ANTHROPIC_BASE_URL` is never read. |
 | `Classification:Llm:*` (others) | API | see docs | Model, effort, thinking, timeout (Stage A: at most 8 s, no retry), breaker, age range (needs `AgeRangeLegalRef`), pricing, preprocessing: `docs/CLASSIFICATION.md`. |
+| `Classification:Quota:DefaultMonthlyConversations`, `TenantMonthlyUsdPerQuotaUnit`, `DeploymentMonthlyUsdCap`, `TimeZone`, `SandboxMonthlyUsdPerCompany` | API | `500`, `0.02`, `20`, `America/Bogota`, `2` | The AI quota of a company without its own, its USD ceiling per quota unit, the deployment's monthly USD cap (sandbox included), the zone of the month and the most a company's sandbox may spend a month. Read whatever the provider. Every company starts with the AI **off** until the platform administrator switches it on. `docs/CLASSIFICATION.md`, "Usage and quota". |
 | `Classification:RulesPath` | API | *(embedded rules)* | Path of a JSON file with the classifier's dictionaries (another vertical or country). Validated at startup. |
 | `Classification:DebounceSeconds` | API | `60` | A conversation is classified once its classification request (the arrival of its last message) is at least this old. 0 to 86400. |
 | `Classification:PollIntervalMilliseconds` | API | `2000` | Pause of the classification worker when nothing is due. 10 to 600000. |
@@ -313,6 +318,9 @@ policy in their own tenant.
 | POST | `/api/admin/auth/login` | anonymous, rate limited | `200` platform administrator token (60 min, own audience) | `400`, `401`, `429` |
 | GET | `/api/admin/tenants`, `/api/admin/tenants/{id}`, `/api/admin/audit` | platform administrator only | `200` companies (filter by status and name), one company with its lines and recent audit, the audit trail | `400`, `401`, `403`, `404` |
 | PUT | `/api/admin/tenants/{id}/status`, `/line-quota` | platform administrator only | `200` the company | `400`, `401`, `404`, `409` invalid transition / quota below the active lines |
+| PUT | `/api/admin/tenants/{id}/ai-enabled`, `/ai-quota`, `/send-rate-limit` | platform administrator only | `200` the company | `400`, `401`, `404` |
+| GET | `/api/admin/monitoring`, `/api/admin/tenants/{id}/monitoring` | platform administrator only | `200` counts only (no content) | `401`, `404` |
+| GET, POST | `/api/admin/licenses`, `/{id}`, `/{id}/assign`, `/{id}/release`, `/{id}/retire` | platform administrator only | `200`/`201` the licence (number masked) | `400`, `401`, `404`, `409` `license_duplicate` / `license_not_available` / `license_not_assigned` / `license_assigned` / `concurrent_change` |
 | PUT | `/api/admin/tenants/{id}/sandbox-mode` | platform administrator only | `200` the company; `{enabled, reason}` switches the internal sandbox mode, reason required (`docs/SANDBOX.md`) | `400`, `401`, `404` |
 | POST | `/api/admin/tenants/{id}/channels/{channelId}/deactivate` | platform administrator only | `200` the line, off | `401`, `404` |
 | GET | `/api/users/me` | any authenticated user, in every status | `200` profile (id, tenant, owner flag, permissions) | `401`, `404` |
@@ -325,7 +333,7 @@ policy in their own tenant.
 | GET | `/api/advisors`, `/api/advisors/{id}` | `OrganizationView` | `200` advisors / one advisor | `401`, `403`, `404` |
 | POST | `/api/advisors` | `OrganizationManage` | `201` advisor + `Location` | `400` (also unknown branch or user), `401`, `403` |
 | GET | `/api/channels`, `/api/channels/{id}` | `OrganizationView` | `200` WhatsApp channels; key and webhook path only with `OrganizationManage`, never the secret | `401`, `403`, `404` |
-| POST | `/api/channels/{id}/deactivate`, `/activate` | `OrganizationManage` | `200` channel (webhook answers 401 while inactive); `activate` also needs an Active company and a free slot of the line quota | `401`, `403`, `404`, `409` quota full (`activate`) |
+| POST | `/api/channels/{id}/deactivate`, `/activate` | `OrganizationManage` | `200` channel (webhook answers 401 while inactive); `activate` also needs an Active company, a free slot of the line quota and, with `Licensing:RequireAssignedLicense`, a licence assigned for that number | `401`, `403`, `404`, `409` quota full / `license_required` (`activate`) |
 | POST | `/api/channels/{id}/rotate-secret` | `OrganizationManage` | `200` channel + the NEW `webhookSecret` (once); the old one stops at once | `401`, `403`, `404` |
 | PUT, DELETE | `/api/channels/{id}/provider-credentials` | `OrganizationManage` | `200` channel; `PUT` stores the 360dialog API key (encrypted, **never returned**) and the environment (`Sandbox`, `Production`), `DELETE` forgets the key (`docs/MESSAGING.md`) | `400`, `401`, `403`, `404`, `503` no master key |
 | POST | `/api/channels` | `OrganizationManage` | `201` channel, **inactive**, + `webhookSecret` (shown only once) | `400` (also unknown branch), `401`, `403` |
@@ -372,7 +380,7 @@ Docker smoke test.
 
 ## Documentation
 
-- `docs/PLATFORM_ADMIN.md` — the platform administrator: company approval, per-line quota, admin API and Web area, sessions, bootstrap, security model, runbook.
+- `docs/PLATFORM_ADMIN.md` — the platform administrator: company approval, per-company limits (lines, AI, sends), the 360dialog licence inventory, monitoring without private content, admin API and Web area, sessions, bootstrap, security model, runbook.
 - `docs/WEBHOOKS.md` — the 360dialog webhook: endpoint, mapping, retries, closing of conversations.
 - `docs/MESSAGING.md` — sending a message by hand through 360dialog: endpoints, per-channel encrypted keys, errors, sandbox limits.
 - `docs/SANDBOX.md` — the internal sandbox mode: how it is switched, what is simulated and what is real, the data rules, and how it differs from the 360dialog sandbox and the webhook simulator.

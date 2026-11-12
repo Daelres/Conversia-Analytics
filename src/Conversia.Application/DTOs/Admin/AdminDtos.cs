@@ -118,6 +118,9 @@ public class TenantSummaryResponse
     /// <summary>Whether the company is in the internal sandbox mode (docs/SANDBOX.md).</summary>
     public bool SandboxMode { get; set; }
 
+    /// <summary>Whether the LLM may read the company's conversations (docs/CLASSIFICATION.md, "Usage and quota").</summary>
+    public bool AiEnabled { get; set; }
+
     public static TenantSummaryResponse From(TenantAdminSummary s) => new()
     {
         Id = s.Id,
@@ -132,6 +135,7 @@ public class TenantSummaryResponse
         StatusChangedAt = s.StatusChangedAt,
         StatusReason = s.StatusReason,
         SandboxMode = s.SandboxMode,
+        AiEnabled = s.AiEnabled,
     };
 }
 
@@ -160,6 +164,12 @@ public class TenantDetailResponse : TenantSummaryResponse
     public IReadOnlyList<TenantLineResponse> Lines { get; set; } = [];
 
     public IReadOnlyList<AuditEntryResponse> RecentAudit { get; set; } = [];
+
+    /// <summary>The company's limits as they apply now (line quota, AI switch and quota, send rate limit).</summary>
+    public TenantLimitsResponse Limits { get; set; } = new();
+
+    /// <summary>The line licences assigned to the company, numbers masked.</summary>
+    public IReadOnlyList<LineLicenseResponse> Licenses { get; set; } = [];
 }
 
 public class AuditEntryResponse

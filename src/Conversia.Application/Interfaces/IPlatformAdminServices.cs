@@ -36,8 +36,37 @@ public interface IPlatformAdminService
     /// </summary>
     Task<TenantSummaryResponse> SetSandboxModeAsync(Guid adminId, Guid tenantId, SetSandboxModeRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Switches the AI on or off for the company (docs/CLASSIFICATION.md, "Usage and quota"). The reason is required; the terms version is
+    /// required to switch it on. Audited as consent evidence. Idempotent. Throws <see cref="Exceptions.TenantNotFoundException"/>.
+    /// </summary>
+    Task<TenantSummaryResponse> SetAiEnabledAsync(Guid adminId, Guid tenantId, SetAiEnabledRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Sets the company's monthly AI quota (null: the default). Audited; the same value writes nothing.</summary>
+    Task<TenantSummaryResponse> SetAiQuotaAsync(Guid adminId, Guid tenantId, SetAiQuotaRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Sets the company's send rate limit per minute (null: the default). Audited; the same value writes nothing.</summary>
+    Task<TenantSummaryResponse> SetSendRateLimitAsync(Guid adminId, Guid tenantId, SetSendRateLimitRequest request, CancellationToken cancellationToken = default);
+
     /// <summary>Switches a line of the company off. Idempotent. Throws <see cref="Exceptions.TenantNotFoundException"/> or <see cref="Exceptions.ChannelNotFoundException"/>.</summary>
     Task<TenantLineResponse> DeactivateChannelAsync(Guid adminId, Guid tenantId, Guid channelId, CancellationToken cancellationToken = default);
 
     Task<PagedResponse<AuditEntryResponse>> ListAuditAsync(AdminAuditQuery query, CancellationToken cancellationToken = default);
+}
+
+/// <summary>The platform's line licence inventory (docs/PLATFORM_ADMIN.md, "Line licences"). Every change is audited.</summary>
+public interface ILineLicenseService
+{
+    Task<PagedResponse<LineLicenseResponse>> ListAsync(AdminLicensesQuery query, CancellationToken cancellationToken = default);
+
+    /// <summary>Throws <see cref="Exceptions.LineLicenseNotFoundException"/>.</summary>
+    Task<LineLicenseResponse> GetAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task<LineLicenseResponse> CreateAsync(Guid adminId, CreateLineLicenseRequest request, CancellationToken cancellationToken = default);
+
+    Task<LineLicenseResponse> AssignAsync(Guid adminId, Guid id, AssignLineLicenseRequest request, CancellationToken cancellationToken = default);
+
+    Task<LineLicenseResponse> ReleaseAsync(Guid adminId, Guid id, CancellationToken cancellationToken = default);
+
+    Task<LineLicenseResponse> RetireAsync(Guid adminId, Guid id, CancellationToken cancellationToken = default);
 }

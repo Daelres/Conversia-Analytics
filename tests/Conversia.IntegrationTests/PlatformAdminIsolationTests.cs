@@ -48,6 +48,8 @@ public class PlatformAdminIsolationTests
     {
         "/api/admin/tenants",
         "/api/admin/audit",
+        "/api/admin/licenses",
+        "/api/admin/monitoring",
     };
 
     [Theory]
@@ -196,6 +198,8 @@ public class PlatformAdminIsolationTests
             await admin.Client.GetStringAsync(AdminTenantsUrl),
             await admin.Client.GetStringAsync($"{AdminTenantsUrl}/{tenant.TenantId}"),
             await admin.Client.GetStringAsync("/api/admin/audit"),
+            await admin.Client.GetStringAsync("/api/admin/monitoring"),
+            await admin.Client.GetStringAsync($"{AdminTenantsUrl}/{tenant.TenantId}/monitoring"),
         };
 
         foreach (var body in bodies)

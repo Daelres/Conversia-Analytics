@@ -1,3 +1,4 @@
+using Conversia.Application.Classification.Llm;
 using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Admin;
 using Conversia.Application.Exceptions;
@@ -17,12 +18,23 @@ public class PlatformAdminService : IPlatformAdminService
     private readonly IPlatformAdminQueries _queries;
     private readonly ITenantUnitOfWork _unitOfWork;
     private readonly TimeProvider _time;
+    private readonly PlatformLimitDefaults _defaults;
+    private readonly ITenantSendRateLimits? _sendLimits;
+    private readonly ILineLicenseRepository? _licenses;
 
-    public PlatformAdminService(IPlatformAdminQueries queries, ITenantUnitOfWork unitOfWork, TimeProvider time)
+    /// <param name="defaults">The deployment defaults the company limits fall back to; the built-in ones when not given.</param>
+    /// <param name="sendLimits">The send limiter of this instance, told at once of a new per-company limit.</param>
+    /// <param name="licenses">The licence inventory, for the licences of a company in its detail.</param>
+    public PlatformAdminService(
+        IPlatformAdminQueries queries, ITenantUnitOfWork unitOfWork, TimeProvider time, PlatformLimitDefaults? defaults = null,
+        ITenantSendRateLimits? sendLimits = null, ILineLicenseRepository? licenses = null)
     {
         _queries = queries;
         _unitOfWork = unitOfWork;
         _time = time;
+        _defaults = defaults ?? new PlatformLimitDefaults(120, AiQuotaSettings.Default, 1200);
+        _sendLimits = sendLimits;
+        _licenses = licenses;
     }
 
     public async Task<PagedResponse<TenantSummaryResponse>> ListTenantsAsync(AdminTenantsQuery query, CancellationToken cancellationToken = default)
@@ -43,10 +55,15 @@ public class PlatformAdminService : IPlatformAdminService
         var detail = await _queries.GetTenantAsync(tenantId, cancellationToken) ?? throw new TenantNotFoundException();
         var audit = await _queries.ListAuditAsync(tenantId, 1, RecentAuditCount, cancellationToken);
 
+        var licenses = _licenses is null
+            ? []
+            : (await _licenses.ListAsync(new LineLicenseFilter(LineLicenseStatus.Assigned, tenantId), 1, AdminTenantsQuery.MaxPageSize, cancellationToken)).Items;
         var response = new TenantDetailResponse
         {
             Lines = detail.Lines.Select(TenantLineResponse.From).ToList(),
             RecentAudit = audit.Items.Select(AuditEntryResponse.From).ToList(),
+            Limits = LimitsOf(detail.Summary),
+            Licenses = licenses.Select(LineLicenseResponse.From).ToList(),
         };
         Copy(TenantSummaryResponse.From(detail.Summary), response);
         return response;
@@ -136,6 +153,112 @@ public class PlatformAdminService : IPlatformAdminService
         return await ReadSummaryAsync(tenantId, cancellationToken);
     }
 
+    public async Task<TenantSummaryResponse> SetAiEnabledAsync(
+        Guid adminId, Guid tenantId, SetAiEnabledRequest request, CancellationToken cancellationToken = default)
+    {
+        var enabled = request.Enabled ?? throw new DomainException("Indica si la IA queda activada o desactivada.");
+        var reason = Tenant.AiChangeReason(request.Reason);
+
+        await using (var change = await _unitOfWork.BeginAsync(tenantId, cancellationToken) ?? throw new TenantNotFoundException())
+        {
+            var tenant = change.Tenant;
+            var previous = tenant.AiEnabled;
+            var previousTerms = tenant.AiTermsVersion;
+            if (tenant.SetAiEnabled(enabled, request.TermsVersion, _time.GetUtcNow().UtcDateTime))
+            {
+                // Consent evidence: who, when, why and which terms. Never conversation content.
+                change.Record(PlatformAuditLog.Record(adminId, PlatformAuditLog.Actions.TenantAiEnabledChanged, tenantId, new Dictionary<string, object?>
+                {
+                    ["from"] = previous,
+                    ["to"] = enabled,
+                    ["reason"] = reason,
+                    ["termsVersion"] = enabled ? tenant.AiTermsVersion : null,
+                    ["previousTermsVersion"] = previousTerms,
+                }));
+                await change.CommitAsync(cancellationToken);
+            }
+        }
+
+        return await ReadSummaryAsync(tenantId, cancellationToken);
+    }
+
+    public async Task<TenantSummaryResponse> SetAiQuotaAsync(
+        Guid adminId, Guid tenantId, SetAiQuotaRequest request, CancellationToken cancellationToken = default)
+    {
+        var reason = Tenant.LimitChangeReason(request.Reason);
+        await using (var change = await _unitOfWork.BeginAsync(tenantId, cancellationToken) ?? throw new TenantNotFoundException())
+        {
+            var tenant = change.Tenant;
+            var previous = tenant.AiMonthlyConversationQuota;
+            tenant.SetAiMonthlyConversationQuota(request.MonthlyConversations);
+            if (previous != request.MonthlyConversations)
+            {
+                change.Record(PlatformAuditLog.Record(adminId, PlatformAuditLog.Actions.TenantAiQuotaChanged, tenantId, new Dictionary<string, object?>
+                {
+                    ["from"] = previous,
+                    ["to"] = request.MonthlyConversations,
+                    ["reason"] = reason,
+                }));
+                await change.CommitAsync(cancellationToken);
+            }
+        }
+
+        return await ReadSummaryAsync(tenantId, cancellationToken);
+    }
+
+    public async Task<TenantSummaryResponse> SetSendRateLimitAsync(
+        Guid adminId, Guid tenantId, SetSendRateLimitRequest request, CancellationToken cancellationToken = default)
+    {
+        var reason = Tenant.LimitChangeReason(request.Reason);
+        var changed = false;
+        await using (var change = await _unitOfWork.BeginAsync(tenantId, cancellationToken) ?? throw new TenantNotFoundException())
+        {
+            var tenant = change.Tenant;
+            var previous = tenant.SendRateLimitPerMinute;
+            tenant.SetSendRateLimitPerMinute(request.PerMinute, _defaults.MaxSendRateLimitPerMinute);
+            if (previous != request.PerMinute)
+            {
+                change.Record(PlatformAuditLog.Record(adminId, PlatformAuditLog.Actions.TenantSendRateLimitChanged, tenantId, new Dictionary<string, object?>
+                {
+                    ["from"] = previous,
+                    ["to"] = request.PerMinute,
+                    ["reason"] = reason,
+                }));
+                await change.CommitAsync(cancellationToken);
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            // This instance applies it to the very next send; the others when they reload the overrides.
+            _sendLimits?.Update(tenantId, request.PerMinute);
+        }
+
+        return await ReadSummaryAsync(tenantId, cancellationToken);
+    }
+
+    private TenantLimitsResponse LimitsOf(TenantAdminSummary s)
+    {
+        var aiQuota = _defaults.Ai.EffectiveQuota(s.AiMonthlyConversationQuota);
+        return new TenantLimitsResponse
+        {
+            MaxActiveLines = s.MaxActiveLines,
+            ActiveLines = s.ActiveLines,
+            AiEnabled = s.AiEnabled,
+            AiTermsVersion = s.AiTermsVersion,
+            AiEnabledChangedAt = s.AiEnabledChangedAt,
+            AiMonthlyConversationQuota = aiQuota,
+            AiQuotaIsDefault = s.AiMonthlyConversationQuota is null,
+            DefaultAiMonthlyConversationQuota = _defaults.Ai.DefaultMonthlyConversations,
+            AiMonthlyUsdCeiling = _defaults.Ai.CeilingUsd(aiQuota),
+            SendRateLimitPerMinute = s.SendRateLimitPerMinute ?? _defaults.TenantSendRateLimitPerMinute,
+            SendRateLimitIsDefault = s.SendRateLimitPerMinute is null,
+            DefaultSendRateLimitPerMinute = _defaults.TenantSendRateLimitPerMinute,
+            MaxSendRateLimitPerMinute = _defaults.MaxSendRateLimitPerMinute,
+        };
+    }
+
     public async Task<TenantLineResponse> DeactivateChannelAsync(
         Guid adminId, Guid tenantId, Guid channelId, CancellationToken cancellationToken = default)
     {
@@ -190,5 +313,6 @@ public class PlatformAdminService : IPlatformAdminService
         to.StatusChangedAt = from.StatusChangedAt;
         to.StatusReason = from.StatusReason;
         to.SandboxMode = from.SandboxMode;
+        to.AiEnabled = from.AiEnabled;
     }
 }

@@ -128,6 +128,182 @@ else if (!Redirected)
             </div>
         </Card>
 
+        @* Always rendered, like the quota form: a POST can only be dispatched to a form that exists in the render tree. *@
+        <Card Title="Límites" Subtitle="Lo que la empresa puede usar. Vacío = el valor por defecto de la plataforma." IconName="layers" data-testid="limits-card">
+            <div class="stack">
+                @if (_company is not null)
+                {
+                    <dl class="kv" data-testid="limits">
+                        <div>
+                            <dt>Cupo mensual de IA</dt>
+                            <dd data-testid="limit-ai-quota" data-default="@(_company.Limits.AiQuotaIsDefault ? "true" : "false")">@MetricsFormat.Whole(_company.Limits.AiMonthlyConversationQuota) conversaciones (@AdminFormat.Origin(_company.Limits.AiQuotaIsDefault)) · tope @AdminFormat.Usd(_company.Limits.AiMonthlyUsdCeiling)</dd>
+                        </div>
+                        <div>
+                            <dt>Envíos por minuto</dt>
+                            <dd data-testid="limit-send-rate" data-default="@(_company.Limits.SendRateLimitIsDefault ? "true" : "false")">@MetricsFormat.Whole(_company.Limits.SendRateLimitPerMinute) (@AdminFormat.Origin(_company.Limits.SendRateLimitIsDefault))</dd>
+                        </div>
+                    </dl>
+                }
+
+                <EditForm Model="AiQuota" FormName="set-ai-quota" OnValidSubmit="SaveAiQuotaAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="ai-quota-form">
+                    <DataAnnotationsValidator />
+                    <FormField TValue="string" For="() => AiQuota.MonthlyConversations" Id="ai-quota" Label="Cupo mensual de conversaciones con IA" IconName="sparkles"
+                               Hint="@AiQuotaHint" ApiErrors="_aiQuotaErrors" Context="field">
+                        <input id="ai-quota" name="@($"{nameof(AiQuota)}.{nameof(AiQuotaInput.MonthlyConversations)}")" type="number" inputmode="numeric" min="0" max="@Conversia.Domain.Entities.Tenant.MaxAiMonthlyConversationQuota" step="1"
+                               class="input input--num" autocomplete="off" value="@(AiQuota.MonthlyConversations ?? OwnAiQuota)" @attributes="field" />
+                    </FormField>
+                    <FormField TValue="string" For="() => AiQuota.Reason" Id="ai-quota-reason" Label="Motivo"
+                               Hint="Obligatorio. Queda en la auditoría. No incluyas datos personales de clientes. Hasta 200 caracteres." ApiErrors="_aiQuotaErrors" Context="field">
+                        <input id="ai-quota-reason" name="@($"{nameof(AiQuota)}.{nameof(AiQuotaInput.Reason)}")" class="input" maxlength="@Conversia.Domain.Entities.Tenant.AiChangeReasonMaxLength" autocomplete="off" value="@AiQuota.Reason" @attributes="field" />
+                    </FormField>
+                    <ApiFieldErrors Errors="_aiQuotaErrors" KnownFields="@(["MonthlyConversations", "Reason"])" />
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn--secondary"><Icon Name="check" />Guardar cupo de IA</button>
+                    </div>
+                </EditForm>
+
+                <EditForm Model="SendLimit" FormName="set-send-limit" OnValidSubmit="SaveSendLimitAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="send-limit-form">
+                    <DataAnnotationsValidator />
+                    <FormField TValue="string" For="() => SendLimit.PerMinute" Id="send-limit" Label="Límite de envíos por minuto" IconName="arrow-right"
+                               Hint="@SendLimitHint" ApiErrors="_sendLimitErrors" Context="field">
+                        <input id="send-limit" name="@($"{nameof(SendLimit)}.{nameof(SendLimitInput.PerMinute)}")" type="number" inputmode="numeric" min="1" max="@Conversia.Domain.Entities.Tenant.MaxSendRateLimitPerMinute" step="1"
+                               class="input input--num" autocomplete="off" value="@(SendLimit.PerMinute ?? OwnSendLimit)" @attributes="field" />
+                    </FormField>
+                    <FormField TValue="string" For="() => SendLimit.Reason" Id="send-limit-reason" Label="Motivo"
+                               Hint="Obligatorio. Queda en la auditoría. No incluyas datos personales de clientes. Hasta 200 caracteres." ApiErrors="_sendLimitErrors" Context="field">
+                        <input id="send-limit-reason" name="@($"{nameof(SendLimit)}.{nameof(SendLimitInput.Reason)}")" class="input" maxlength="@Conversia.Domain.Entities.Tenant.AiChangeReasonMaxLength" autocomplete="off" value="@SendLimit.Reason" @attributes="field" />
+                    </FormField>
+                    <ApiFieldErrors Errors="_sendLimitErrors" KnownFields="@(["PerMinute", "Reason"])" />
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn--secondary"><Icon Name="check" />Guardar límite de envíos</button>
+                    </div>
+                </EditForm>
+            </div>
+        </Card>
+
+        @if (_company is not null)
+        {
+            <Card Title="Inteligencia artificial" Subtitle="Si el análisis con IA puede leer las conversaciones de la empresa." IconName="sparkles" data-testid="ai-card">
+                <div class="stack">
+                    <dl class="kv">
+                        <div>
+                            <dt>IA ahora</dt>
+                            <dd><Chip Tone="@(_company.AiEnabled ? ChipTone.Success : ChipTone.Neutral)" IconName="@(_company.AiEnabled ? "sparkles" : "minus")" data-testid="company-ai" data-enabled="@(_company.AiEnabled ? "true" : "false")">@(_company.AiEnabled ? "Activada" : "Desactivada")</Chip></dd>
+                        </div>
+                        @if (_company.Limits.AiTermsVersion is { } terms)
+                        {
+                            <div>
+                                <dt>Términos aceptados</dt>
+                                <dd data-testid="ai-terms">@terms</dd>
+                            </div>
+                        }
+                        @if (_monitoring is { } m)
+                        {
+                            <div>
+                                <dt>Uso este mes</dt>
+                                <dd data-testid="ai-usage" data-state="@m.Ai.State">@AdminFormat.AiState(m.Ai.State): @MetricsFormat.Whole(m.Ai.ThisMonth.Conversations) de @MetricsFormat.Whole(m.Ai.Quota) conversaciones · @AdminFormat.Usd(m.Ai.ThisMonth.EstimatedUsd) de @AdminFormat.Usd(m.Ai.CeilingUsd)</dd>
+                            </div>
+                            <div>
+                                <dt>Sandbox este mes (no cuenta en el cupo)</dt>
+                                <dd data-testid="ai-sandbox-usage">@MetricsFormat.Whole(m.Ai.SandboxThisMonth.Conversations) conversaciones · @AdminFormat.Usd(m.Ai.SandboxThisMonth.EstimatedUsd)</dd>
+                            </div>
+                        }
+                    </dl>
+                    <p class="muted">Activarla pide un motivo y la versión de los términos de IA que la empresa aceptó; ambos quedan en la auditoría.</p>
+                    <div class="cluster-md" data-testid="ai-actions">
+                        @if (_company.AiEnabled)
+                        {
+                            <a class="btn btn--secondary" href="/admin/empresas/@Id/ia/desactivar" data-action="desactivar"><Icon Name="power" />Desactivar la IA</a>
+                        }
+                        else
+                        {
+                            <a class="btn btn--primary" href="/admin/empresas/@Id/ia/activar" data-action="activar"><Icon Name="sparkles" />Activar la IA</a>
+                        }
+                    </div>
+                </div>
+            </Card>
+
+            <Card Title="Licencias de 360dialog" Subtitle="Las licencias del inventario asignadas a esta empresa." IconName="key" data-testid="licenses-card">
+                <div class="stack">
+                    @if (_company.Licenses.Count == 0)
+                    {
+                        <p class="muted" data-testid="no-licenses">Sin licencias asignadas.</p>
+                    }
+                    else
+                    {
+                        <ul class="stack" data-testid="license-list">
+                            @foreach (var license in _company.Licenses)
+                            {
+                                <li data-testid="license-item" data-license-id="@license.Id">
+                                    <a href="/admin/licencias/@license.Id">@license.PhoneNumberMasked</a>
+                                    <span class="muted">· @(license.ChannelId is null ? "sin línea vinculada" : "vinculada a una línea") · @(license.CustomerOwned ? "del cliente" : AdminFormat.Usd(license.MonthlyCostUsd) + " al mes")</span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    <div class="cluster-md">
+                        <a class="btn btn--secondary" href="/admin/licencias?estado=disponible"><Icon Name="key" />Asignar una licencia</a>
+                    </div>
+                </div>
+            </Card>
+
+            <Card Title="Monitoreo" Subtitle="Cómo le funciona el servicio a esta empresa. Solo cifras: ningún mensaje ni dato de sus clientes." IconName="bar-chart" data-testid="monitoring-card">
+                @if (_monitoring is not { } mon)
+                {
+                    <p class="muted" data-testid="monitoring-unavailable">El monitoreo no está disponible en este momento.</p>
+                }
+                else
+                {
+                    <div class="stack">
+                        <dl class="kv">
+                            <div><dt>Líneas activas</dt><dd>@AdminFormat.LinesOfQuota(mon.ActiveLines, mon.MaxActiveLines) · @MetricsFormat.Whole(mon.AssignedLicenses) @(mon.AssignedLicenses == 1 ? "licencia" : "licencias")</dd></div>
+                            <div><dt>Última entrega real</dt><dd data-testid="last-delivery">@(mon.LastRealDeliveryAt is { } at ? AdminFormat.Moment(TimeZone.ToLocal(at)) : AdminFormat.NoActivity)</dd></div>
+                            <div><dt>Pendiente</dt><dd>@MetricsFormat.Whole(mon.Backlog.WebhookPending) entregas · @MetricsFormat.Whole(mon.Backlog.ClassificationWaiting) clasificaciones · @MetricsFormat.Whole(mon.Backlog.ClassificationStopped) detenidas</dd></div>
+                            <div><dt>Errores (24 h)</dt><dd>@MetricsFormat.Whole(mon.Errors.Last24h)</dd></div>
+                            <div><dt>Envíos reales (7 días)</dt><dd>@MetricsFormat.Whole(mon.Sends.RealLast7d) · no salieron @MetricsFormat.Whole(mon.Sends.RealFailedLast7d)</dd></div>
+                        </dl>
+                        <div class="table-wrap" role="region" aria-label="Entregas del webhook de la empresa" tabindex="0">
+                            <table class="table">
+                                <caption class="sr-only">Entregas del webhook de la empresa por ventana</caption>
+                                <thead>
+                                    <tr><th scope="col">Ventana</th><th scope="col">Entregas</th><th scope="col">Mensajes guardados</th><th scope="col">Duplicados</th><th scope="col">Omitidos</th><th scope="col">Fallidas</th></tr>
+                                </thead>
+                                <tbody>
+                                    <DeliveryRow Label="Reales, últimas 24 h" Counts="mon.Deliveries.RealLast24h" />
+                                    <DeliveryRow Label="Reales, últimos 7 días" Counts="mon.Deliveries.RealLast7d" />
+                                    <DeliveryRow Label="Sandbox, últimos 7 días" Counts="mon.Deliveries.SandboxLast7d" />
+                                </tbody>
+                            </table>
+                        </div>
+                        @if (mon.Days.Count > 0)
+                        {
+                            <div class="table-wrap" role="region" aria-label="Actividad diaria de la empresa" tabindex="0">
+                                <table class="table" data-testid="daily-table">
+                                    <caption class="sr-only">Mensajes y conversaciones por día (últimos 14 días)</caption>
+                                    <thead>
+                                        <tr><th scope="col">Día</th><th scope="col">Datos</th><th scope="col">Mensajes recibidos</th><th scope="col">Mensajes enviados</th><th scope="col">Conversaciones abiertas</th><th scope="col">Conversaciones cerradas</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var day in mon.Days.OrderByDescending(d => d.Day).ThenBy(d => d.IsSandbox))
+                                        {
+                                            <tr data-testid="day-row" data-day="@day.Day" data-sandbox="@(day.IsSandbox ? "true" : "false")">
+                                                <th scope="row">@DayLabel(day.Day)</th>
+                                                <td>@(day.IsSandbox ? "Sandbox" : "Reales")</td>
+                                                <td>@MetricsFormat.Whole(day.MessagesIn)</td>
+                                                <td>@MetricsFormat.Whole(day.MessagesOut)</td>
+                                                <td>@MetricsFormat.Whole(day.ConversationsOpened)</td>
+                                                <td>@MetricsFormat.Whole(day.ConversationsClosed)</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                }
+            </Card>
+        }
+
         @if (_company is not null)
         {
             <Card Title="Líneas" Subtitle="Los números de WhatsApp que la empresa ha registrado." IconName="phone" data-testid="lines-card">
@@ -209,6 +385,41 @@ else if (!Redirected)
     private string? _quotaMessage;
     private IReadOnlyDictionary<string, string[]>? _quotaErrors;
     private QuotaInput? _quota;
+    private TenantMonitoringResponse? _monitoring;
+    private AiQuotaInput? _aiQuota;
+    private SendLimitInput? _sendLimit;
+    private IReadOnlyDictionary<string, string[]>? _aiQuotaErrors;
+    private IReadOnlyDictionary<string, string[]>? _sendLimitErrors;
+
+    [SupplyParameterFromForm(FormName = "set-ai-quota")]
+    private AiQuotaInput AiQuota
+    {
+        get => _aiQuota ??= new();
+        set => _aiQuota = value;
+    }
+
+    [SupplyParameterFromForm(FormName = "set-send-limit")]
+    private SendLimitInput SendLimit
+    {
+        get => _sendLimit ??= new();
+        set => _sendLimit = value;
+    }
+
+    // The company's own values, empty when it uses the default (so saving the form unchanged keeps the default).
+    private string? OwnAiQuota => _company is { Limits.AiQuotaIsDefault: false } c ? c.Limits.AiMonthlyConversationQuota.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
+
+    private string? OwnSendLimit => _company is { Limits.SendRateLimitIsDefault: false } c ? c.Limits.SendRateLimitPerMinute.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
+
+    private string AiQuotaHint => _company is null
+        ? "Un número entero de 0 a 1.000.000; vacío para el valor por defecto."
+        : $"Un número entero de 0 a 1.000.000; vacío para el valor por defecto ({MetricsFormat.Whole(_company.Limits.DefaultAiMonthlyConversationQuota)}). Cuenta conversaciones distintas por mes.";
+
+    private string SendLimitHint => _company is null
+        ? "Un número entero mayor que 0; vacío para el valor por defecto."
+        : $"Un número entero de 1 a {MetricsFormat.Whole(_company.Limits.MaxSendRateLimitPerMinute)}; vacío para el valor por defecto ({MetricsFormat.Whole(_company.Limits.DefaultSendRateLimitPerMinute)}). Suma los envíos de todos sus usuarios.";
+
+    private static string DayLabel(string day)
+        => DateOnly.TryParseExact(day, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date) ? MetricsFormat.Day(date) : day;
 
     [Parameter]
     public Guid Id { get; set; }
@@ -238,13 +449,53 @@ else if (!Redirected)
 
     private async Task LoadAsync()
     {
-        var result = await Api.GetAdminTenantAsync(Token!, Id);
-        if (await TryFailAsync(result))
+        var detailTask = Api.GetAdminTenantAsync(Token!, Id);
+        var monitoringTask = Api.GetAdminTenantMonitoringAsync(Token!, Id);
+        await Task.WhenAll(detailTask, monitoringTask);
+        if (await TryFailAsync(detailTask.Result))
         {
             return;
         }
 
-        _company = result.Value;
+        _company = detailTask.Result.Value;
+        // The monitoring is a section of the page: if it cannot be read, the rest still works.
+        _monitoring = monitoringTask.Result.IsSuccess ? monitoringTask.Result.Value : null;
+    }
+
+    private async Task SaveAiQuotaAsync()
+    {
+        var result = await Api.SetTenantAiQuotaAsync(Token!, Id, AiQuota.ToRequest());
+        await AfterLimitAsync(result, AdminNotice.AiQuotaSaved, errors => _aiQuotaErrors = errors);
+    }
+
+    private async Task SaveSendLimitAsync()
+    {
+        var result = await Api.SetTenantSendRateLimitAsync(Token!, Id, SendLimit.ToRequest());
+        await AfterLimitAsync(result, AdminNotice.SendLimitSaved, errors => _sendLimitErrors = errors);
+    }
+
+    private async Task AfterLimitAsync(ApiResult<TenantSummaryResponse> result, string notice, Action<IReadOnlyDictionary<string, string[]>?> showErrors)
+    {
+        if (result.IsSuccess)
+        {
+            RedirectTo(AdminNotice.Url(Id, notice));
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.ValidationFailed)
+        {
+            showErrors(result.ValidationErrors);
+            SetStatusCode(StatusCodes.Status400BadRequest);
+        }
+        else
+        {
+            await TryFailAsync(result);
+        }
+
+        if (!Redirected && !Denied && !CompanyMissing)
+        {
+            await LoadAsync();
+        }
     }
 
     private async Task SaveQuotaAsync()

@@ -16,7 +16,10 @@ public class TenantFilterGuardTests
     [
         "Conversia.Infrastructure/Classification/ClassificationBacklogMonitor.cs", // counts of the shared backlog (operations view)
         "Conversia.Infrastructure/Classification/ConversationClassificationRunner.cs", // the worker claims across companies
+        "Conversia.Infrastructure/Classification/Usage/AiUsageMeter.cs", // the deployment USD cap sums every company; the recorder has no company set
         "Conversia.Infrastructure/Conversations/ConversationAutoCloser.cs", // the worker claims across companies
+        "Conversia.Infrastructure/Messaging/MessageSendOutcomeRecorder.cs", // retention of the send counters across companies
+        "Conversia.Infrastructure/Monitoring/PlatformMonitoringQueries.cs", // the platform administrator's monitoring counts
         "Conversia.Infrastructure/Repositories/PlatformAdminQueries.cs", // the platform administrator's scalar projections
         "Conversia.Infrastructure/Repositories/TenantUnitOfWork.cs", // names the locked company explicitly in every query
         "Conversia.Infrastructure/Repositories/UserRepository.cs", // the email is unique across companies (login, registration)
@@ -67,6 +70,18 @@ public class TenantFilterGuardTests
             .ToHashSet();
 
         Assert.Equal(new HashSet<Type> { typeof(ErrorLog), typeof(PlatformAuditLog) }, unfiltered);
+    }
+
+    [Fact]
+    public void TheLicenceInventory_IsAPlatformTable_WhoseCompanyIsData_NotATenantColumn()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var licenses = db.Model.FindEntityType(typeof(LineLicense))!;
+
+        Assert.Null(licenses.FindProperty("TenantId"));
+        Assert.NotNull(licenses.FindProperty(nameof(LineLicense.AssignedTenantId)));
+        Assert.Empty(licenses.GetDeclaredQueryFilters());
     }
 
     [Fact]

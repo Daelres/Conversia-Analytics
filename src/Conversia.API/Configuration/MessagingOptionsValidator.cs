@@ -56,10 +56,15 @@ public static class MessagingOptionsValidator
     public static MessageSendingOptions GetValidatedSendingOptions(IConfiguration configuration)
     {
         var defaults = MessageSendingOptions.Default;
+        var tenantLimit = ConfigurationReader.ReadInt(configuration, MessageSendingOptions.TenantSendRateLimitPerMinuteKey, defaults.TenantSendRateLimitPerMinute, 1, 1_000_000);
         return new MessageSendingOptions(
             SendRateLimitPerMinute: ConfigurationReader.ReadInt(configuration, MessageSendingOptions.SendRateLimitPerMinuteKey, defaults.SendRateLimitPerMinute, 1, 100_000),
-            TenantSendRateLimitPerMinute: ConfigurationReader.ReadInt(configuration, MessageSendingOptions.TenantSendRateLimitPerMinuteKey, defaults.TenantSendRateLimitPerMinute, 1, 1_000_000),
-            RecordTimeoutSeconds: ConfigurationReader.ReadInt(configuration, MessageSendingOptions.RecordTimeoutSecondsKey, defaults.RecordTimeoutSeconds, 1, 300));
+            TenantSendRateLimitPerMinute: tenantLimit,
+            RecordTimeoutSeconds: ConfigurationReader.ReadInt(configuration, MessageSendingOptions.RecordTimeoutSecondsKey, defaults.RecordTimeoutSeconds, 1, 300),
+            // At least the deployment's own company limit (a company's override may always go back up to the default), at most 1,000,000.
+            TenantSendRateLimitMaxPerMinute: ConfigurationReader.ReadInt(
+                configuration, MessageSendingOptions.TenantSendRateLimitMaxPerMinuteKey,
+                (int)Math.Min(1_000_000L, (long)tenantLimit * MessageSendingOptions.DefaultMaxMultiple), tenantLimit, 1_000_000));
     }
 
     // The channel's API key travels to this address: https only (http is accepted for a loopback address, for a local stand-in), and

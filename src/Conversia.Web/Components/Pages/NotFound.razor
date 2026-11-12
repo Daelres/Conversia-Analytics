@@ -11,6 +11,12 @@
 
     <CompanyNotFoundView />
 }
+else if (NotFoundMarker.IsMarked(HttpContext, NotFoundMarker.License))
+{
+    <PageTitle>Licencia no encontrada - Conversia</PageTitle>
+
+    <LicenseNotFoundView />
+}
 else if (NotFoundMarker.IsMarked(HttpContext, NotFoundMarker.Conversation))
 {
     <PageTitle>Conversación no encontrada - Conversia</PageTitle>

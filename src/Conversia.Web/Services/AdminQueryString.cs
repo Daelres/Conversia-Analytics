@@ -19,6 +19,13 @@ public static class AdminQueryString
             ("page", query.Page.ToString(CultureInfo.InvariantCulture)),
             ("pageSize", query.PageSize.ToString(CultureInfo.InvariantCulture)));
 
+    public static string Build(AdminLicensesQuery query)
+        => Join(
+            ("status", query.Status),
+            ("tenantId", query.TenantId?.ToString()),
+            ("page", query.Page.ToString(CultureInfo.InvariantCulture)),
+            ("pageSize", query.PageSize.ToString(CultureInfo.InvariantCulture)));
+
     private static string Join(params (string Name, string? Value)[] pairs)
     {
         var parts = pairs

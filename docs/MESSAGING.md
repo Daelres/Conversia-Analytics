@@ -40,7 +40,9 @@ The recipient is always the contact of the conversation; a request cannot name a
 suspended) gets the same `403` `tenant_not_active` as on the rest of the API, here and on the credentials endpoints.
 
 Two limits, both sliding windows of one minute that count every request whatever its outcome (`429` with `Retry-After`):
-`Messaging:SendRateLimitPerMinute` (30) per user and `Messaging:TenantSendRateLimitPerMinute` (120) per company, whoever sends.
+`Messaging:SendRateLimitPerMinute` (30) per user and `Messaging:TenantSendRateLimitPerMinute` (120) per company, whoever sends. The platform
+administrator can give a company its own per-minute limit (docs/PLATFORM_ADMIN.md, "Limits"). How each send ended (`sent` or the problem
+code) is counted per company and day for the administrator's monitoring: counts only, kept 90 days.
 
 **Setting the key.** Body `{"apiKey": "...", "environment": "Sandbox" | "Production"}`. The key is 1 to 256 visible ASCII
 characters without spaces. Leave `apiKey` out (or blank) to keep the stored key and change only the environment; on a channel
@@ -173,7 +175,7 @@ A sent message is stored through the same domain paths as an ingested one (`Mess
 | `Messaging:CredentialEncryptionKey` | *(unset)* | Master key: base64 of exactly 32 random bytes (`openssl rand -base64 32`). A secret: environment variable or Key Vault, never a committed file. In compose it comes from `CREDENTIAL_ENCRYPTION_KEY` |
 | `Messaging:CredentialEncryptionKeyId` | `1` | Written in front of every value the key encrypts. 1 to 32 letters, digits, `-` or `_` |
 | `Messaging:SendRateLimitPerMinute` | `30` | Sends per user and minute (sliding window). 1 to 100000 |
-| `Messaging:TenantSendRateLimitPerMinute` | `120` | Sends per company and minute, all its users together (sliding window). 1 to 1000000 |
+| `Messaging:TenantSendRateLimitPerMinute` | `120` | Sends per company and minute, all its users together (sliding window), unless the administrator set the company's own limit. 1 to 1000000 |
 | `Messaging:RecordTimeoutSeconds` | `30` | Limit of each statement and each lock wait of the transaction that records a sent message. 1 to 300 |
 | `Dialog360:SandboxBaseUrl` | `https://waba-sandbox.360dialog.io` | Absolute `https` URL (`http` only for a loopback address) |
 | `Dialog360:ProductionBaseUrl` | `https://waba-v2.360dialog.io` | Same rule |

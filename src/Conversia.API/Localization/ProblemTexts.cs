@@ -25,6 +25,10 @@ public static class ProblemTexts
     public const string MessageNotRecordedTitle = "Mensaje enviado sin registrar";
     public const string CredentialsUnavailableTitle = "Credenciales no disponibles";
     public const string SandboxRefusedTitle = "Mensaje simulado no aceptado";
+    public const string LineLicenseNotFoundTitle = "Licencia no encontrada";
+    public const string LineLicenseConflictTitle = "Cambio de licencia no permitido";
+    public const string LicenseRequiredTitle = "Licencia requerida";
+    public const string ConcurrentChangeTitle = "Cambio simultáneo";
 
     public const string UnexpectedTitle = "Ocurrió un error inesperado";
     public const string UnexpectedDetail = "Ocurrió un error inesperado. Inténtalo de nuevo más tarde.";

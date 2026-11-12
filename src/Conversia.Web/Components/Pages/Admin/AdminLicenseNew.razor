@@ -1,0 +1,102 @@
+@page "/admin/licencias/nueva"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Domain.Entities
+@using Conversia.Web.Authentication
+@inherits AdminPageBase
+
+<PageTitle>Nueva licencia - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="admin-license-new">
+        <PageHeader Eyebrow="Licencias" EyebrowIcon="key" Title="Nueva licencia" Description="Un número contratado con 360dialog, para asignarlo a una empresa.">
+            <a class="btn btn--secondary" href="/admin/licencias"><Icon Name="arrow-left" />Volver a licencias</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        <Card Title="Datos de la licencia" IconName="key" data-testid="license-form-card">
+            <EditForm Model="Input" FormName="new-license" OnValidSubmit="CreateAsync" method="post" class="form" data-testid="license-form">
+                <DataAnnotationsValidator />
+                <FormField TValue="string" For="() => Input.PhoneNumber" Id="phone" Label="Número" IconName="phone"
+                           Hint="El número completo, con indicativo (por ejemplo +57 300 000 0000). Después solo se mostrarán sus últimos 4 dígitos." ApiErrors="_errors" Context="field">
+                    <input id="phone" name="@($"{nameof(Input)}.{nameof(LicenseInput.PhoneNumber)}")" class="input" inputmode="tel" autocomplete="off" maxlength="@WhatsAppChannel.DisplayPhoneNumberMaxLength" value="@Input.PhoneNumber" @attributes="field" />
+                </FormField>
+                <FormField TValue="string" For="() => Input.ProviderChannelId" Id="provider-id" Label="Identificador en 360dialog (opcional)" IconName="tag"
+                           Hint="El identificador del canal o del número en 360dialog, si lo tienes. Sirve para vincularlo aunque el número se escriba distinto." ApiErrors="_errors" Context="field">
+                    <input id="provider-id" name="@($"{nameof(Input)}.{nameof(LicenseInput.ProviderChannelId)}")" class="input" autocomplete="off" maxlength="@WhatsAppChannel.ProviderPhoneNumberIdMaxLength" value="@Input.ProviderChannelId" @attributes="field" />
+                </FormField>
+                <FormField TValue="string" For="() => Input.MonthlyCostUsd" Id="cost" Label="Costo mensual (USD)" IconName="tag"
+                           Hint="Lo que el número le cuesta a la plataforma cada mes, para los reportes. 0 si el número es del cliente." ApiErrors="_errors" Context="field">
+                    <input id="cost" name="@($"{nameof(Input)}.{nameof(LicenseInput.MonthlyCostUsd)}")" class="input input--num" inputmode="decimal" autocomplete="off" value="@Input.MonthlyCostUsd" @attributes="field" />
+                </FormField>
+                <div class="field">
+                    <label class="checkbox" for="customer-owned">
+                        <input id="customer-owned" name="@($"{nameof(Input)}.{nameof(LicenseInput.CustomerOwned)}")" type="checkbox" value="true" checked="@Input.CustomerOwned" />
+                        El número es del cliente (lo paga directamente a 360dialog)
+                    </label>
+                </div>
+                <FormField TValue="string" For="() => Input.Notes" Id="notes" Label="Notas (opcional)" Hint="Hasta 500 caracteres. No incluyas datos personales de clientes." ApiErrors="_errors" Context="field">
+                    <textarea id="notes" name="@($"{nameof(Input)}.{nameof(LicenseInput.Notes)}")" class="input" rows="3" maxlength="@LineLicense.NotesMaxLength" @attributes="field">@Input.Notes</textarea>
+                </FormField>
+                <ApiFieldErrors Errors="_errors" KnownFields="@(["PhoneNumber", "ProviderChannelId", "MonthlyCostUsd", "CustomerOwned", "Notes"])" />
+                @if (_conflict is not null)
+                {
+                    <Alert Kind="AlertKind.Danger" data-testid="license-conflict">@_conflict</Alert>
+                }
+                <div class="form-actions">
+                    <button type="submit" class="btn btn--primary" data-testid="license-submit"><Icon Name="check" />Crear licencia</button>
+                    <a class="btn btn--ghost" href="/admin/licencias">Cancelar</a>
+                </div>
+            </EditForm>
+        </Card>
+    </div>
+}
+
+@code {
+    private LicenseInput? _input;
+    private IReadOnlyDictionary<string, string[]>? _errors;
+    private string? _conflict;
+
+    [SupplyParameterFromForm(FormName = "new-license")]
+    private LicenseInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    protected override async Task OnInitializedAsync() => await TryReadTokenAsync();
+
+    private async Task CreateAsync()
+    {
+        var result = await Api.CreateAdminLicenseAsync(Token!, Input.ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo(LicenseNotice.Url(result.Value!.Id, LicenseNotice.Created));
+            return;
+        }
+
+        switch (result.Status)
+        {
+            case ApiResultStatus.ValidationFailed:
+                _errors = result.ValidationErrors;
+                SetStatusCode(StatusCodes.Status400BadRequest);
+                break;
+            case ApiResultStatus.Conflict:
+                _conflict = result.Detail ?? "Ya hay una licencia vigente para ese número.";
+                SetStatusCode(StatusCodes.Status409Conflict);
+                break;
+            default:
+                await TryFailAsync(result);
+                break;
+        }
+    }
+}

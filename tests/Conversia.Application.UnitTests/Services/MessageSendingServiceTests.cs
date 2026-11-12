@@ -1,5 +1,6 @@
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.Exceptions;
+using Conversia.Application.Interfaces;
 using Conversia.Application.Messaging;
 using Conversia.Application.Services;
 using Conversia.Domain.Entities;
@@ -74,8 +75,22 @@ public class MessageSendingServiceTests
             => Lines.Add((logLevel, formatter(state, exception)));
     }
 
+    private readonly RecordingOutcomes _outcomes = new();
+
+    /// <summary>What the send recorded for the platform's monitoring: (tenant, sandbox, outcome).</summary>
+    private sealed class RecordingOutcomes : IMessageSendOutcomeRecorder
+    {
+        public List<(Guid TenantId, bool IsSandbox, string Outcome)> Recorded { get; } = [];
+
+        public Task RecordAsync(Guid tenantId, bool isSandbox, string outcome, CancellationToken cancellationToken = default)
+        {
+            Recorded.Add((tenantId, isSandbox, outcome));
+            return Task.CompletedTask;
+        }
+    }
+
     private MessageSendingService CreateSut()
-        => new(_conversations.Object, _channels.Object, _contacts.Object, _messages.Object, _tenants.Object, _sender, new FixedTimeProvider(Now), _logger);
+        => new(_conversations.Object, _channels.Object, _contacts.Object, _messages.Object, _tenants.Object, _sender, new FixedTimeProvider(Now), _logger, _outcomes);
 
     /// <summary>An open conversation with one customer message, on an active channel that has credentials.</summary>
     private void Arrange(bool active = true, bool credentials = true, bool closed = false, bool sandboxConversation = false, bool sandboxMode = false)
@@ -516,5 +531,69 @@ public class MessageSendingServiceTests
         var exception = await Assert.ThrowsAsync<MessagingException>(() => SendAsync());
 
         Assert.Equal(MessagingProblem.SentNotRecorded, exception.Problem);
+    }
+
+    // ---- Outcomes for the platform's monitoring (counts only) ---------------------------------
+
+    [Fact]
+    public async Task ASentMessage_IsCountedAsSent()
+    {
+        Arrange();
+
+        await SendAsync();
+
+        Assert.Equal([(_tenant, false, "sent")], _outcomes.Recorded);
+    }
+
+    [Fact]
+    public async Task ARefusal_IsCountedByItsStableCode_AndStillThrown()
+    {
+        Arrange();
+        _sender.Result = WhatsAppSendResult.Failed(WhatsAppSendStatus.LimitReached);
+
+        await Assert.ThrowsAsync<MessagingException>(() => SendAsync());
+
+        Assert.Equal([(_tenant, false, "provider_limit_reached")], _outcomes.Recorded);
+    }
+
+    [Fact]
+    public async Task ARefusalBeforeTheProvider_IsCountedToo_WithTheSandboxFlagOfTheConversation()
+    {
+        Arrange(closed: true, sandboxConversation: true, sandboxMode: true);
+
+        await Assert.ThrowsAsync<MessagingException>(() => SendAsync());
+
+        Assert.Equal([(_tenant, true, "conversation_closed")], _outcomes.Recorded);
+    }
+
+    [Fact]
+    public async Task AnUnknownConversation_IsNotCounted()
+    {
+        Arrange();
+
+        await Assert.ThrowsAsync<ConversationNotFoundException>(() => CreateSut().SendTextAsync(Guid.NewGuid(), new SendMessageRequest { Text = "Hola" }));
+
+        Assert.Empty(_outcomes.Recorded);
+    }
+
+    private sealed class ThrowingOutcomes : IMessageSendOutcomeRecorder
+    {
+        public Task RecordAsync(Guid tenantId, bool isSandbox, string outcome, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("counter down");
+    }
+
+    [Fact]
+    public async Task ACounterThatFails_NeverChangesTheAnswerOfTheSend()
+    {
+        Arrange();
+        var sut = new MessageSendingService(
+            _conversations.Object, _channels.Object, _contacts.Object, _messages.Object, _tenants.Object, _sender, new FixedTimeProvider(Now), _logger, new ThrowingOutcomes());
+
+        var sent = await sut.SendTextAsync(_conversation.Id, new SendMessageRequest { Text = "Hola" });
+
+        Assert.Equal("Hola", sent.Text);
+        _sender.Result = WhatsAppSendResult.Failed(WhatsAppSendStatus.LimitReached);
+        var refused = await Assert.ThrowsAsync<MessagingException>(() => sut.SendTextAsync(_conversation.Id, new SendMessageRequest { Text = "Hola" }));
+        Assert.Equal("provider_limit_reached", refused.Code);
     }
 }

@@ -50,6 +50,15 @@ public class ApplicationDbContext : DbContext
     /// <summary>Platform-level trail of the administrators' changes. Names a tenant as data, so it is deliberately unfiltered.</summary>
     public DbSet<PlatformAuditLog> PlatformAuditLogs => Set<PlatformAuditLog>();
 
+    /// <summary>Platform-level licence inventory: the company it is assigned to is data (<c>AssignedTenantId</c>), so it is not filtered.</summary>
+    public DbSet<LineLicense> LineLicenses => Set<LineLicense>();
+
+    public DbSet<AiUsageMonth> AiUsageMonths => Set<AiUsageMonth>();
+
+    public DbSet<AiUsageConversation> AiUsageConversations => Set<AiUsageConversation>();
+
+    public DbSet<MessageSendOutcome> MessageSendOutcomes => Set<MessageSendOutcome>();
+
     /// <summary>Operations table: not tenant-filtered, see <c>ErrorLogConfiguration</c>.</summary>
     public DbSet<ErrorLog> ErrorLogs => Set<ErrorLog>();
 
@@ -81,6 +90,9 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Message>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<Opportunity>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<WebhookEvent>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AiUsageMonth>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AiUsageConversation>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<MessageSendOutcome>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
 
         base.OnModelCreating(modelBuilder);
     }

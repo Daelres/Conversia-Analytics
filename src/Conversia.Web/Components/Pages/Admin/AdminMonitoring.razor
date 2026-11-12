@@ -1,0 +1,181 @@
+@page "/admin/monitoreo"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Application.DTOs.Admin
+@using Conversia.Application.Time
+@using Conversia.Web.Authentication
+@using Conversia.Web.Components.Dashboard
+@using Conversia.Web.Time
+@inherits AdminPageBase
+@inject TenantTimeZone TimeZone
+
+<PageTitle>Monitoreo - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+<div class="page" data-page="admin-monitoring">
+    <PageHeader Eyebrow="Administración" EyebrowIcon="shield-check" Title="Monitoreo"
+                Description="Cómo funciona el servicio: salud, colas, entregas, clasificación, uso de IA, errores y envíos. Solo cifras: ningún mensaje ni dato de clientes." />
+
+    <ErrorAlert Message="@Message" />
+
+    @if (_overview is { } o)
+    {
+        <Card Title="Alertas" Subtitle="@($"Calculado el {AdminFormat.Moment(TimeZone.ToLocal(o.GeneratedAt))}.")" IconName="alert-triangle" data-testid="flags-card">
+            @if (o.Flags.Count == 0)
+            {
+                <p class="muted" data-testid="no-flags"><Icon Name="check-circle" Class="icon--sm" /> Todo dentro de los umbrales.</p>
+            }
+            else
+            {
+                <ul class="stack" data-testid="flags" aria-label="Alertas activas">
+                    @foreach (var flag in o.Flags)
+                    {
+                        <li class="cluster-md" data-testid="flag" data-code="@flag.Code" data-severity="@flag.Severity">
+                            <Chip Tone="@(flag.Severity == "critical" ? ChipTone.Danger : ChipTone.Warning)" IconName="@(flag.Severity == "critical" ? "alert-circle" : "alert-triangle")">@(flag.Severity == "critical" ? "Crítica" : "Aviso")</Chip>
+                            <span>@flag.Message</span>
+                        </li>
+                    }
+                </ul>
+            }
+        </Card>
+
+        <div class="kpi-grid" data-testid="overview-kpis">
+            <KpiCard Kpi="health" Label="Salud" Value="@AdminFormat.Health(o.Health.Status)" RawValue="@o.Health.Status" IconName="shield-check"
+                     Help="@HealthHelp(o)" />
+            <KpiCard Kpi="webhook-backlog" Label="Entregas pendientes" Value="@MetricsFormat.Whole(o.Backlog.WebhookPending)" RawValue="@o.Backlog.WebhookPending.ToString()" IconName="layers"
+                     Help="@($"La más antigua espera {AdminFormat.Age(o.Backlog.OldestPendingSeconds)}.")" />
+            <KpiCard Kpi="classification-backlog" Label="Clasificaciones pendientes" Value="@MetricsFormat.Whole(o.Backlog.ClassificationWaiting)" RawValue="@o.Backlog.ClassificationWaiting.ToString()" IconName="clock"
+                     Help="@($"La más antigua espera {AdminFormat.Age(o.Backlog.OldestClassificationSeconds)}. Detenidas tras fallar: {MetricsFormat.Whole(o.Backlog.ClassificationStopped)}.")" />
+            <KpiCard Kpi="errors" Label="Errores (24 h)" Value="@MetricsFormat.Whole(o.Errors.Last24h)" RawValue="@o.Errors.Last24h.ToString()" IconName="alert-circle"
+                     Help="Errores registrados en el último día. El detalle está en el registro de errores." />
+        </div>
+
+        <Card Title="Entregas del webhook" Subtitle="Lo que 360dialog entregó, real y de prueba por separado." IconName="message" data-testid="deliveries-card">
+            <div class="table-wrap" role="region" aria-label="Entregas del webhook" tabindex="0">
+                <table class="table">
+                    <caption class="sr-only">Entregas del webhook por ventana</caption>
+                    <thead>
+                        <tr><th scope="col">Ventana</th><th scope="col">Entregas</th><th scope="col">Mensajes guardados</th><th scope="col">Duplicados</th><th scope="col">Omitidos</th><th scope="col">Fallidas</th></tr>
+                    </thead>
+                    <tbody>
+                        <DeliveryRow Label="Reales, últimas 24 h" Counts="o.Deliveries.RealLast24h" />
+                        <DeliveryRow Label="Reales, últimos 7 días" Counts="o.Deliveries.RealLast7d" />
+                        <DeliveryRow Label="Sandbox, últimas 24 h" Counts="o.Deliveries.SandboxLast24h" />
+                        <DeliveryRow Label="Sandbox, últimos 7 días" Counts="o.Deliveries.SandboxLast7d" />
+                    </tbody>
+                </table>
+            </div>
+        </Card>
+
+        <Card Title="IA este mes" Subtitle="@AiSubtitle(o)" IconName="sparkles" data-testid="ai-card">
+            <dl class="kv">
+                <div><dt>Conversaciones analizadas (reales)</dt><dd data-testid="ai-real-conversations">@MetricsFormat.Whole(o.Ai.Real.Conversations)</dd></div>
+                <div><dt>Llamadas (reales / sandbox)</dt><dd>@MetricsFormat.Whole(o.Ai.Real.Calls) / @MetricsFormat.Whole(o.Ai.Sandbox.Calls)</dd></div>
+                <div><dt>Tokens de entrada / salida (reales)</dt><dd>@MetricsFormat.Whole(o.Ai.Real.InputTokens) / @MetricsFormat.Whole(o.Ai.Real.OutputTokens)</dd></div>
+                <div>
+                    <dt>Registros de uso que no se pudieron guardar</dt>
+                    <dd data-testid="ai-lost-usage" data-value="@o.Ai.LostUsageRecords">@MetricsFormat.Whole(o.Ai.LostUsageRecords)@(o.Ai.LastLostUsageAt is { } lostAt ? $" (el último: {AdminFormat.Moment(TimeZone.ToLocal(lostAt))})" : string.Empty)</dd>
+                </div>
+                <div><dt>Costo estimado (reales + sandbox)</dt><dd data-testid="ai-deployment-usd">@AdminFormat.Usd(o.Ai.DeploymentUsd) de @AdminFormat.Usd(o.Ai.DeploymentCapUsd)</dd></div>
+                <div>
+                    <dt>Cortacircuitos del proveedor</dt>
+                    <dd data-testid="ai-breaker">@BreakerText(o.Ai.BreakerState)</dd>
+                </div>
+            </dl>
+            <p class="muted">El cortacircuitos es de la instancia del API que respondió; sus cambios también quedan en el registro (Warning).</p>
+        </Card>
+
+        <Card Title="Envíos manuales (7 días)" Subtitle="Cómo terminaron los mensajes que los asesores enviaron desde Conversia." IconName="arrow-right" data-testid="sends-card">
+            @if (o.Sends.ByOutcomeLast7d.Count == 0)
+            {
+                <p class="muted">Sin envíos en los últimos 7 días.</p>
+            }
+            else
+            {
+                <OutcomeTable Outcomes="o.Sends.ByOutcomeLast7d" />
+            }
+        </Card>
+
+        <Card Title="Errores frecuentes (24 h)" Subtitle="Por huella: cuántas veces y cuándo la última. Sin mensajes ni datos de la solicitud." IconName="alert-circle" data-testid="errors-card">
+            @if (o.Errors.TopLast24h.Count == 0)
+            {
+                <p class="muted">Sin errores en el último día.</p>
+            }
+            else
+            {
+                <div class="table-wrap" role="region" aria-label="Errores por huella" tabindex="0">
+                    <table class="table">
+                        <caption class="sr-only">Errores del último día por huella</caption>
+                        <thead><tr><th scope="col">Huella</th><th scope="col">Origen</th><th scope="col">Tipo</th><th scope="col">Veces</th><th scope="col">Última</th></tr></thead>
+                        <tbody>
+                            @foreach (var e in o.Errors.TopLast24h)
+                            {
+                                <tr data-testid="error-row"><th scope="row"><code>@e.Fingerprint</code></th><td>@e.Source</td><td>@e.Kind</td><td>@MetricsFormat.Whole(e.Count)</td><td>@AdminFormat.Moment(TimeZone.ToLocal(e.LastOccurredAt))</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </Card>
+
+        <Card Title="Empresas sin entregas" Subtitle="@SilentSubtitle(o)" IconName="phone" data-testid="silent-card">
+            <CompanyList Companies="SilentItems(o)" Empty="Ninguna." />
+        </Card>
+
+        <Card Title="Empresas con la IA agotada" Subtitle="@LimitedSubtitle(o)" IconName="sparkles" data-testid="ai-limited-card">
+            <CompanyList Companies="LimitedItems(o)" Empty="Ninguna." />
+        </Card>
+    }
+</div>
+
+@code {
+    private PlatformOverviewResponse? _overview;
+
+    private static string HealthHelp(PlatformOverviewResponse o) => string.Join(" · ", o.Health.Checks.Select(c => $"{c.Name}: {AdminFormat.Health(c.Status)}"));
+
+    private static string AiSubtitle(PlatformOverviewResponse o)
+        => $"Clasificación: {(o.Ai.Provider == "Llm" ? "reglas e IA" : "solo reglas")}. Costos estimados, no una factura.";
+
+    private static string BreakerText(string? state) => state switch
+    {
+        null => "No aplica (solo reglas)",
+        "Closed" => "Cerrado: funciona",
+        "HalfOpen" => "Probando de nuevo",
+        _ => "Abierto: se usan reglas",
+    };
+
+    private static string SilentSubtitle(PlatformOverviewResponse o)
+        => $"Activas, con líneas encendidas y sin entregas reales hace {o.Thresholds.SilentLineHours} horas o más ({AdminFormat.Companies(o.SilentCompaniesTotal)}).";
+
+    private static string LimitedSubtitle(PlatformOverviewResponse o)
+        => $"Agotaron su cupo o su tope en USD este mes ({AdminFormat.Companies(o.AiLimitedCompaniesTotal)}).";
+
+    private IReadOnlyList<(Guid Id, string Name, string Detail)> SilentItems(PlatformOverviewResponse o)
+        => o.SilentCompanies
+            .Select(c => (c.TenantId, c.Name, c.LastDeliveryAt is { } at ? $"Última entrega: {AdminFormat.Moment(TimeZone.ToLocal(at))}" : "Nunca ha recibido entregas"))
+            .ToList();
+
+    private static IReadOnlyList<(Guid Id, string Name, string Detail)> LimitedItems(PlatformOverviewResponse o)
+        => o.AiLimitedCompanies
+            .Select(c => (c.TenantId, c.Name,
+                $"{MetricsFormat.Whole(c.Conversations)} de {MetricsFormat.Whole(c.Quota)} conversaciones · {AdminFormat.Usd(c.EstimatedUsd)} de {AdminFormat.Usd(c.CeilingUsd)}"))
+            .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        var result = await Api.GetAdminMonitoringAsync(Token!);
+        if (await TryFailAsync(result))
+        {
+            return;
+        }
+
+        _overview = result.Value;
+    }
+}

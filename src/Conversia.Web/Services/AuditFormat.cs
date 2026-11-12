@@ -25,9 +25,33 @@ public static class AuditFormat
             PlatformAuditLog.Actions.TenantSandboxModeChanged => new AuditText(
                 Flag(details, "to") == true ? "Activó el modo sandbox" : "Desactivó el modo sandbox",
                 Text(details, "reason") is { Length: > 0 } sandboxReason ? $"Motivo: {sandboxReason}" : null),
+            PlatformAuditLog.Actions.TenantAiEnabledChanged => new AuditText(
+                Flag(details, "from") == true && Flag(details, "to") == true ? "Actualizó los términos de IA aceptados"
+                    : Flag(details, "to") == true ? "Activó la IA" : "Desactivó la IA",
+                Join(Text(details, "reason") is { Length: > 0 } aiReason ? $"Motivo: {aiReason}" : null,
+                    Text(details, "termsVersion") is { Length: > 0 } terms ? $"Términos: {terms}" : null)),
+            PlatformAuditLog.Actions.TenantAiQuotaChanged => new AuditText(
+                $"Cambió el cupo mensual de IA: {Text(details, "from") ?? DefaultWord} → {Text(details, "to") ?? DefaultWord}", Reason(details)),
+            PlatformAuditLog.Actions.TenantSendRateLimitChanged => new AuditText(
+                $"Cambió el límite de envíos por minuto: {Text(details, "from") ?? DefaultWord} → {Text(details, "to") ?? DefaultWord}", Reason(details)),
+            PlatformAuditLog.Actions.LicenseCreated => new AuditText("Creó una licencia de línea", Number(details)),
+            PlatformAuditLog.Actions.LicenseAssigned => new AuditText("Asignó una licencia de línea", Number(details)),
+            PlatformAuditLog.Actions.LicenseReleased => new AuditText(
+                Flag(details, "lineDeactivated") == true ? "Liberó una licencia de línea y desactivó su línea" : "Liberó una licencia de línea", Number(details)),
+            PlatformAuditLog.Actions.LicenseRetired => new AuditText("Retiró una licencia de línea", Number(details)),
             _ => new AuditText($"Cambio registrado ({entry.Action})", null),
         };
     }
+
+    private const string DefaultWord = "por defecto";
+
+    private static string? Reason(JsonElement details) => Text(details, "reason") is { Length: > 0 } reason ? $"Motivo: {reason}" : null;
+
+    // The masked number the audit keeps for a licence ("•••• 1234").
+    private static string? Number(JsonElement details) => Text(details, "number") is { Length: > 0 } number ? $"Número: {number}" : null;
+
+    private static string? Join(string? first, string? second)
+        => first is null ? second : second is null ? first : $"{first} · {second}";
 
     private static bool? Flag(JsonElement details, string name)
         => details.ValueKind == JsonValueKind.Object && details.TryGetProperty(name, out var value)

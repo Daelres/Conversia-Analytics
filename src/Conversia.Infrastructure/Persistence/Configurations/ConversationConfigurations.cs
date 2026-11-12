@@ -90,6 +90,9 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
 
         // The conversation list and the metrics read a tenant's conversations by the day they started and by whether they are still open.
         builder.HasIndex(c => new { c.TenantId, c.StartedAt });
+
+        // Conversations closed per day of a company (platform monitoring).
+        builder.HasIndex(c => new { c.TenantId, c.ClosedAt });
         builder.HasIndex(c => new { c.TenantId, c.Status, c.LastMessageAt });
 
         // The close-by-inactivity job looks for the idle open conversations of every tenant at once: only open ones are indexed.
@@ -226,6 +229,9 @@ public class WebhookEventConfiguration : IEntityTypeConfiguration<WebhookEvent>
 
         // The deliveries page of a tenant, newest first (it also serves the foreign key to the tenant as its first column).
         builder.HasIndex(e => new { e.TenantId, e.ReceivedAt });
+
+        // The platform's monitoring counts deliveries of the last 24 hours and 7 days across companies (docs/PLATFORM_ADMIN.md, "Monitoring").
+        builder.HasIndex(e => e.ReceivedAt);
 
         builder.HasOne<Tenant>().WithMany().HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<WhatsAppChannel>().WithMany().HasForeignKey(e => e.ChannelId).OnDelete(DeleteBehavior.Restrict);

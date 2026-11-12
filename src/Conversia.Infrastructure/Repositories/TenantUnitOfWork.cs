@@ -1,4 +1,6 @@
 using Conversia.Domain.Entities;
+using Conversia.Domain.Enums;
+using Conversia.Domain.Exceptions;
 using Conversia.Domain.Interfaces;
 using Conversia.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -73,11 +75,27 @@ public sealed class TenantUnitOfWork : ITenantUnitOfWork
         public Task<WhatsAppChannel?> GetChannelAsync(Guid channelId, CancellationToken cancellationToken = default)
             => _dbContext.WhatsAppChannels.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Id == channelId && c.TenantId == Tenant.Id, cancellationToken);
 
+        public async Task<IReadOnlyList<WhatsAppChannel>> GetChannelsAsync(CancellationToken cancellationToken = default)
+            => await _dbContext.WhatsAppChannels.IgnoreQueryFilters().Where(c => c.TenantId == Tenant.Id).OrderBy(c => c.CreatedAt).ToListAsync(cancellationToken);
+
+        // Licences are platform rows (no tenant filter); the company is named explicitly like everything here.
+        public async Task<IReadOnlyList<LineLicense>> GetAssignedLicensesAsync(CancellationToken cancellationToken = default)
+            => await _dbContext.LineLicenses.Where(l => l.AssignedTenantId == Tenant.Id && l.Status == LineLicenseStatus.Assigned).OrderBy(l => l.AssignedAt).ToListAsync(cancellationToken);
+
         public void Record(PlatformAuditLog entry) => _dbContext.PlatformAuditLogs.Add(entry);
 
         public async Task CommitAsync(CancellationToken cancellationToken = default)
         {
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                // A licence changed since it was read (another administrator, or a line switched on): nothing is written.
+                throw new ConcurrencyConflictException(ex);
+            }
+
             await _transaction.CommitAsync(cancellationToken);
             _committed = true;
         }

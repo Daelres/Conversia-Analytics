@@ -33,12 +33,16 @@ public class MessageSendingService : IMessageSendingService
     private readonly IWhatsAppMessageSenderResolver _senders;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<MessageSendingService> _logger;
+    private readonly IMessageSendOutcomeRecorder? _outcomes;
 
+    /// <param name="outcomes">Counts how each send ended, for the platform's monitoring (docs/PLATFORM_ADMIN.md, "Monitoring").</param>
     public MessageSendingService(
         IConversationRepository conversations, IWhatsAppChannelRepository channels, IContactRepository contacts, IMessageRepository messages,
-        ITenantRepository tenants, IWhatsAppMessageSenderResolver senders, TimeProvider timeProvider, ILogger<MessageSendingService> logger)
+        ITenantRepository tenants, IWhatsAppMessageSenderResolver senders, TimeProvider timeProvider, ILogger<MessageSendingService> logger,
+        IMessageSendOutcomeRecorder? outcomes = null)
     {
         _logger = logger;
+        _outcomes = outcomes;
         _conversations = conversations;
         _channels = channels;
         _contacts = contacts;
@@ -54,6 +58,47 @@ public class MessageSendingService : IMessageSendingService
 
         // Untracked reads: nothing is locked, and no transaction is open, while the provider is being called.
         var conversation = await _conversations.GetByIdAsync(conversationId, cancellationToken) ?? throw new ConversationNotFoundException();
+        string? outcome = MessageSendOutcome.Unexpected;
+        try
+        {
+            var response = await SendAsync(conversation, text, cancellationToken);
+            outcome = MessageSendOutcome.Sent;
+            return response;
+        }
+        catch (MessagingException ex)
+        {
+            outcome = ex.Code;
+            throw;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            outcome = null; // the caller went away before anything was decided: not an outcome of the send
+            throw;
+        }
+        finally
+        {
+            if (_outcomes is not null && outcome is not null)
+            {
+                await CountAsync(conversation, outcome);
+            }
+        }
+    }
+
+    // The customer's fate is decided; the counter must neither depend on the caller still waiting nor change the answer when it fails.
+    private async Task CountAsync(Conversation conversation, string outcome)
+    {
+        try
+        {
+            await _outcomes!.RecordAsync(conversation.TenantId, conversation.IsSandbox, outcome, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("The outcome {Outcome} of a send in conversation {ConversationId} could not be counted ({ErrorType}).", outcome, conversation.Id, ex.GetType().Name);
+        }
+    }
+
+    private async Task<MessageResponse> SendAsync(Conversation conversation, string text, CancellationToken cancellationToken)
+    {
         if (conversation.Status == ConversationStatus.Closed)
         {
             throw new MessagingException(MessagingProblem.ConversationClosed);
