@@ -9,10 +9,10 @@ namespace Conversia.Web.IntegrationTests.ErrorReporting;
 /// A blank value means "use the default"; without a key the Web still runs (it shows and logs the codes, it just does not report
 /// them). None of these tests needs a backend: the hosts have none.
 /// <para>
-/// A refusal must happen <b>at or before host start</b>: the tests boot the host and make a client, and nothing else, so a setting that
-/// is only checked when the first error is reported would boot fine and fail these tests. A refusal that is raised while the host
-/// starts can be replaced, by a race in the host's own teardown, with an <see cref="ObjectDisposedException"/>; <c>Boot</c> repeats
-/// such a boot (at most three times) before it believes it.
+/// A refusal must happen <b>before any host is built</b>: the tests boot the host and make a client, and nothing else, so a setting that
+/// is only checked when the first error is reported would boot fine and fail these tests. A refusal raised only while the host starts
+/// is not enough either: <c>app.Run()</c> disposes the failed host at once, and the test host, still reaching into its services, then
+/// sees an <see cref="ObjectDisposedException"/> instead of the refusal (intermittently, when the whole suite runs).
 /// </para>
 /// </summary>
 public class ErrorReportingConfigurationTests
@@ -24,23 +24,11 @@ public class ErrorReportingConfigurationTests
 
     private static string KeyOfLength(int length) => ("zQ9-" + new string('x', Math.Max(0, length - 4)))[..length];
 
-    private const int BootAttempts = 3;
-
     /// <summary>Boots the Web with these settings and returns what stopped it (null when it started).</summary>
     private static Exception? Boot(params (string Key, string? Value)[] settings)
     {
-        Exception? failure = null;
-        for (var attempt = 1; attempt <= BootAttempts; attempt++)
-        {
-            using var host = WebTestHost.CreateWithoutApi(WebSettings.With(settings));
-            failure = Record.Exception(() => host.NewSession());
-            if (failure is null || !ExceptionChain.IsDisposalNoise(failure))
-            {
-                return failure;
-            }
-        }
-
-        return failure;
+        using var host = WebTestHost.CreateWithoutApi(WebSettings.With(settings));
+        return Record.Exception(() => host.NewSession());
     }
 
     private static void AssertRefusedNaming(Exception? failure, string setting, string context)
@@ -169,6 +157,26 @@ public class ErrorReportingConfigurationTests
     [InlineData("many")]
     public void A_budget_below_one_or_not_a_number_is_refused_naming_the_setting(string value)
         => AssertRefusedNaming(Boot((Budget, value)), Budget, $"MaxPerFingerprintPerMinute='{value}'");
+
+    // ---- when ----
+
+    [Theory]
+    [InlineData(ApiKey, "short-key")]
+    [InlineData(Enabled, "yes")]
+    [InlineData(Timeout, "0")]
+    [InlineData(Budget, "0")]
+    public void A_refusal_is_raised_while_the_web_is_composed_so_no_host_ever_starts(string setting, string value)
+    {
+        var failure = Boot((setting, value));
+
+        AssertRefusedNaming(failure, setting, $"{setting}='{value}'");
+        var refusal = ExceptionChain.FindRefusal(failure!, setting)!;
+        var hostFrames = new System.Diagnostics.StackTrace(refusal).GetFrames()
+            .Select(frame => frame.GetMethod()?.DeclaringType?.FullName ?? string.Empty)
+            .Where(type => type.StartsWith("Microsoft.Extensions.Hosting.Internal.Host", StringComparison.Ordinal))
+            .ToList();
+        Assert.True(hostFrames.Count == 0, $"'{setting}' was refused by a host that had started ({string.Join(", ", hostFrames)}); it must be refused before the host is built.");
+    }
 
     // ---- the secret stays secret ----
 

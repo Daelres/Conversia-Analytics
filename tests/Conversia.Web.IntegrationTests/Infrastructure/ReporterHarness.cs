@@ -89,7 +89,7 @@ internal sealed class ReporterHarness : IDisposable
 
         services.AddHttpContextAccessor();
         services.AddApiClient();
-        services.AddWebErrorReporting();
+        services.AddWebErrorReporting(configuration);
         services.ConfigureAll<HttpClientFactoryOptions>(options =>
             options.HttpMessageHandlerBuilderActions.Add(handlerBuilder => handlerBuilder.PrimaryHandler = backend));
 

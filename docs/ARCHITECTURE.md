@@ -197,7 +197,8 @@ reaches it transitively through the Application DTOs.)
   `X-Error-Id`; `ApiClient` gives every `Unavailable` outcome an `ErrorCode`;
   the per-request `ErrorCodeState` carries it to `Components/Shared/ErrorCodeNotice`,
   which the layouts render, so no page shows or knows about the code. The
-  options are validated at startup (`ErrorReportingOptionsSetup/Validator`).
+  options are validated while the Web is composed, before the host is built
+  (`ErrorReportingOptionsSetup/Validator`; `ValidateOnStart` stays as a backstop).
   Only `Application` (and `Domain` through it) is referenced.
 - `Authentication/` — cookie authentication (`AddWebAuthentication`).
   After a successful login/registration the API's JWT is stored **inside

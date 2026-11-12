@@ -16,7 +16,7 @@ builder.Services.AddRazorComponents();
 builder.Services.AddWebDataProtection(builder.Configuration);
 builder.Services.AddWebAuthentication();
 builder.Services.AddApiClient();
-builder.Services.AddWebErrorReporting();
+builder.Services.AddWebErrorReporting(builder.Configuration);
 builder.Services.AddScoped<ShellState>();
 builder.Services.AddTenantTimeZone(builder.Configuration);
 // Optional contact line for the pending and suspended pages; an invalid value stops the start.
