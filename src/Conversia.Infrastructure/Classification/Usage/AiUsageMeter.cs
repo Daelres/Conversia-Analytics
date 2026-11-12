@@ -18,7 +18,8 @@ namespace Conversia.Infrastructure.Classification.Usage;
 /// USD only. The month is the America/Bogota month at the time of the increment.</item>
 /// </list>
 /// Across companies on purpose: the deployment cap sums every company's month, and the worker that records has no company set on its scope.
-/// Never text: ids, counts, tokens and money.
+/// The quota is the company's own, else its plan's included conversations, else the default, plus the paid AI add-ons valid now
+/// (docs/BILLING.md, "AI add-ons"). Never text: ids, counts, tokens and money.
 /// </summary>
 public sealed class AiUsageMeter(IServiceScopeFactory scopeFactory, AiQuotaSettings settings, TimeProvider timeProvider, ILogger<AiUsageMeter> logger) : IAiUsageMeter, IAiUsageLossCounter
 {
@@ -42,14 +43,17 @@ public sealed class AiUsageMeter(IServiceScopeFactory scopeFactory, AiQuotaSetti
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var month = settings.MonthOf(timeProvider.GetUtcNow().UtcDateTime);
+        var utcNow = timeProvider.GetUtcNow().UtcDateTime;
+        var month = settings.MonthOf(utcNow);
 
         var facts = await db.Tenants.AsNoTracking()
             .Where(t => t.Id == tenantId)
             .Select(t => new
             {
                 t.AiEnabled,
-                t.AiMonthlyConversationQuota,
+                Own = t.AiMonthlyConversationQuota,
+                Plan = db.BillingSubscriptions.IgnoreQueryFilters().Where(s => s.TenantId == t.Id && s.Status != Domain.Enums.SubscriptionStatus.Cancelled).Join(db.BillingPlans, s => s.PlanId, p => p.Id, (s, p) => (int?)p.IncludedAiConversations).FirstOrDefault(),
+                Extra = db.AiQuotaGrants.IgnoreQueryFilters().Where(g => g.TenantId == t.Id && g.ValidFrom <= utcNow && g.ValidUntil > utcNow).Sum(g => (int?)g.Conversations),
                 Used = db.AiUsageMonths.IgnoreQueryFilters().Where(u => u.TenantId == t.Id && u.Month == month && !u.IsSandbox).Select(u => (int?)u.ConversationsAnalyzed).FirstOrDefault(),
                 Usd = db.AiUsageMonths.IgnoreQueryFilters().Where(u => u.TenantId == t.Id && u.Month == month && !u.IsSandbox).Select(u => (decimal?)u.EstimatedUsd).FirstOrDefault(),
                 SandboxUsd = db.AiUsageMonths.IgnoreQueryFilters().Where(u => u.TenantId == t.Id && u.Month == month && u.IsSandbox).Select(u => (decimal?)u.EstimatedUsd).FirstOrDefault(),
@@ -61,7 +65,7 @@ public sealed class AiUsageMeter(IServiceScopeFactory scopeFactory, AiQuotaSetti
             return AiAdmission.AiDisabled;
         }
 
-        var quota = settings.EffectiveQuota(facts.AiMonthlyConversationQuota);
+        var quota = settings.EffectiveQuota(facts.Own ?? facts.Plan) + (facts.Extra ?? 0);
         var admission = AiAdmissionPolicy.Decide(new AiAdmissionFacts(
             facts.AiEnabled, isSandbox, quota, facts.Used ?? 0, facts.Usd ?? 0m, settings.CeilingUsd(quota), facts.Deployment ?? 0m, settings.DeploymentMonthlyUsdCap,
             facts.SandboxUsd ?? 0m, settings.SandboxMonthlyUsdPerCompany));
@@ -142,8 +146,10 @@ public sealed class AiUsageMeter(IServiceScopeFactory scopeFactory, AiQuotaSetti
         DateTime? ceilingAt = row.UsdCeilingReachedAt;
         if (!record.IsSandbox && (exhaustedAt is null || ceilingAt is null))
         {
-            var own = await db.Tenants.AsNoTracking().Where(t => t.Id == record.TenantId).Select(t => t.AiMonthlyConversationQuota).FirstOrDefaultAsync(cancellationToken);
-            var quota = settings.EffectiveQuota(own);
+            var own = await db.Tenants.AsNoTracking().Where(t => t.Id == record.TenantId)
+                .Select(t => new { Own = t.AiMonthlyConversationQuota, Plan = db.BillingSubscriptions.IgnoreQueryFilters().Where(s => s.TenantId == t.Id && s.Status != Domain.Enums.SubscriptionStatus.Cancelled).Join(db.BillingPlans, s => s.PlanId, p => p.Id, (s, p) => (int?)p.IncludedAiConversations).FirstOrDefault(), Extra = db.AiQuotaGrants.IgnoreQueryFilters().Where(g => g.TenantId == t.Id && g.ValidFrom <= now && g.ValidUntil > now).Sum(g => (int?)g.Conversations) })
+                .FirstOrDefaultAsync(cancellationToken);
+            var quota = settings.EffectiveQuota(own?.Own ?? own?.Plan) + (own?.Extra ?? 0);
             if (exhaustedAt is null && analyzed >= quota)
             {
                 exhaustedAt = now;

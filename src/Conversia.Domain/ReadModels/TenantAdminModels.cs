@@ -30,7 +30,10 @@ public sealed record TenantAdminSummary(
     string? StatusReasonCode = null,
     DateTime? CancelledAt = null,
     DateTime? DataDeletionDueAt = null,
-    DateTime? DataDeletionStartedAt = null);
+    DateTime? DataDeletionStartedAt = null,
+    SubscriptionStatus? BillingStatus = null,
+    DateTime? BillingSuspendedAt = null,
+    string? BillingPlanCode = null);
 
 /// <summary>A WhatsApp line of a company: the number, its branch and whether it is switched on. No customer data.</summary>
 public sealed record TenantAdminLine(Guid ChannelId, string DisplayPhoneNumber, string? BranchName, bool IsActive);

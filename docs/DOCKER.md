@@ -244,3 +244,10 @@ Only the host side changes; containers keep talking to each other on the interna
 - The migrator receives the database password in its command line (visible in `docker inspect` of that container). Acceptable for local compose; use a secret store or Key Vault in production.
 - `docker compose up` waits for the API to be healthy before starting the Web, so a slow API start delays the Web.
 - The smoke test builds on the host architecture only; the amd64 build is verified separately (see Multi-arch).
+
+## Billing behind a proxy
+
+The Wompi events endpoint (`POST /api/billing/wompi/events`, docs/BILLING.md) limits forged events per client address. Behind a reverse
+proxy, configure the forwarded headers (`ForwardedHeaders:KnownProxies` / `KnownNetworks`) so that address is the real client's; without them
+every caller shares the proxy's address. Verified events are never blocked by that budget, so Wompi keeps working either way. The images
+carry the `America/Bogota` time zone data the billing calendar needs; the smoke test checks it.

@@ -136,6 +136,16 @@ public class ExceptionHandlingMiddleware
         {
             await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.LicenseRequiredTitle, ex.Message, ("code", LicenseRequiredException.Code));
         }
+        catch (BillingException ex)
+        {
+            if (ex.StatusCode == StatusCodes.Status503ServiceUnavailable)
+            {
+                // An operations problem, not a defect of the request: logged by its code only (never the gateway's answer).
+                _logger.LogWarning("Billing unavailable ({Code}): {Method} {Path}.", ex.Code, context.Request.Method, RequestPathRedactor.Redact(context.Request.Path.Value));
+            }
+
+            await WriteProblemAsync(context, ex.StatusCode, ProblemTexts.BillingTitle, ex.Message, ("code", ex.Code));
+        }
         catch (ConcurrencyConflictException ex)
         {
             await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.ConcurrentChangeTitle, ex.Message, ("code", "concurrent_change"));

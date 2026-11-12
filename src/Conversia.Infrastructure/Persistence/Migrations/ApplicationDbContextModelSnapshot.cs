@@ -69,6 +69,54 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.ToTable("Advisors", (string)null);
                 });
 
+            modelBuilder.Entity("Conversia.Domain.Entities.AiQuotaGrant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ChargeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Conversations")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ValidFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ValidUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChargeId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "ValidUntil");
+
+                    b.ToTable("AiQuotaGrants", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiQuotaGrants_Conversations", "\"Conversations\" > 0");
+
+                            t.HasCheckConstraint("CK_AiQuotaGrants_Window", "\"ValidUntil\" > \"ValidFrom\"");
+                        });
+                });
+
             modelBuilder.Entity("Conversia.Domain.Entities.AiUsageConversation", b =>
                 {
                     b.Property<Guid>("TenantId")
@@ -140,6 +188,612 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.HasIndex("Month");
 
                     b.ToTable("AiUsageMonths", (string)null);
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.BillingAddOn", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("Conversations")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("PriceInCents")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlanId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("BillingAddOns", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BillingAddOns_Conversations", "\"Conversations\" BETWEEN 1 AND 1000000");
+
+                            t.HasCheckConstraint("CK_BillingAddOns_Price", "\"PriceInCents\" BETWEEN 0 AND 10000000000");
+                        });
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.BillingCharge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AddOnConversations")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AddOnName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("AddOnQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("AddOnUnitPriceInCents")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("AmountInCents")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("AutomaticAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .IsFixedLength();
+
+                    b.Property<DateOnly>("DueOn")
+                        .HasColumnType("date");
+
+                    b.Property<int>("Lines")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("PaidAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("PaymentLinkExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PaymentLinkId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PaymentLinkUrl")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateOnly>("PeriodEnd")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly>("PeriodStart")
+                        .HasColumnType("date");
+
+                    b.Property<string>("PlanCode")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PlanName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Settlement")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("SubscriptionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("UnitPriceInCents")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentLinkId")
+                        .IsUnique()
+                        .HasFilter("\"PaymentLinkId\" IS NOT NULL");
+
+                    b.HasIndex("SubscriptionId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_BillingCharges_OneOpenPerSubscription")
+                        .HasFilter("\"Status\" = 'Open'");
+
+                    b.HasIndex("SubscriptionId", "PeriodStart")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "PeriodStart");
+
+                    b.ToTable("BillingCharges", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BillingCharges_Amount", "\"AmountInCents\" >= 0");
+
+                            t.HasCheckConstraint("CK_BillingCharges_Currency", "\"Currency\" = 'COP'");
+
+                            t.HasCheckConstraint("CK_BillingCharges_Paid", "(\"Status\" = 'Paid') = (\"PaidAt\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_BillingCharges_Period", "\"PeriodEnd\" > \"PeriodStart\"");
+                        });
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.BillingEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("BodyHash")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PaymentLinkId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("TransactionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BodyHash")
+                        .IsUnique();
+
+                    b.HasIndex("NextAttemptAt")
+                        .HasFilter("\"Status\" = 'Pending'");
+
+                    b.HasIndex("ReceivedAt");
+
+                    b.ToTable("BillingEvents", (string)null);
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.BillingPaymentAttempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("AmountInCents")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("AttemptedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ChargeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Checks")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .IsFixedLength();
+
+                    b.Property<string>("GatewayTransactionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("LastCheckedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MethodType")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ReviewFlaggedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReviewReason")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("StatusReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChargeId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_BillingPaymentAttempts_OnePendingPerCharge")
+                        .HasFilter("\"Status\" = 'Pending' AND \"Kind\" <> 'PaymentLink'");
+
+                    b.HasIndex("GatewayTransactionId")
+                        .IsUnique()
+                        .HasFilter("\"GatewayTransactionId\" IS NOT NULL");
+
+                    b.HasIndex("Reference")
+                        .IsUnique();
+
+                    b.HasIndex("ReviewFlaggedAt")
+                        .HasFilter("\"ReviewReason\" IS NOT NULL AND \"ReviewedAt\" IS NULL");
+
+                    b.ToTable("BillingPaymentAttempts", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BillingPaymentAttempts_Amount", "\"AmountInCents\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.BillingPlan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("IncludedAiConversations")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<long>("PricePerLineInCents")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("BillingPlans", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BillingPlans_IncludedAi", "\"IncludedAiConversations\" BETWEEN 0 AND 1000000");
+
+                            t.HasCheckConstraint("CK_BillingPlans_Price", "\"PricePerLineInCents\" BETWEEN 0 AND 10000000000");
+                        });
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.BillingReviewItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("AmountInCents")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("AttemptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ChargeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Currency")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<DateTime>("FlaggedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ReviewNote")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReviewedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TransactionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FlaggedAt")
+                        .HasFilter("\"ReviewedAt\" IS NULL");
+
+                    b.HasIndex("TenantId", "FlaggedAt");
+
+                    b.ToTable("BillingReviewItems", (string)null);
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.BillingSubscription", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AddOnId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AddOnQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("AnchorDay")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("BilledLinesOverride")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("BillingEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<DateTime?>("BillingSuspendedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("CancelAtPeriodEnd")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("CancellationReasonCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("CurrentPeriodEnd")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly>("CurrentPeriodStart")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("DunningRestartedOn")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime?>("NextRunAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PaymentMethodLabel")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PaymentMethodType")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("PaymentMethodUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PaymentSourceId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AddOnId");
+
+                    b.HasIndex("NextRunAt")
+                        .HasFilter("\"NextRunAt\" IS NOT NULL");
+
+                    b.HasIndex("PlanId");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_BillingSubscriptions_OneLivePerTenant")
+                        .HasFilter("\"Status\" <> 'Cancelled'");
+
+                    b.HasIndex("TenantId", "CreatedAt");
+
+                    b.ToTable("BillingSubscriptions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BillingSubscriptions_AddOn", "(\"AddOnId\" IS NULL AND \"AddOnQuantity\" = 0) OR (\"AddOnId\" IS NOT NULL AND \"AddOnQuantity\" BETWEEN 1 AND 20)");
+
+                            t.HasCheckConstraint("CK_BillingSubscriptions_AnchorDay", "\"AnchorDay\" BETWEEN 1 AND 31");
+
+                            t.HasCheckConstraint("CK_BillingSubscriptions_BilledLines", "\"BilledLinesOverride\" IS NULL OR \"BilledLinesOverride\" BETWEEN 1 AND 1000");
+
+                            t.HasCheckConstraint("CK_BillingSubscriptions_PaymentMethod", "(\"PaymentSourceId\" IS NULL) = (\"PaymentMethodType\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_BillingSubscriptions_Period", "\"CurrentPeriodEnd\" >= \"CurrentPeriodStart\"");
+                        });
                 });
 
             modelBuilder.Entity("Conversia.Domain.Entities.Branch", b =>
@@ -1356,6 +2010,15 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("Conversia.Domain.Entities.AiQuotaGrant", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.BillingCharge", null)
+                        .WithMany()
+                        .HasForeignKey("ChargeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Conversia.Domain.Entities.AiUsageConversation", b =>
                 {
                     b.HasOne("Conversia.Domain.Entities.Tenant", null)
@@ -1371,6 +2034,53 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.BillingAddOn", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.BillingPlan", null)
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.BillingCharge", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.BillingSubscription", null)
+                        .WithMany()
+                        .HasForeignKey("SubscriptionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.BillingPaymentAttempt", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.BillingCharge", null)
+                        .WithMany()
+                        .HasForeignKey("ChargeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.BillingSubscription", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.BillingAddOn", null)
+                        .WithMany()
+                        .HasForeignKey("AddOnId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Conversia.Domain.Entities.BillingPlan", null)
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Conversia.Domain.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

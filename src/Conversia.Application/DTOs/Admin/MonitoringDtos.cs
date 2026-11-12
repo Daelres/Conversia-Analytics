@@ -72,6 +72,18 @@ public class BacklogResponse
 
     /// <summary>Platform only: data deletions of cancelled companies that do not finish (a count, no company named).</summary>
     public int StuckDeletions { get; set; }
+
+    /// <summary>Platform only (docs/BILLING.md): subscriptions past due, of them suspended for billing; failed gateway events; attempts pending over a day.</summary>
+    public int BillingPastDue { get; set; }
+
+    public int BillingSuspended { get; set; }
+
+    public int BillingEventsFailed { get; set; }
+
+    public int BillingAttemptsStuck { get; set; }
+
+    /// <summary>Attempts flagged for a person (money that may have moved without the charge showing it).</summary>
+    public int BillingNeedsReview { get; set; }
 }
 
 /// <summary>AI usage of a month, real or sandbox. Sandbox usage never counts against a company's quota.</summary>

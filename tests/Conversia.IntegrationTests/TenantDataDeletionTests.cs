@@ -89,6 +89,18 @@ public class TenantDataDeletionTests
             await db.Database.ExecuteSqlAsync($"""
                 INSERT INTO "MessageSendOutcomes" ("TenantId", "Day", "IsSandbox", "Outcome", "Count") VALUES ({f.TenantId}, DATE '2026-10-01', false, 'sent', 3)
                 """);
+            // The billing rows (docs/BILLING.md): a subscription with a paid charge, its attempt and its AI add-on grant.
+            var plan = BillingPlan.Create("del" + Guid.NewGuid().ToString("N")[..12], "Plan", 100, 10);
+            var addOn = BillingAddOn.Create(plan.Id, "ia", "IA", 10, 100);
+            var subscription = BillingSubscription.Start(f.TenantId, plan.Id, new DateOnly(2026, 10, 1), 0, DateTime.UtcNow);
+            subscription.StartPeriod(new DateOnly(2026, 10, 1));
+            var charge = BillingCharge.Create(subscription, plan, 1, addOn, 1, new DateOnly(2026, 10, 1), new DateOnly(2026, 11, 1), DateTime.UtcNow);
+            var attempt = BillingPaymentAttempt.Begin(charge, PaymentAttemptKind.Automatic, PaymentMethodType.Card, DateTime.UtcNow);
+            attempt.Resolve(PaymentAttemptStatus.Approved, null, DateTime.UtcNow);
+            charge.MarkPaid(ChargeSettlement.Gateway, null, DateTime.UtcNow);
+            db.AddRange(plan, addOn, subscription, charge, attempt, AiQuotaGrant.For(charge, DateTime.UtcNow, DateTime.UtcNow.AddDays(30)));
+            await db.SaveChangesAsync();
+
             var code = $"ERR-19800301-{Random.Shared.Next(0, 999_999):D6}";
             await db.Database.ExecuteSqlAsync($"""
                 INSERT INTO "ErrorLogs" ("Id", "CreatedAt", "Code", "OccurredAt", "Source", "Kind", "Environment", "ServiceVersion", "Instance", "HttpMethod",

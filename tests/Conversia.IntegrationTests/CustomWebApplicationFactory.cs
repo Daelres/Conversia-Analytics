@@ -96,6 +96,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         builder.UseSetting("Classification:Enabled", "false");
         builder.UseSetting("Usage:Retention:Enabled", "false");
         builder.UseSetting("Tenants:Deletion:Enabled", "false"); // the tests run the deleter directly
+        builder.UseSetting("Billing:Job:Enabled", "false"); // the tests run the billing job directly
         // A real privacy key, as every deployment outside Development has one (the Development fallback would log a warning).
         builder.UseSetting("Privacy:HashKey", "dGVzdC1vbmx5LXByaXZhY3ktaGFzaC1rZXktMzItYnl0ZXMhIQ==");
         builder.UseSetting("Messaging:TenantSendLimitRefresh:Enabled", "false");

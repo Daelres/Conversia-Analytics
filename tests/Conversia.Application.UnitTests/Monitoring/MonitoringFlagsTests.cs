@@ -82,4 +82,18 @@ public class MonitoringFlagsTests
         Assert.Equal(("ai_usage_lost", "critical"), (flag.Code, flag.Severity));
         Assert.Contains("2", flag.Message);
     }
+
+    [Fact]
+    public void Billing_problems_raise_their_flags_and_nothing_else()
+    {
+        Assert.DoesNotContain("billing_events_failed", Codes(Calm));
+        Assert.DoesNotContain("billing_attempt_stuck", Codes(Calm));
+
+        var codes = Codes(Calm with { BillingEventsFailed = 1, BillingAttemptsStuck = 2, BillingNeedsReview = 1 });
+
+        Assert.Contains("billing_events_failed", codes);
+        Assert.Contains("billing_attempt_stuck", codes);
+        Assert.Contains("billing_payment_needs_review", codes);
+        Assert.Equal(3, codes.Count);
+    }
 }

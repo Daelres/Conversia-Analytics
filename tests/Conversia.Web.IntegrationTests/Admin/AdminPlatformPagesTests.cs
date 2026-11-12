@@ -52,7 +52,7 @@ public class AdminPlatformPagesTests
         var page = (await harness.OpenAsync("/admin")).ShouldBe(HttpStatusCode.OK);
 
         var links = page.Select("nav[aria-label='Navegación de administración'] a").Select(a => a.GetAttribute("href")).ToList();
-        Assert.Equal(["/admin", "/admin/monitoreo", "/admin/licencias", "/admin/auditoria"], links);
+        Assert.Equal(["/admin", "/admin/monitoreo", "/admin/licencias", "/admin/facturacion", "/admin/auditoria"], links);
     }
 
     // ---- the company page ----

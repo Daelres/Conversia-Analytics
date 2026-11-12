@@ -31,6 +31,9 @@ public static class ProblemTexts
     public const string LineLicenseConflictTitle = "Cambio de licencia no permitido";
     public const string LicenseRequiredTitle = "Licencia requerida";
     public const string ConcurrentChangeTitle = "Cambio simultáneo";
+    public const string BillingTitle = "Facturación";
+    public const string BillingEventRejectedTitle = "Evento no válido";
+    public const string BillingEventRejectedDetail = "La firma del evento no es válida.";
 
     public const string UnexpectedTitle = "Ocurrió un error inesperado";
     public const string UnexpectedDetail = "Ocurrió un error inesperado. Inténtalo de nuevo más tarde.";

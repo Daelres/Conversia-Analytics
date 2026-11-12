@@ -161,6 +161,13 @@ public class TenantSummaryResponse
     /// <summary>When it started; from then on the company cannot be reactivated.</summary>
     public DateTime? DataDeletionStartedAt { get; set; }
 
+    /// <summary>The subscription's status (null: none yet) and its dunning stage (docs/BILLING.md).</summary>
+    public SubscriptionStatus? BillingStatus { get; set; }
+
+    public DunningStage? DunningStage { get; set; }
+
+    public string? BillingPlanCode { get; set; }
+
     public static TenantSummaryResponse From(TenantAdminSummary s) => new()
     {
         Id = s.Id,
@@ -181,6 +188,11 @@ public class TenantSummaryResponse
         CancelledAt = s.CancelledAt,
         DataDeletionDueAt = s.DataDeletionDueAt,
         DataDeletionStartedAt = s.DataDeletionStartedAt,
+        BillingStatus = s.BillingStatus,
+        DunningStage = s.BillingStatus is { } billing
+            ? Conversia.Application.Billing.DunningPolicy.Stage(billing, billing == SubscriptionStatus.PastDue, s.BillingSuspendedAt is not null)
+            : null,
+        BillingPlanCode = s.BillingPlanCode,
     };
 }
 

@@ -18,4 +18,6 @@ public enum Permission
     MetricsView = 9,
     /// <summary>Suppress a contact on request of the customer (Ley 1581): its conversations, messages and opportunities are deleted.</summary>
     ContactsSuppress = 10,
+    /// <summary>See and manage the company's subscription: payment method, charges, payment links, cancellation (docs/BILLING.md).</summary>
+    BillingManage = 11,
 }

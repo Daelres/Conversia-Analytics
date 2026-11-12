@@ -47,6 +47,7 @@ if (!app.Environment.IsDevelopment())
 app.UseStatusCodePagesWithReExecute("/status/{0}", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
 app.UseNoStoreForDynamicResponses();
+app.UseSecurityHeaders();
 
 app.UseAuthentication();
 app.UseAuthorization();

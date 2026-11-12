@@ -20,6 +20,7 @@ public class TenantFilterGuardTests
         "Conversia.Infrastructure/Conversations/ConversationAutoCloser.cs", // the worker claims across companies
         "Conversia.Infrastructure/Messaging/MessageSendOutcomeRecorder.cs", // retention of the send counters across companies
         "Conversia.Infrastructure/Monitoring/PlatformMonitoringQueries.cs", // the platform administrator's monitoring counts
+        "Conversia.Infrastructure/Repositories/BillingRepositories.cs", // the billing lock and lookups name the company explicitly; the job and events run without one
         "Conversia.Infrastructure/Repositories/PlatformAdminQueries.cs", // the platform administrator's scalar projections
         "Conversia.Infrastructure/Repositories/TenantUnitOfWork.cs", // names the locked company explicitly in every query
         "Conversia.Infrastructure/Repositories/UserRepository.cs", // the email is unique across companies (login, registration)
@@ -59,7 +60,7 @@ public class TenantFilterGuardTests
     }
 
     [Fact]
-    public void EveryEntityWithATenantHasTheFilter_ExceptTheThreePlatformTables()
+    public void EveryEntityWithATenantHasTheFilter_ExceptThePlatformTables()
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -70,8 +71,9 @@ public class TenantFilterGuardTests
             .ToHashSet();
 
         // ErrorLogs: the operations registry; PlatformAuditLogs: the administrators' trail; TenantDeletions: the tombstone of a company
-        // whose data is gone (its key is the id the company had, and there is no company left to filter by).
-        Assert.Equal(new HashSet<Type> { typeof(ErrorLog), typeof(PlatformAuditLog), typeof(TenantDeletion) }, unfiltered);
+        // whose data is gone (its key is the id the company had, and there is no company left to filter by); BillingReviewItems: money for a
+        // person to look at, which may name no company (an unmatched payment); only the administrator reads it.
+        Assert.Equal(new HashSet<Type> { typeof(ErrorLog), typeof(PlatformAuditLog), typeof(TenantDeletion), typeof(BillingReviewItem) }, unfiltered);
     }
 
     [Fact]

@@ -65,6 +65,25 @@ public class ApplicationDbContext : DbContext
     /// <summary>Platform-level tombstones of deleted companies: the company is gone, so it is deliberately unfiltered.</summary>
     public DbSet<TenantDeletion> TenantDeletions => Set<TenantDeletion>();
 
+    /// <summary>Platform-level plan catalogue (docs/BILLING.md).</summary>
+    public DbSet<BillingPlan> BillingPlans => Set<BillingPlan>();
+
+    public DbSet<BillingAddOn> BillingAddOns => Set<BillingAddOn>();
+
+    public DbSet<BillingSubscription> BillingSubscriptions => Set<BillingSubscription>();
+
+    public DbSet<BillingCharge> BillingCharges => Set<BillingCharge>();
+
+    public DbSet<BillingPaymentAttempt> BillingPaymentAttempts => Set<BillingPaymentAttempt>();
+
+    /// <summary>Platform-level: an event names no company until its transaction is matched.</summary>
+    public DbSet<BillingEvent> BillingEvents => Set<BillingEvent>();
+
+    public DbSet<AiQuotaGrant> AiQuotaGrants => Set<AiQuotaGrant>();
+
+    /// <summary>Platform-level: an unmatched payment names no company.</summary>
+    public DbSet<BillingReviewItem> BillingReviewItems => Set<BillingReviewItem>();
+
     /// <summary>Operations table: not tenant-filtered, see <c>ErrorLogConfiguration</c>.</summary>
     public DbSet<ErrorLog> ErrorLogs => Set<ErrorLog>();
 
@@ -100,6 +119,10 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<AiUsageConversation>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<MessageSendOutcome>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<ContactSuppression>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<BillingSubscription>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<BillingCharge>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<BillingPaymentAttempt>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AiQuotaGrant>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
 
         base.OnModelCreating(modelBuilder);
     }

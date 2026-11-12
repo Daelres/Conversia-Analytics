@@ -33,6 +33,25 @@ public class PlatformAuditLog : BaseEntity
         public const string LicenseRetired = "license.retired";
         public const string TenantDataDeletionStarted = "tenant.data_deletion_started";
         public const string TenantDataDeleted = "tenant.data_deleted";
+        public const string BillingPlanCreated = "billing.plan_created";
+        public const string BillingPlanUpdated = "billing.plan_updated";
+        public const string BillingAddOnCreated = "billing.addon_created";
+        public const string BillingAddOnUpdated = "billing.addon_updated";
+        public const string BillingSubscriptionStarted = "billing.subscription_started";
+        public const string BillingSubscriptionChanged = "billing.subscription_changed";
+        public const string BillingPaymentMethodChanged = "billing.payment_method_changed";
+        public const string BillingCancellationScheduled = "billing.cancellation_scheduled";
+        public const string BillingCancellationUndone = "billing.cancellation_undone";
+        public const string BillingSubscriptionCancelled = "billing.subscription_cancelled";
+        public const string BillingChargeCreated = "billing.charge_created";
+        public const string BillingChargePaid = "billing.charge_paid";
+        public const string BillingChargeVoided = "billing.charge_voided";
+        public const string BillingChargeFailed = "billing.charge_failed";
+        public const string BillingPaymentAttempted = "billing.payment_attempted";
+        public const string BillingPaymentResolved = "billing.payment_resolved";
+        public const string BillingPaymentLinkCreated = "billing.payment_link_created";
+        public const string BillingPaymentNeedsReview = "billing.payment_needs_review";
+        public const string BillingPaymentReviewed = "billing.payment_reviewed";
     }
 
     /// <summary>The administrator who made the change; null when the system made it (see <see cref="IsSystem"/>).</summary>

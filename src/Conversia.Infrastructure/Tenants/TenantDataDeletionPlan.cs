@@ -25,6 +25,10 @@ internal static class TenantDataDeletionPlan
         ByTenant("WebhookEvents"), // -> WhatsAppChannels; the raw payloads (numbers, texts)
         ByTenant("AiUsageMonths"),
         ByTenant("MessageSendOutcomes"),
+        ByTenant("AiQuotaGrants"), // -> BillingCharges
+        ByTenant("BillingPaymentAttempts"), // -> BillingCharges; ids, amounts and statuses (the audit trail keeps the money history)
+        ByTenant("BillingCharges"), // -> BillingSubscriptions
+        ByTenant("BillingSubscriptions"), // -> Tenants, BillingPlans
         ByTenant("WhatsAppChannels"), // the lines, with their encrypted provider key -> Branches
         ByTenant("Advisors"), // -> Branches, Users
         ByTenant("Branches"),
@@ -33,6 +37,9 @@ internal static class TenantDataDeletionPlan
         ByTenant("ErrorLogs"), // the error registry rows of the company (no foreign key)
     ];
 
-    /// <summary>The tables with a <c>TenantId</c> that keep the company's rows: they hold ids, statuses, counts and hashes only.</summary>
-    public static readonly IReadOnlySet<string> Kept = new HashSet<string>(StringComparer.Ordinal) { "PlatformAuditLogs", "TenantDeletions" };
+    /// <summary>
+    /// The tables with a <c>TenantId</c> that keep the company's rows: they hold ids, statuses, counts and hashes only (the billing review
+    /// items: ids, amounts and a reason code, kept like the audit trail until a person closes them).
+    /// </summary>
+    public static readonly IReadOnlySet<string> Kept = new HashSet<string>(StringComparer.Ordinal) { "PlatformAuditLogs", "TenantDeletions", "BillingReviewItems" };
 }

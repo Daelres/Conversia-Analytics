@@ -30,6 +30,27 @@ public static partial class ReasonCodes
     /// <summary>The deletion job finished: nothing of the company is left but the tombstone and the audit trail.</summary>
     public const string DeletionCompleted = "deletion.completed";
 
+    /// <summary>A charge was paid (through the gateway, or marked paid by the administrator).</summary>
+    public const string BillingChargePaid = "billing.charge_paid";
+
+    /// <summary>A payment attempt was declined or failed.</summary>
+    public const string BillingPaymentFailed = "billing.payment_failed";
+
+    /// <summary>The subscription ended at the end of its period because the owner or the administrator asked for it.</summary>
+    public const string BillingSubscriptionEnded = "billing.subscription_ended";
+
+    /// <summary>A change the company's owner asked for from the billing page (payment method, cancellation, payment link).</summary>
+    public const string BillingOwnerRequest = "billing.owner_request";
+
+    /// <summary>The billing job started an automatic payment attempt (the due date or a retry day).</summary>
+    public const string BillingAutomaticAttempt = "billing.automatic_attempt";
+
+    /// <summary>The billing job created the charge of a new period.</summary>
+    public const string BillingPeriodStarted = "billing.period_started";
+
+    /// <summary>An approved payment the job could not apply (a paid or voided charge, an amount that does not match): refund or review by hand.</summary>
+    public const string BillingPaymentNeedsReview = "billing.payment_needs_review";
+
     public const string RuleMessage = "El código de motivo no es válido.";
 
     [GeneratedRegex("^[a-z0-9_]+(\\.[a-z0-9_]+)*$", RegexOptions.CultureInvariant)]

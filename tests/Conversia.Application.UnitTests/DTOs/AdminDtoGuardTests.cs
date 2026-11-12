@@ -16,6 +16,7 @@ public class AdminDtoGuardTests
     private static readonly HashSet<Type> Scalars =
     [
         typeof(string), typeof(bool), typeof(int), typeof(long), typeof(decimal), typeof(Guid), typeof(DateTime), typeof(TenantStatus), typeof(SuspensionCause),
+        typeof(SubscriptionStatus), typeof(DunningStage), // the billing status of a company in the list (docs/BILLING.md): a business fact, no content
         typeof(JsonElement), // the audit entry's small JSON of old and new values (ids, statuses, numbers, the administrator's reason)
     ];
 

@@ -124,6 +124,16 @@ gone; the API log has "The data of tenant {id} was deleted: N rows." (Informatio
 at the next run" (Error, with the exception type only). The job runs at startup, every `Tenants:Deletion:IntervalMinutes` (60) and when
 woken; `Tenants:Deletion:Enabled=false` switches it off (tests only: a cancelled company would then keep its data past its window).
 
+## Billing
+
+The subscription of each company (plan, charges, dunning, payment methods through Wompi) is in [docs/BILLING.md](BILLING.md). For the
+administrator: `/admin/facturacion` is the plan catalogue (price per line, AI conversations included, AI add-ons) and
+`/admin/empresas/{id}/facturacion` starts a company's subscription (with free days if agreed), changes plan, billed lines or add-on (from the
+next period, no proration), marks a charge paid by hand (bank transfer) or voids it, and cancels at period end or now. The company list and
+page show the billing status; the billing job suspends a company for billing (`billing.past_due`), lifts it once paid (`billing.paid`) and
+cancels it for non-payment (`billing.non_payment`) through the hooks of the lifecycle above, all as the system. The monitoring backlog counts
+past-due and billing-suspended subscriptions and raises `billing_events_failed` and `billing_attempt_stuck`.
+
 ## Line quota
 
 * A company may **register** (create) as many lines as it wants. A new line starts **inactive** (its secret is returned once at creation).

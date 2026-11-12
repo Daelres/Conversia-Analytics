@@ -2,6 +2,7 @@ using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Admin;
 using Conversia.Application.DTOs.Contacts;
 using Conversia.Application.DTOs.Auth;
+using Conversia.Application.DTOs.Billing;
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Messages;
 using Conversia.Application.DTOs.Metrics;
@@ -182,4 +183,42 @@ public interface IApiClient
 
     /// <summary><c>POST /api/contacts/{id}/suppression</c>: deletes the contact and everything of it. Irreversible.</summary>
     Task<ApiResult<ContactSuppressionResponse>> SuppressContactAsync(string token, Guid contactId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<BillingAccountResponse>> GetBillingAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PaymentMethodSetupResponse>> GetPaymentMethodSetupAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Unit>> SetPaymentMethodAsync(string token, SetPaymentMethodRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PayNowResponse>> PayChargeNowAsync(string token, Guid chargeId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PaymentLinkResponse>> GetPaymentLinkAsync(string token, Guid chargeId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Unit>> SetBillingCancellationAsync(string token, bool cancel, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<IReadOnlyList<PlanResponse>>> GetAdminPlansAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PlanResponse>> CreateAdminPlanAsync(string token, PlanRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PlanResponse>> UpdateAdminPlanAsync(string token, Guid id, PlanRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AddOnResponse>> CreateAdminAddOnAsync(string token, Guid planId, AddOnRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AdminBillingAccountResponse>> GetAdminBillingAsync(string token, Guid tenantId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AdminBillingAccountResponse>> StartAdminSubscriptionAsync(string token, Guid tenantId, StartSubscriptionRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AdminBillingAccountResponse>> ChangeAdminSubscriptionAsync(string token, Guid tenantId, ChangeSubscriptionRequest request, CancellationToken cancellationToken = default);
+
+    /// <param name="markPaid">True: mark it paid (with the reason); false: void it.</param>
+    Task<ApiResult<Unit>> AdminChargeActionAsync(string token, Guid tenantId, Guid chargeId, bool markPaid, ChargeActionRequest request, CancellationToken cancellationToken = default);
+
+    /// <param name="request">Null: undo the cancellation at period end.</param>
+    Task<ApiResult<Unit>> AdminCancelSubscriptionAsync(string token, Guid tenantId, AdminCancelSubscriptionRequest? request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<IReadOnlyList<BillingReviewItemResponse>>> GetAdminReviewItemsAsync(string token, Guid? tenantId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Unit>> CloseAdminReviewItemAsync(string token, Guid itemId, ReviewItemRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Unit>> ReviewAdminAttemptAsync(string token, Guid tenantId, Guid attemptId, ReviewAttemptRequest request, CancellationToken cancellationToken = default);
 }

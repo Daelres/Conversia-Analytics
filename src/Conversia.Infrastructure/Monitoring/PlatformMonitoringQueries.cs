@@ -86,13 +86,19 @@ public sealed class PlatformMonitoringQueries : IPlatformMonitoringQueries
             LIMIT {request.ListLimit}
             """).ToListAsync(cancellationToken);
 
-        // Companies whose AI is on and that used up their quota or ceiling this month (real usage only).
+        // Companies whose AI is on and that used up their quota or ceiling this month (real usage only). The quota counts the plan and the
+        // paid AI add-ons like the meter does (docs/BILLING.md, "AI add-ons").
+        var quotaAt = DateTime.UtcNow;
         var limited = await _db.Database.SqlQuery<LimitedRow>($"""
             SELECT t."Id" AS "TenantId", t."Name", u."ConversationsAnalyzed" AS "Conversations", q."Quota", u."EstimatedUsd",
                    (q."Quota" * {request.AiUsdPerQuotaUnit}) AS "CeilingUsd", COUNT(*) OVER ()::int AS "Total"
             FROM "Tenants" t
             JOIN "AiUsageMonths" u ON u."TenantId" = t."Id" AND u."Month" = {request.Month} AND NOT u."IsSandbox"
-            CROSS JOIN LATERAL (SELECT COALESCE(t."AiMonthlyConversationQuota", {request.DefaultAiQuota}) AS "Quota") q
+            CROSS JOIN LATERAL (SELECT COALESCE(t."AiMonthlyConversationQuota",
+                    (SELECT p."IncludedAiConversations" FROM "BillingSubscriptions" bs JOIN "BillingPlans" p ON p."Id" = bs."PlanId"
+                     WHERE bs."TenantId" = t."Id" AND bs."Status" <> 'Cancelled' LIMIT 1), {request.DefaultAiQuota})
+                + COALESCE((SELECT SUM(g."Conversations") FROM "AiQuotaGrants" g
+                            WHERE g."TenantId" = t."Id" AND g."ValidFrom" <= {quotaAt} AND g."ValidUntil" > {quotaAt}), 0) AS "Quota") q
             WHERE t."AiEnabled" AND (q."Quota" <= 0 OR u."ConversationsAnalyzed" >= q."Quota" OR u."EstimatedUsd" >= q."Quota" * {request.AiUsdPerQuotaUnit})
             ORDER BY u."EstimatedUsd" DESC, t."Name"
             LIMIT {request.ListLimit}
@@ -195,13 +201,21 @@ public sealed class PlatformMonitoringQueries : IPlatformMonitoringQueries
             .FirstOrDefaultAsync(cancellationToken);
         // A count only: which company is in the audit trail and the API log, never here.
         var stuck = 0;
+        int pastDue = 0, suspended = 0, eventsFailed = 0, attemptsStuck = 0, needsReview = 0;
         if (tenantId is null)
         {
             var dayAgo = DateTime.UtcNow.AddDays(-1);
             stuck = await _db.TenantDeletions.AsNoTracking().CountAsync(d => d.CompletedAt == null && (d.StuckSince != null || d.StartedAt < dayAgo), cancellationToken);
+            pastDue = await _db.BillingSubscriptions.IgnoreQueryFilters().CountAsync(s => s.Status == SubscriptionStatus.PastDue, cancellationToken);
+            suspended = await _db.BillingSubscriptions.IgnoreQueryFilters().CountAsync(s => s.Status != SubscriptionStatus.Cancelled && s.BillingSuspendedAt != null, cancellationToken);
+            eventsFailed = await _db.BillingEvents.CountAsync(e => e.Status == BillingEventStatus.Failed, cancellationToken);
+            needsReview = await _db.BillingPaymentAttempts.IgnoreQueryFilters().CountAsync(a => a.ReviewReason != null && a.ReviewedAt == null, cancellationToken)
+                          + await _db.BillingReviewItems.CountAsync(r => r.ReviewedAt == null, cancellationToken);
+            attemptsStuck = await _db.BillingPaymentAttempts.IgnoreQueryFilters().CountAsync(a => a.Status == PaymentAttemptStatus.Pending && a.AttemptedAt < dayAgo, cancellationToken);
         }
 
-        return new BacklogCounts(pending?.Count ?? 0, pending?.Oldest, classification?.Waiting ?? 0, classification?.Oldest, classification?.Stopped ?? 0, stuck);
+        return new BacklogCounts(pending?.Count ?? 0, pending?.Oldest, classification?.Waiting ?? 0, classification?.Oldest, classification?.Stopped ?? 0, stuck,
+            pastDue, suspended, eventsFailed, attemptsStuck, needsReview);
     }
 
     private async Task<DeliveryWindows> DeliveriesAsync(Guid? tenantId, DateTime now, CancellationToken cancellationToken)

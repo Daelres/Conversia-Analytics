@@ -4,6 +4,7 @@ using System.Text.Json;
 using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Admin;
 using Conversia.Application.DTOs.Auth;
+using Conversia.Application.DTOs.Billing;
 using Conversia.Application.DTOs.Contacts;
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Messages;
@@ -223,6 +224,66 @@ public sealed class ApiClient : IApiClient
 
     public Task<ApiResult<ContactSuppressionResponse>> SuppressContactAsync(string token, Guid contactId, CancellationToken cancellationToken = default)
         => SendAsync<ContactSuppressionResponse>(HttpMethod.Post, $"api/contacts/{contactId}/suppression", token, body: null, response => response.ContactId != Guid.Empty, cancellationToken);
+
+    // ---------------------------------------------------------------- billing (docs/BILLING.md)
+
+    /// <summary>The billing refusals the pages word themselves (every code of the API's billing problems).</summary>
+    public static readonly IReadOnlySet<string> BillingCodes = new HashSet<string>(
+        Enum.GetValues<Conversia.Application.Exceptions.BillingProblem>().Select(Conversia.Application.Exceptions.BillingException.CodeOf), StringComparer.Ordinal);
+
+    public Task<ApiResult<BillingAccountResponse>> GetBillingAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<BillingAccountResponse>(HttpMethod.Get, "api/billing", token, body: null, response => response.Charges is not null, cancellationToken, BillingCodes);
+
+    public Task<ApiResult<PaymentMethodSetupResponse>> GetPaymentMethodSetupAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<PaymentMethodSetupResponse>(HttpMethod.Get, "api/billing/payment-method/setup", token, body: null, response => !string.IsNullOrEmpty(response.PublicKey), cancellationToken, BillingCodes);
+
+    public Task<ApiResult<Unit>> SetPaymentMethodAsync(string token, SetPaymentMethodRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<Unit>(HttpMethod.Put, "api/billing/payment-method", token, request, isUsable: null, cancellationToken, BillingCodes, _sendTimeout);
+
+    public Task<ApiResult<PayNowResponse>> PayChargeNowAsync(string token, Guid chargeId, CancellationToken cancellationToken = default)
+        => SendAsync<PayNowResponse>(HttpMethod.Post, $"api/billing/charges/{chargeId}/pay", token, body: null, isUsable: null, cancellationToken, BillingCodes, _sendTimeout);
+
+    public Task<ApiResult<PaymentLinkResponse>> GetPaymentLinkAsync(string token, Guid chargeId, CancellationToken cancellationToken = default)
+        => SendAsync<PaymentLinkResponse>(HttpMethod.Post, $"api/billing/charges/{chargeId}/payment-link", token, body: null, response => response.Url.StartsWith("https://", StringComparison.Ordinal), cancellationToken, BillingCodes, _sendTimeout);
+
+    public Task<ApiResult<Unit>> SetBillingCancellationAsync(string token, bool cancel, CancellationToken cancellationToken = default)
+        => SendAsync<Unit>(HttpMethod.Post, cancel ? "api/billing/cancel" : "api/billing/cancel/undo", token, body: null, isUsable: null, cancellationToken, BillingCodes);
+
+    public Task<ApiResult<IReadOnlyList<PlanResponse>>> GetAdminPlansAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<PlanResponse>>(HttpMethod.Get, "api/admin/billing/plans", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<PlanResponse>> CreateAdminPlanAsync(string token, PlanRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<PlanResponse>(HttpMethod.Post, "api/admin/billing/plans", token, request, response => response.Id != Guid.Empty, cancellationToken, BillingCodes);
+
+    public Task<ApiResult<PlanResponse>> UpdateAdminPlanAsync(string token, Guid id, PlanRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<PlanResponse>(HttpMethod.Put, $"api/admin/billing/plans/{id}", token, request, isUsable: null, cancellationToken, BillingCodes);
+
+    public Task<ApiResult<AddOnResponse>> CreateAdminAddOnAsync(string token, Guid planId, AddOnRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<AddOnResponse>(HttpMethod.Post, $"api/admin/billing/plans/{planId}/add-ons", token, request, response => response.Id != Guid.Empty, cancellationToken, BillingCodes);
+
+    public Task<ApiResult<AdminBillingAccountResponse>> GetAdminBillingAsync(string token, Guid tenantId, CancellationToken cancellationToken = default)
+        => SendAsync<AdminBillingAccountResponse>(HttpMethod.Get, $"api/admin/tenants/{tenantId}/billing", token, body: null, response => response.Charges is not null, cancellationToken, BillingCodes);
+
+    public Task<ApiResult<AdminBillingAccountResponse>> StartAdminSubscriptionAsync(string token, Guid tenantId, StartSubscriptionRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<AdminBillingAccountResponse>(HttpMethod.Post, $"api/admin/tenants/{tenantId}/billing/start", token, request, isUsable: null, cancellationToken, BillingCodes);
+
+    public Task<ApiResult<AdminBillingAccountResponse>> ChangeAdminSubscriptionAsync(string token, Guid tenantId, ChangeSubscriptionRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<AdminBillingAccountResponse>(HttpMethod.Put, $"api/admin/tenants/{tenantId}/billing", token, request, isUsable: null, cancellationToken, BillingCodes);
+
+    public Task<ApiResult<Unit>> AdminChargeActionAsync(string token, Guid tenantId, Guid chargeId, bool markPaid, ChargeActionRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<Unit>(HttpMethod.Post, $"api/admin/tenants/{tenantId}/billing/charges/{chargeId}/{(markPaid ? "mark-paid" : "void")}", token, request, isUsable: null, cancellationToken, BillingCodes);
+
+    public Task<ApiResult<Unit>> AdminCancelSubscriptionAsync(string token, Guid tenantId, AdminCancelSubscriptionRequest? request, CancellationToken cancellationToken = default)
+        => SendAsync<Unit>(HttpMethod.Post, request is null ? $"api/admin/tenants/{tenantId}/billing/cancel/undo" : $"api/admin/tenants/{tenantId}/billing/cancel", token, request, isUsable: null, cancellationToken, BillingCodes);
+
+    public Task<ApiResult<IReadOnlyList<BillingReviewItemResponse>>> GetAdminReviewItemsAsync(string token, Guid? tenantId, CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<BillingReviewItemResponse>>(HttpMethod.Get, "api/admin/billing/review-items" + (tenantId is { } id ? $"?tenantId={id}" : string.Empty), token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<Unit>> CloseAdminReviewItemAsync(string token, Guid itemId, ReviewItemRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<Unit>(HttpMethod.Post, $"api/admin/billing/review-items/{itemId}/review", token, request, isUsable: null, cancellationToken, BillingCodes);
+
+    public Task<ApiResult<Unit>> ReviewAdminAttemptAsync(string token, Guid tenantId, Guid attemptId, ReviewAttemptRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<Unit>(HttpMethod.Post, $"api/admin/tenants/{tenantId}/billing/attempts/{attemptId}/review", token, request, isUsable: null, cancellationToken, BillingCodes);
 
     private static bool HasToken(AuthResponse response) => !string.IsNullOrWhiteSpace(response.Token);
 

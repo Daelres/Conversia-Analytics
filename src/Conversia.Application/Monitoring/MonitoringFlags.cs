@@ -45,7 +45,10 @@ public sealed record MonitoringFlagInput(
     bool DeploymentCapReached,
     string? BreakerState,
     long LostUsageRecords = 0,
-    int StuckDeletions = 0);
+    int StuckDeletions = 0,
+    int BillingEventsFailed = 0,
+    int BillingAttemptsStuck = 0,
+    int BillingNeedsReview = 0);
 
 /// <param name="Code">Stable machine code (<c>webhook_backlog</c>, ...).</param>
 /// <param name="Severity"><c>warning</c> or <c>critical</c>.</param>
@@ -133,6 +136,24 @@ public static class MonitoringFlags
         if (input.DeploymentCapReached)
         {
             flags.Add(new("ai_deployment_cap", Critical, "Se alcanzó el tope mensual en USD de IA de la plataforma: todas las empresas se clasifican solo con reglas hasta fin de mes."));
+        }
+
+        if (input.BillingEventsFailed > 0)
+        {
+            flags.Add(new("billing_events_failed", Critical,
+                $"{input.BillingEventsFailed} eventos de la pasarela de pagos no se pudieron procesar (revisa el log de la API y docs/BILLING.md)."));
+        }
+
+        if (input.BillingNeedsReview > 0)
+        {
+            flags.Add(new("billing_payment_needs_review", Critical,
+                $"{input.BillingNeedsReview} pagos necesitan revisión (un cobro doble, un pago sobre un cobro cerrado o un resultado desconocido): revísalos en la facturación de cada empresa."));
+        }
+
+        if (input.BillingAttemptsStuck > 0)
+        {
+            flags.Add(new("billing_attempt_stuck", Warning,
+                $"{input.BillingAttemptsStuck} pagos llevan más de un día esperando respuesta de la pasarela."));
         }
 
         if (input.StuckDeletions > 0)

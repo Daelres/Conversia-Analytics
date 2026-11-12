@@ -62,7 +62,7 @@ public class ConversationModelSchemaTests
 
         var unfiltered = db.Model.GetEntityTypes()
             .Where(t => t.FindProperty("TenantId") is not null && t.ClrType != typeof(ErrorLog) && t.ClrType != typeof(PlatformAuditLog)
-                && t.ClrType != typeof(TenantDeletion) && t.GetDeclaredQueryFilters().Count == 0)
+                && t.ClrType != typeof(TenantDeletion) && t.ClrType != typeof(BillingReviewItem) && t.GetDeclaredQueryFilters().Count == 0)
             .Select(t => t.ClrType.Name);
 
         Assert.Empty(unfiltered);

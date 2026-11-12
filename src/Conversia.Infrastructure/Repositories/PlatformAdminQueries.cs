@@ -121,7 +121,15 @@ public class PlatformAdminQueries : IPlatformAdminQueries
             t.StatusReasonCode,
             t.CancelledAt,
             t.DataDeletionDueAt,
-            t.DataDeletionStartedAt));
+            t.DataDeletionStartedAt,
+            // The billing status only (docs/BILLING.md): amounts and the method stay on the billing section.
+            _db.BillingSubscriptions.IgnoreQueryFilters().Where(b => b.TenantId == t.Id)
+                .OrderBy(b => b.Status == SubscriptionStatus.Cancelled).ThenByDescending(b => b.CreatedAt).Select(b => (SubscriptionStatus?)b.Status).FirstOrDefault(),
+            _db.BillingSubscriptions.IgnoreQueryFilters().Where(b => b.TenantId == t.Id)
+                .OrderBy(b => b.Status == SubscriptionStatus.Cancelled).ThenByDescending(b => b.CreatedAt).Select(b => b.BillingSuspendedAt).FirstOrDefault(),
+            _db.BillingSubscriptions.IgnoreQueryFilters().Where(b => b.TenantId == t.Id)
+                .OrderBy(b => b.Status == SubscriptionStatus.Cancelled).ThenByDescending(b => b.CreatedAt)
+                .Join(_db.BillingPlans, b => b.PlanId, p => p.Id, (b, p) => p.Code).FirstOrDefault()));
 
     private static string EscapeLike(string text)
         => text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);

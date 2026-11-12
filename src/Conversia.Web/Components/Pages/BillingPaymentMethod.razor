@@ -1,0 +1,180 @@
+@page "/organizacion/facturacion/medio-de-pago"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Billing
+@using Conversia.Domain.Enums
+@inherits AuthenticatedPageBase
+
+<PageTitle>Medio de pago - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="billing-method">
+        <PageHeader Eyebrow="Facturación" EyebrowIcon="card" Title="Medio de pago"
+                    Description="Una tarjeta de crédito o débito, o Nequi, para el cobro mensual de tu suscripción.">
+            <a class="btn btn--secondary" href="/organizacion/facturacion"><Icon Name="arrow-left" />Volver a facturación</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_setup is { } setup)
+        {
+            <Card Title="Agregar o cambiar el medio de pago" IconName="lock" data-testid="method-card">
+                <div class="stack">
+                    <p class="muted">Los datos de la tarjeta y el número de Nequi van directo de tu navegador a Wompi, la pasarela de pagos: Conversia nunca los recibe ni los guarda. Solo guardamos la franquicia y los últimos cuatro dígitos para mostrártelos.</p>
+                    <form method="post" @formname="billing-method" @onsubmit="SaveAsync" class="form" autocomplete="off" data-testid="method-form"
+                          data-billing-form data-api-base="@setup.ApiBaseUrl" data-public-key="@setup.PublicKey">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="Input.Token" data-billing="token" value="" />
+                        <input type="hidden" name="Input.CardBrand" data-billing="brand" value="" />
+                        <input type="hidden" name="Input.CardLastFour" data-billing="last-four" value="" />
+                        <input type="hidden" name="Input.AcceptanceToken" value="@setup.AcceptanceToken" />
+                        <input type="hidden" name="Input.PersonalDataToken" value="@setup.PersonalDataToken" />
+
+                        <div class="field">
+                            <label class="field__label" for="method-type">Tipo</label>
+                            <select id="method-type" class="input" name="Input.Type" data-billing="type">
+                                <option value="Card">Tarjeta de crédito o débito</option>
+                                <option value="Nequi">Nequi</option>
+                            </select>
+                        </div>
+
+                        @* No name attribute on purpose: these values are never posted to Conversia. *@
+                        <div class="stack" data-billing-group="Card">
+                            <div class="field"><label class="field__label" for="card-number">Número de la tarjeta</label>
+                                <input id="card-number" class="input input--mono" inputmode="numeric" autocomplete="cc-number" maxlength="23" data-billing="number" /></div>
+                            <div class="field"><label class="field__label" for="card-holder">Nombre en la tarjeta</label>
+                                <input id="card-holder" class="input" autocomplete="cc-name" maxlength="60" data-billing="holder" /></div>
+                            <div class="field"><label class="field__label" for="card-month">Mes de vencimiento (MM)</label>
+                                <input id="card-month" class="input" inputmode="numeric" autocomplete="cc-exp-month" maxlength="2" data-billing="exp-month" /></div>
+                            <div class="field"><label class="field__label" for="card-year">Año de vencimiento (AA)</label>
+                                <input id="card-year" class="input" inputmode="numeric" autocomplete="cc-exp-year" maxlength="2" data-billing="exp-year" /></div>
+                            <div class="field"><label class="field__label" for="card-cvc">Código de seguridad</label>
+                                <input id="card-cvc" class="input" inputmode="numeric" autocomplete="cc-csc" maxlength="4" data-billing="cvc" /></div>
+                        </div>
+                        <div class="stack" data-billing-group="Nequi" hidden>
+                            <div class="field"><label class="field__label" for="nequi-phone">Número celular de Nequi</label>
+                                <input id="nequi-phone" class="input" inputmode="tel" maxlength="13" data-billing="phone" /></div>
+                            <p class="muted">Wompi te enviará una notificación a la aplicación Nequi para aceptar la suscripción. Cada cobro mensual puede pedirte una aprobación.</p>
+                        </div>
+
+                        <label class="checkbox" data-testid="method-terms">
+                            <input type="checkbox" name="Input.AcceptedTerms" value="true" required />
+                            <span>Acepto los <a href="@setup.AcceptancePermalink" target="_blank" rel="noopener noreferrer">términos y condiciones de Wompi</a>
+                                y autorizo el <a href="@setup.PersonalDataPermalink" target="_blank" rel="noopener noreferrer">tratamiento de mis datos personales</a>.</span>
+                        </label>
+
+                        <p class="muted" role="status" data-billing="status" hidden></p>
+                        <p class="muted" data-billing="no-js">Para agregar el medio de pago tu navegador debe tener JavaScript activado.</p>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn--primary"><Icon Name="check" />Guardar medio de pago</button>
+                            <a class="btn btn--ghost" href="/organizacion/facturacion">Cancelar</a>
+                        </div>
+                    </form>
+                </div>
+            </Card>
+        }
+    </div>
+}
+
+@code {
+    private PaymentMethodSetupResponse? _setup;
+
+    [SupplyParameterFromForm(FormName = "billing-method")]
+    private PaymentMethodInput? Input { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Api.GetPaymentMethodSetupAsync(Token!);
+        if (result.IsSuccess)
+        {
+            if (!Conversia.Web.Http.SecurityHeadersMiddleware.IsWompiApiBase(result.Value!.ApiBaseUrl))
+            {
+                // Card data may only ever be sent to Wompi's own hosts.
+                Message = BillingNotice.Problem("billing_not_configured");
+                SetStatusCode(StatusCodes.Status503ServiceUnavailable);
+                return;
+            }
+
+            _setup = result.Value;
+            return;
+        }
+
+        if (BillingNotice.Problem(result.ProblemCode) is { } problem)
+        {
+            Message = problem;
+            SetStatusCode(StatusCodes.Status503ServiceUnavailable);
+            return;
+        }
+
+        await TryFailAsync(result);
+    }
+
+    private async Task SaveAsync()
+    {
+        var input = Input ?? new PaymentMethodInput();
+        var result = await Api.SetPaymentMethodAsync(Token!, new SetPaymentMethodRequest
+        {
+            Type = input.Type,
+            Token = input.Token,
+            AcceptanceToken = input.AcceptanceToken,
+            PersonalDataToken = input.PersonalDataToken,
+            AcceptedTerms = input.AcceptedTerms,
+            CardBrand = string.IsNullOrWhiteSpace(input.CardBrand) ? null : input.CardBrand,
+            CardLastFour = string.IsNullOrWhiteSpace(input.CardLastFour) ? null : input.CardLastFour,
+        });
+        if (result.IsSuccess)
+        {
+            RedirectTo(BillingNotice.Url(BillingNotice.MethodSaved));
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.ValidationFailed)
+        {
+            Message = "Faltan datos del medio de pago o no aceptaste los términos. Revisa el formulario e inténtalo de nuevo.";
+            SetStatusCode(StatusCodes.Status400BadRequest);
+            return;
+        }
+
+        if (BillingNotice.Problem(result.ProblemCode) is { } problem)
+        {
+            Message = problem;
+            SetStatusCode(result.Status == ApiResultStatus.Unavailable ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status422UnprocessableEntity);
+            return;
+        }
+
+        await TryFailAsync(result);
+    }
+
+    /// <summary>What the form posts: the gateway's token and the accepted terms; never card data or the Nequi number.</summary>
+    public sealed class PaymentMethodInput
+    {
+        public string? Type { get; set; }
+
+        public string? Token { get; set; }
+
+        public string? AcceptanceToken { get; set; }
+
+        public string? PersonalDataToken { get; set; }
+
+        public bool AcceptedTerms { get; set; }
+
+        public string? CardBrand { get; set; }
+
+        public string? CardLastFour { get; set; }
+    }
+}

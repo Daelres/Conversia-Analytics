@@ -190,4 +190,17 @@ internal static class ApiSeed
         var response = await client.PostAsync($"/api/channels/{channelId}/activate", content: null);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
+
+    /// <summary>A billing review item (an approved payment that matches nothing), as the billing job would record it.</summary>
+    public static async Task<Guid> SeedBillingReviewItemAsync(TestApiFactory api, string transactionId)
+    {
+        using var scope = api.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var id = Guid.NewGuid();
+        await db.Database.ExecuteSqlAsync($"""
+            INSERT INTO "BillingReviewItems" ("Id", "Reason", "TransactionId", "AmountInCents", "Currency", "FlaggedAt", "CreatedAt")
+            VALUES ({id}, 'unmatched_payment', {transactionId}, 12300, 'COP', now(), now())
+            """);
+        return id;
+    }
 }

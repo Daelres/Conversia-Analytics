@@ -98,6 +98,7 @@ else if (!Redirected)
                             <a class="btn btn--danger-ghost" href="/admin/empresas/@Id/eliminar-datos" data-action="eliminar-datos"><Icon Name="trash" />Eliminar los datos ahora</a>
                         }
                     </div>
+                    <p data-testid="company-billing"><a href="/admin/empresas/@Id/facturacion" data-testid="company-billing-link"><Icon Name="card" />Facturación: @BillingFormat.Subscription(_company.BillingStatus)</a></p>
                 </div>
             </Card>
 

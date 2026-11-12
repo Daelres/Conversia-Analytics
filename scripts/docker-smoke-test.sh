@@ -267,6 +267,13 @@ for service in api web; do
   if [ "$uid" != "0" ] && [ "$uid" != "error" ]; then pass "running $service container is non-root (uid $uid)"; else fail "$service container runs as root or the check failed ($uid)"; fi
   if docker exec "$(cid "$service")" sh -c 'test ! -w /app'; then pass "/app is read-only for the $service process"; else fail "/app is writable for the $service process"; fi
 done
+# The billing calendar, the metrics and the dunning run on America/Bogota dates (docs/BILLING.md): the zone data must be in the image (the API
+# also refuses to start without it, naming Metrics:TimeZone).
+if docker exec "$(cid api)" sh -c 'test -s /usr/share/zoneinfo/America/Bogota'; then
+  pass "the api image has the America/Bogota time zone data"
+else
+  fail "the api image lacks the America/Bogota time zone data (install tzdata)"
+fi
 if docker exec "$(cid api)" sh -c 'test -n "$Jwt__SigningKey" && test -n "$ConnectionStrings__DefaultConnection"'; then
   pass "the api receives its secrets as run-time environment"
 else

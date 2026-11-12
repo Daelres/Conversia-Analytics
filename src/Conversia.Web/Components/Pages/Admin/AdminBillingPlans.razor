@@ -1,0 +1,265 @@
+@page "/admin/facturacion"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Application.DTOs.Billing
+@using Conversia.Web.Authentication
+@inherits AdminPageBase
+
+<PageTitle>Planes - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="admin-billing-plans">
+        <PageHeader Eyebrow="Facturación" EyebrowIcon="card" Title="Planes y paquetes"
+                    Description="El catálogo con el que se cobra la suscripción: precio mensual por línea, conversaciones con IA incluidas y paquetes adicionales." />
+
+        @if (Saved)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">Catálogo actualizado.</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        <div class="stack">
+            @if (_review.Count > 0)
+            {
+                <Card Title="Pagos por revisar" Subtitle="Dinero que pudo moverse sin que un cobro lo muestre. Revísalo en el panel de Wompi (reembolso si corresponde) y ciérralo aquí." IconName="alert-circle" data-testid="review-items">
+                    <div class="stack">
+                        <ul class="stack-sm bullets">
+                            @foreach (var item in _review)
+                            {
+                                <li data-testid="review-item" data-reason="@item.Reason">@BillingFormat.Review(item.Reason) · @(item.AmountInCents is { } cents ? BillingFormat.Money(cents) : "") · transacción @(item.TransactionId ?? "-")@(item.TenantId is { } t ? " · empresa " : "")@if (item.TenantId is { } tenant){<a href="/admin/empresas/@tenant/facturacion">ver</a>}</li>
+                            }
+                        </ul>
+                        <form method="post" @formname="admin-review-item" @onsubmit="CloseReviewAsync" class="form" data-testid="review-item-form">
+                            <AntiforgeryToken />
+                            <div class="field"><label class="field__label" for="review-item">Pago</label>
+                                <select id="review-item" name="Review.ItemId" class="input">
+                                    @foreach (var item in _review)
+                                    {
+                                        <option value="@item.Id">@BillingFormat.Review(item.Reason) (@(item.TransactionId ?? "-"))</option>
+                                    }
+                                </select></div>
+                            <div class="field"><label class="field__label" for="review-note">Qué se hizo (queda en la auditoría)</label>
+                                <input id="review-note" name="Review.Reason" class="input" maxlength="200" required /></div>
+                            <div class="form-actions"><button type="submit" class="btn btn--primary" data-testid="review-item-submit"><Icon Name="check" />Marcar como revisado</button></div>
+                        </form>
+                    </div>
+                </Card>
+            }
+
+            <Card Title="Planes" IconName="card" data-testid="plans-card">
+                @if (_plans.Count == 0)
+                {
+                    <p class="muted">Aún no hay planes.</p>
+                }
+                else
+                {
+                    <div class="table-wrap" role="region" aria-label="Planes" tabindex="0">
+                        <table class="table">
+                            <caption class="sr-only">Planes del catálogo</caption>
+                            <thead><tr><th scope="col">Código</th><th scope="col">Nombre</th><th scope="col">Precio por línea</th><th scope="col">IA incluida</th><th scope="col">Paquetes</th><th scope="col">Estado</th></tr></thead>
+                            <tbody>
+                                @foreach (var plan in _plans)
+                                {
+                                    <tr data-testid="plan-row" data-plan-code="@plan.Code">
+                                        <td><Chip Mono="true">@plan.Code</Chip></td>
+                                        <td>@plan.Name</td>
+                                        <td>@BillingFormat.Pesos(plan.PricePerLinePesos)</td>
+                                        <td>@MetricsFormat.Whole(plan.IncludedAiConversations)</td>
+                                        <td>
+                                            @foreach (var addOn in plan.AddOns)
+                                            {
+                                                <div>@addOn.Name: @MetricsFormat.Whole(addOn.Conversations) por @BillingFormat.Pesos(addOn.PricePesos)@(addOn.IsActive ? "" : " (inactivo)")</div>
+                                            }
+                                        </td>
+                                        <td>@(plan.IsActive ? "Activo" : "Inactivo")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </Card>
+
+            <Card Title="Crear o editar un plan" Subtitle="Con el código de un plan existente se actualiza su nombre, precio, IA y estado (el código no cambia)." IconName="plus" data-testid="plan-form-card">
+                <form method="post" @formname="admin-plan" @onsubmit="SavePlanAsync" class="form" data-testid="plan-form">
+                    <AntiforgeryToken />
+                    <div class="field"><label class="field__label" for="plan-code">Código</label>
+                        <input id="plan-code" name="Plan.Code" class="input input--mono" maxlength="40" required /></div>
+                    <div class="field"><label class="field__label" for="plan-name">Nombre</label>
+                        <input id="plan-name" name="Plan.Name" class="input" maxlength="100" required /></div>
+                    <div class="field"><label class="field__label" for="plan-price">Precio mensual por línea (COP)</label>
+                        <input id="plan-price" name="Plan.PricePerLinePesos" class="input" type="number" min="0" step="1" required /></div>
+                    <div class="field"><label class="field__label" for="plan-ai">Conversaciones con IA incluidas al mes</label>
+                        <input id="plan-ai" name="Plan.IncludedAiConversations" class="input" type="number" min="0" step="1" value="0" /></div>
+                    <label class="checkbox"><input type="checkbox" name="Plan.IsActive" value="true" checked /> <span>Activo (se puede asignar a empresas)</span></label>
+                    <div class="form-actions"><button type="submit" class="btn btn--primary" data-testid="plan-submit"><Icon Name="check" />Guardar plan</button></div>
+                </form>
+            </Card>
+
+            @if (_plans.Count > 0)
+            {
+                <Card Title="Agregar un paquete de conversaciones con IA" IconName="sparkles" data-testid="addon-form-card">
+                    <form method="post" @formname="admin-addon" @onsubmit="SaveAddOnAsync" class="form" data-testid="addon-form">
+                        <AntiforgeryToken />
+                        <div class="field"><label class="field__label" for="addon-plan">Plan</label>
+                            <select id="addon-plan" name="AddOn.PlanId" class="input">
+                                @foreach (var plan in _plans)
+                                {
+                                    <option value="@plan.Id">@plan.Name (@plan.Code)</option>
+                                }
+                            </select></div>
+                        <div class="field"><label class="field__label" for="addon-code">Código</label>
+                            <input id="addon-code" name="AddOn.Code" class="input input--mono" maxlength="40" required /></div>
+                        <div class="field"><label class="field__label" for="addon-name">Nombre</label>
+                            <input id="addon-name" name="AddOn.Name" class="input" maxlength="100" required /></div>
+                        <div class="field"><label class="field__label" for="addon-conversations">Conversaciones con IA del paquete</label>
+                            <input id="addon-conversations" name="AddOn.Conversations" class="input" type="number" min="1" step="1" required /></div>
+                        <div class="field"><label class="field__label" for="addon-price">Precio del paquete por periodo (COP)</label>
+                            <input id="addon-price" name="AddOn.PricePesos" class="input" type="number" min="0" step="1" required /></div>
+                        <div class="form-actions"><button type="submit" class="btn btn--primary" data-testid="addon-submit"><Icon Name="check" />Agregar paquete</button></div>
+                    </form>
+                </Card>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<PlanResponse> _plans = [];
+    private IReadOnlyList<BillingReviewItemResponse> _review = [];
+
+    [SupplyParameterFromForm(FormName = "admin-review-item")]
+    private ReviewInput? Review { get; set; }
+
+    [SupplyParameterFromQuery(Name = "guardado")]
+    private string? SavedFlag { get; set; }
+
+    private bool Saved => SavedFlag == "1";
+
+    [SupplyParameterFromForm(FormName = "admin-plan")]
+    private PlanInput? Plan { get; set; }
+
+    [SupplyParameterFromForm(FormName = "admin-addon")]
+    private AddOnInput? AddOn { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (await TryReadTokenAsync())
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Api.GetAdminPlansAsync(Token!);
+        var review = await Api.GetAdminReviewItemsAsync(Token!, null);
+        if (!await TryFailAsync(result, review))
+        {
+            _plans = result.Value!;
+            _review = review.Value!;
+        }
+    }
+
+    private async Task SavePlanAsync()
+    {
+        var input = Plan ?? new PlanInput();
+        var request = new PlanRequest
+        {
+            Code = input.Code?.Trim(),
+            Name = input.Name,
+            PricePerLinePesos = input.PricePerLinePesos,
+            IncludedAiConversations = input.IncludedAiConversations,
+            IsActive = input.IsActive,
+        };
+        var existing = _plans.FirstOrDefault(p => p.Code == request.Code);
+        var result = existing is null ? await Api.CreateAdminPlanAsync(Token!, request) : await Api.UpdateAdminPlanAsync(Token!, existing.Id, request);
+        await AfterAsync(result);
+    }
+
+    private async Task SaveAddOnAsync()
+    {
+        var input = AddOn ?? new AddOnInput();
+        var result = await Api.CreateAdminAddOnAsync(Token!, input.PlanId, new AddOnRequest
+        {
+            Code = input.Code?.Trim(),
+            Name = input.Name,
+            Conversations = input.Conversations,
+            PricePesos = input.PricePesos,
+        });
+        await AfterAsync(result);
+    }
+
+    private async Task CloseReviewAsync()
+    {
+        var input = Review ?? new ReviewInput();
+        await AfterAsync(await Api.CloseAdminReviewItemAsync(Token!, input.ItemId, new ReviewItemRequest { Reason = input.Reason }));
+    }
+
+    public sealed class ReviewInput
+    {
+        public Guid ItemId { get; set; }
+
+        public string? Reason { get; set; }
+    }
+
+    private async Task AfterAsync<T>(ApiResult<T> result)
+    {
+        if (result.IsSuccess)
+        {
+            RedirectTo("/admin/facturacion?guardado=1");
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.ValidationFailed)
+        {
+            Message = "Revisa los datos: hay campos vacíos o fuera de rango.";
+            SetStatusCode(StatusCodes.Status400BadRequest);
+            return;
+        }
+
+        if (BillingNotice.Problem(result.ProblemCode) is { } problem)
+        {
+            Message = problem;
+            SetStatusCode(StatusCodes.Status409Conflict);
+            return;
+        }
+
+        await TryFailAsync(result);
+    }
+
+    public sealed class PlanInput
+    {
+        public string? Code { get; set; }
+
+        public string? Name { get; set; }
+
+        public long PricePerLinePesos { get; set; }
+
+        public int IncludedAiConversations { get; set; }
+
+        public bool IsActive { get; set; }
+    }
+
+    public sealed class AddOnInput
+    {
+        public Guid PlanId { get; set; }
+
+        public string? Code { get; set; }
+
+        public string? Name { get; set; }
+
+        public int Conversations { get; set; }
+
+        public long PricePesos { get; set; }
+    }
+}
