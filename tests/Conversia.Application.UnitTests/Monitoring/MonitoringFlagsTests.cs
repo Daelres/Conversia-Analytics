@@ -96,4 +96,15 @@ public class MonitoringFlagsTests
         Assert.Contains("billing_payment_needs_review", codes);
         Assert.Equal(3, codes.Count);
     }
+
+    [Fact]
+    public void Failed_message_batches_raise_their_flag_with_the_count()
+    {
+        Assert.DoesNotContain("llm_batches_failed", Codes(Calm));
+
+        var flag = Assert.Single(MonitoringFlags.Evaluate(Calm with { FailedBatches24h = 2 }, Thresholds), f => f.Code == "llm_batches_failed");
+
+        Assert.Equal("warning", flag.Severity);
+        Assert.Contains("2", flag.Message);
+    }
 }

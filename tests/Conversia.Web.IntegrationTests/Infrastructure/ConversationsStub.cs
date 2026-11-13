@@ -70,6 +70,9 @@ internal sealed class ConversationsStub
     /// <summary>The messages of the conversation the detail page opens, oldest first.</summary>
     public IReadOnlyList<MessageResponse>? Messages { get; set; }
 
+    /// <summary>When the AI last updated the conversation (<see cref="ConversationDetailResponse.AiAnalyzedAt"/>); null: never.</summary>
+    public DateTime? AiAnalyzedAt { get; set; }
+
     /// <summary>The line of the conversations: active, with a key, in production. The detail of a conversation carries its state.</summary>
     public ChannelResponse Channel { get; set; } = new()
     {
@@ -150,6 +153,7 @@ internal sealed class ConversationsStub
 
         var messages = (Messages ?? DefaultMessages(item)).Concat(Sent).ToList();
         var detail = ToDetail(item, messages);
+        detail.AiAnalyzedAt = AiAnalyzedAt;
         detail.Channel = new ConversationChannelState { IsActive = Channel.IsActive, HasProviderApiKey = Channel.HasProviderApiKey, ProviderEnvironment = Channel.ProviderEnvironment };
         return FakeBackend.Answer(HttpStatusCode.OK, detail);
     }

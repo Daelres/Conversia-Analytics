@@ -265,3 +265,15 @@ public static class AlertSeverities
     public const string Warning = "Warning";
     public const string Critical = "Critical";
 }
+
+/// <summary>
+/// <c>GET /api/tenant/ai-analysis</c>: whether the company's AI is on and when it last updated the AI fields (the scheduled analysis,
+/// docs/CLASSIFICATION.md). No technical detail: no schedule, no counts, no costs.
+/// </summary>
+public class AiAnalysisStatusResponse
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>The latest time an AI reading was applied to one of the company's conversations; null when none ever was.</summary>
+    public DateTime? LastUpdatedAt { get; set; }
+}

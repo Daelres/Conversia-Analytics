@@ -38,6 +38,9 @@ public interface IApiClient
 
     Task<ApiResult<SummaryResponse>> GetMetricsSummaryAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
 
+    /// <summary>Whether the company's AI is on and when it last updated the AI fields.</summary>
+    Task<ApiResult<AiAnalysisStatusResponse>> GetAiAnalysisStatusAsync(string token, CancellationToken cancellationToken = default);
+
     Task<ApiResult<ConversionResponse>> GetMetricsConversionAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
 
     Task<ApiResult<FirstResponseResponse>> GetMetricsFirstResponseAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
@@ -149,6 +152,8 @@ public interface IApiClient
     Task<ApiResult<TenantSummaryResponse>> SetTenantAiEnabledAsync(string token, Guid id, SetAiEnabledRequest request, CancellationToken cancellationToken = default);
 
     Task<ApiResult<TenantSummaryResponse>> SetTenantAiQuotaAsync(string token, Guid id, SetAiQuotaRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<TenantSummaryResponse>> SetTenantAiScheduleAsync(string token, Guid id, SetAiScheduleRequest request, CancellationToken cancellationToken = default);
 
     Task<ApiResult<TenantSummaryResponse>> SetTenantSendRateLimitAsync(string token, Guid id, SetSendRateLimitRequest request, CancellationToken cancellationToken = default);
 

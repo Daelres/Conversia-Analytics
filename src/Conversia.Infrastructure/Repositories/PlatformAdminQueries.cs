@@ -129,7 +129,10 @@ public class PlatformAdminQueries : IPlatformAdminQueries
                 .OrderBy(b => b.Status == SubscriptionStatus.Cancelled).ThenByDescending(b => b.CreatedAt).Select(b => b.BillingSuspendedAt).FirstOrDefault(),
             _db.BillingSubscriptions.IgnoreQueryFilters().Where(b => b.TenantId == t.Id)
                 .OrderBy(b => b.Status == SubscriptionStatus.Cancelled).ThenByDescending(b => b.CreatedAt)
-                .Join(_db.BillingPlans, b => b.PlanId, p => p.Id, (b, p) => p.Code).FirstOrDefault()));
+                .Join(_db.BillingPlans, b => b.PlanId, p => p.Id, (b, p) => p.Code).FirstOrDefault(),
+            t.AiAnalysisMode,
+            t.AiAnalysisNightlyHour,
+            t.AiAnalysisIntervalHours));
 
     private static string EscapeLike(string text)
         => text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);

@@ -61,6 +61,11 @@ public class AdminTenantsController : ControllerBase
     public async Task<ActionResult<TenantSummaryResponse>> SetAiQuota(Guid id, SetAiQuotaRequest request, CancellationToken cancellationToken)
         => Ok(await _admin.SetAiQuotaAsync(AdminId, id, request, cancellationToken));
 
+    /// <summary>When the LLM reads the company: <c>Nightly</c> (optional local hour), <c>EveryHours</c> (1 to 24) or <c>NearRealTime</c>.</summary>
+    [HttpPut("tenants/{id:guid}/ai-schedule")]
+    public async Task<ActionResult<TenantSummaryResponse>> SetAiSchedule(Guid id, SetAiScheduleRequest request, CancellationToken cancellationToken)
+        => Ok(await _admin.SetAiScheduleAsync(AdminId, id, request, cancellationToken));
+
     /// <summary>The company's send rate limit per minute (all its users together); null resets it to <c>Messaging:TenantSendRateLimitPerMinute</c>.</summary>
     [HttpPut("tenants/{id:guid}/send-rate-limit")]
     public async Task<ActionResult<TenantSummaryResponse>> SetSendRateLimit(Guid id, SetSendRateLimitRequest request, CancellationToken cancellationToken)

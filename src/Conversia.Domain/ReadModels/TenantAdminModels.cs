@@ -33,7 +33,10 @@ public sealed record TenantAdminSummary(
     DateTime? DataDeletionStartedAt = null,
     SubscriptionStatus? BillingStatus = null,
     DateTime? BillingSuspendedAt = null,
-    string? BillingPlanCode = null);
+    string? BillingPlanCode = null,
+    AiAnalysisMode AiAnalysisMode = AiAnalysisMode.Nightly,
+    int? AiAnalysisNightlyHour = null,
+    int? AiAnalysisIntervalHours = null);
 
 /// <summary>A WhatsApp line of a company: the number, its branch and whether it is switched on. No customer data.</summary>
 public sealed record TenantAdminLine(Guid ChannelId, string DisplayPhoneNumber, string? BranchName, bool IsActive);

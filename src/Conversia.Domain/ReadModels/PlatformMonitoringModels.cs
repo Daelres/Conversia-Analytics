@@ -60,7 +60,16 @@ public sealed record PlatformActivity(
     int SilentTotal,
     IReadOnlyList<SilentTenant> Silent,
     int AiLimitedTotal,
-    IReadOnlyList<AiLimitedTenant> AiLimited);
+    IReadOnlyList<AiLimitedTenant> AiLimited,
+    LlmBatchCounts? Batches = null);
+
+/// <summary>The platform's Message Batches by state.</summary>
+public sealed record LlmBatchCounts(int Preparing, int Submitted, int Ended, int FailedLast24h, int CollectedLast24h, DateTime? OldestSubmittedAt);
+
+/// <summary>One analysis window of a company: counts only.</summary>
+public sealed record AiAnalysisRunCounts(
+    DateTime WindowStart, DateTime WindowEnd, string Mode, DateTime StartedAt, DateTime LastActivityAt, int Claimed, int Analysed, int Unchanged, int Skipped,
+    int Discarded, int Failed, int Deferred, int Batched);
 
 public sealed record TenantActivity(
     BacklogCounts Backlog,
@@ -70,4 +79,6 @@ public sealed record TenantActivity(
     int Errors24h,
     IReadOnlyList<ErrorGroupCount> TopErrors24h,
     IReadOnlyList<SendOutcomeCount> Sends7d,
-    IReadOnlyList<DailyActivity> Days);
+    IReadOnlyList<DailyActivity> Days,
+    int LlmPending = 0,
+    AiAnalysisRunCounts? LastAnalysisRun = null);

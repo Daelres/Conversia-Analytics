@@ -84,6 +84,13 @@ public class ApplicationDbContext : DbContext
     /// <summary>Platform-level: an unmatched payment names no company.</summary>
     public DbSet<BillingReviewItem> BillingReviewItems => Set<BillingReviewItem>();
 
+    public DbSet<AiAnalysisRun> AiAnalysisRuns => Set<AiAnalysisRun>();
+
+    /// <summary>Platform-level: one Message Batch mixes companies (its requests are tenant-scoped).</summary>
+    public DbSet<LlmBatch> LlmBatches => Set<LlmBatch>();
+
+    public DbSet<LlmBatchRequest> LlmBatchRequests => Set<LlmBatchRequest>();
+
     /// <summary>Operations table: not tenant-filtered, see <c>ErrorLogConfiguration</c>.</summary>
     public DbSet<ErrorLog> ErrorLogs => Set<ErrorLog>();
 
@@ -123,6 +130,8 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<BillingCharge>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<BillingPaymentAttempt>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<AiQuotaGrant>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AiAnalysisRun>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<LlmBatchRequest>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
 
         base.OnModelCreating(modelBuilder);
     }

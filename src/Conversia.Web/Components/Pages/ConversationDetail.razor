@@ -94,7 +94,7 @@ else if (!Redirected)
             <div class="stack conversation-side">
                 @if (_conversation is not null)
                 {
-                    <OpportunityCard Opportunity="_conversation.Opportunity" ToLocal="TimeZone.ToLocal" />
+                    <OpportunityCard Opportunity="_conversation.Opportunity" ToLocal="TimeZone.ToLocal" AiAnalyzedAt="_conversation.AiAnalyzedAt" />
 
                     <Card Title="Datos de la conversación" IconName="info" data-testid="conversation-facts">
                         <dl class="kv">

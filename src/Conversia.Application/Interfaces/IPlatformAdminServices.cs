@@ -49,6 +49,9 @@ public interface IPlatformAdminService
     /// <summary>Sets the company's monthly AI quota (null: the default). Audited; the same value writes nothing.</summary>
     Task<TenantSummaryResponse> SetAiQuotaAsync(Guid adminId, Guid tenantId, SetAiQuotaRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>When the LLM reads the company (docs/CLASSIFICATION.md, "When the AI reads"); audited with the reason. A no-op records nothing.</summary>
+    Task<TenantSummaryResponse> SetAiScheduleAsync(Guid adminId, Guid tenantId, SetAiScheduleRequest request, CancellationToken cancellationToken = default);
+
     /// <summary>Sets the company's send rate limit per minute (null: the default). Audited; the same value writes nothing.</summary>
     Task<TenantSummaryResponse> SetSendRateLimitAsync(Guid adminId, Guid tenantId, SetSendRateLimitRequest request, CancellationToken cancellationToken = default);
 

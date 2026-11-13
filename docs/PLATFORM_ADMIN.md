@@ -158,6 +158,7 @@ default.
 | Active lines (`maxActiveLines`) | 0 at registration | 0 to 1000 (`PUT .../line-quota`) | Switching a line on (above). |
 | AI switch (`aiEnabled`) | **off** | on/off with a reason; switching on needs the version of the AI terms the company accepted (`PUT .../ai-enabled`). New terms while it is on are a change too (audited with the previous version); the same terms again write nothing | The classifier's admission (docs/CLASSIFICATION.md, "Usage and quota"). |
 | AI monthly quota (`aiMonthlyConversationQuota`) | `Classification:Quota:DefaultMonthlyConversations` (500) | 0 to 1,000,000 distinct conversations a month (America/Bogota); `null` = default; a reason is required (`PUT .../ai-quota`) | The same admission. The company's USD ceiling is the quota times `Classification:Quota:TenantMonthlyUsdPerQuotaUnit` (0.02: 500 = 10 USD). |
+| When the AI reads (`aiAnalysisMode`, `aiAnalysisNightlyHour`, `aiAnalysisIntervalHours`, `nextAiAnalysisWindowAt`) | **`Nightly`** from `Classification:Schedule:DefaultNightlyHour` (01:00 America/Bogota) | `Nightly` with an optional local start hour (0 to 23), `EveryHours` with an interval (1 to 24), or `NearRealTime` (special cases); a reason is required (`PUT .../ai-schedule`) | The LLM scheduler (docs/CLASSIFICATION.md, "When the AI reads"): the rules keep reading every conversation near real time whatever the mode. Takes effect from the next window. |
 | Sends per minute (`sendRateLimitPerMinute`) | `Messaging:TenantSendRateLimitPerMinute` (120) | 1 to `Messaging:TenantSendRateLimitMaxPerMinute` (default 10 times the deployment limit, 1,200; at most 1,000,000), all its users together; `null` = default; a reason is required (`PUT .../send-rate-limit`) | The company send limiter (docs/MESSAGING.md). The instance that saved it applies it on the next send; every other instance reloads the company values every 30 s. A new value starts a fresh one-minute window. |
 
 A company's **sandbox** conversations (docs/SANDBOX.md) are outside its quota and ceiling but have their own bound,
@@ -206,7 +207,7 @@ them.
 | Health | The `/health` checks of the instance that answered (name and status). | |
 | Backlog | Pending webhook deliveries and the oldest one's wait; conversations waiting for classification, the oldest wait, and the ones stopped after repeated failures (Active companies only). | The same, for the company. |
 | Deliveries | Last 24 hours and 7 days: deliveries, messages stored, duplicates, skipped, failed deliveries. **Real and sandbox apart.** | The same, plus the last real delivery. |
-| AI | This month: conversations analysed, calls, failed calls, tokens, estimated USD, real and sandbox apart; the deployment USD against its cap; the provider and the circuit breaker **of the instance that answered** (it is per process; its transitions are also logged as Warnings). | The company's state (`Disabled`, `Ok`, `Warning` at 80 %, `Exhausted`), its quota and ceiling, this month real and sandbox, the last three months. |
+| AI | This month: conversations analysed, calls, failed calls, tokens, estimated USD, real and sandbox apart; the deployment USD against its cap; the provider and the circuit breaker **of the instance that answered** (it is per process; its transitions are also logged as Warnings); the night analysis's **Message Batches** by state (`Preparing`, `Submitted` with the oldest one's time, `Ended` waiting to be collected, collected and failed in the last 24 hours). | The company's state (`Disabled`, `Ok`, `Warning` at 80 %, `Exhausted`), its quota and ceiling, this month real and sandbox, the last three months; its **schedule** (`aiAnalysis`: mode, hour or interval, the next window), the conversations waiting for the LLM, and the **last window's counts** (claimed, analysed, unchanged, skipped, discarded, failed, deferred, batched; `AiAnalysisRuns`, counts only). |
 | Errors | Errors of the last 24 hours and the 10 most frequent fingerprints (count and last time). | The company's. |
 | Sends | Manual sends of the last 7 days by outcome (`sent` or the problem code, docs/MESSAGING.md), real and sandbox. | The company's. |
 | Days | | Last 14 days (America/Bogota): messages in and out, conversations opened and closed, real and sandbox apart. |
@@ -234,6 +235,7 @@ administrator looks at `/admin/monitoreo`. Thresholds are configuration (`Platfo
 | `ai_usage_lost` | The answering instance could not write a usage record since it started (critical): the cost is only in its log, event id 4101 `AiUsageNotRecorded` (Error). Alert on that event. | |
 | `tenant_deletion_stuck` | A company's data deletion was marked stuck, or started more than a day ago and has not finished (critical). | |
 | `llm_breaker_open` | The LLM circuit breaker of the answering instance is open or probing. | |
+| `llm_batches_failed` | A Message Batch of the night analysis failed in the last 24 hours (could not be sent, abandoned, or unreadable after its expiry): its conversations take the synchronous path. | |
 
 Every monitoring statement runs with a 10-second command timeout, and each list (silent companies, companies with the AI used up, errors)
 is one statement that also returns its total. The platform overview is cached in each API process for `PlatformMonitoring:OverviewCacheSeconds`
@@ -260,6 +262,7 @@ All under `/api/admin`, policy `PlatformAdmin`, Spanish `application/problem+jso
 | PUT | `/api/admin/tenants/{id}/sandbox-mode` | `{enabled, reason}` (reason **required**, 1 to 200 characters). Switches the internal sandbox of the company on or off ([SANDBOX.md](SANDBOX.md)). Idempotent: the value it already has writes nothing. |
 | PUT | `/api/admin/tenants/{id}/ai-enabled` | `{enabled, reason, termsVersion}`: reason required (1 to 200 characters); `termsVersion` required to switch on (up to 50). Idempotent. |
 | PUT | `/api/admin/tenants/{id}/ai-quota` | `{monthlyConversations, reason}` (0 to 1,000,000, or `null` for the default; reason 1 to 200 characters). |
+| PUT | `/api/admin/tenants/{id}/ai-schedule` | `{mode, nightlyHour, intervalHours, reason}`: `Nightly` (hour 0 to 23 or `null` for the default, no interval), `EveryHours` (interval 1 to 24, no hour) or `NearRealTime` (neither); reason 1 to 200 characters. The same schedule again writes nothing. |
 | PUT | `/api/admin/tenants/{id}/send-rate-limit` | `{perMinute, reason}` (1 to `Messaging:TenantSendRateLimitMaxPerMinute`, or `null` for the default; reason 1 to 200 characters). Above the maximum: `400` naming it. |
 | GET | `/api/admin/tenants/{id}/monitoring` | The company's counts (see [Monitoring](#monitoring)). |
 | POST | `/api/admin/tenants/{id}/channels/{channelId}/deactivate` | Forces a line off. Idempotent. A channel of another company is `404`. |
@@ -287,7 +290,8 @@ deletion job), the **reason code** (always for the system, optional for an admin
 and new values and the time. A database check refuses a row with neither an administrator nor a reason code. Actions: `tenant.status_changed` (`from`, `to`, `reason`, `cause` for a suspension; a cancellation adds `deletionDueAt`, `linesDeactivated`, `licensesReleased`),
 `tenant.data_deletion_started` (`trigger`, `reason`, `cancelledAt`, `deletionDueAt`), `tenant.data_deleted` (`trigger`, `nameHash`, `hashKeyId`, `rows` per table), a status change by an administrator also `previousCause`, a billing hold `billingHold`, `tenant.quota_changed` (`from`, `to`), `tenant.sandbox_mode_changed` (`from`, `to`, `reason`), `channel.deactivated`
 (`channelId`, `displayPhoneNumber`), `tenant.ai_enabled_changed` (`from`, `to`, `reason`, `termsVersion`: the evidence of the company's consent),
-`tenant.ai_quota_changed` and `tenant.send_rate_limit_changed` (`from`, `to`, `reason`; `null` = default), the AI switch also with `previousTermsVersion`, `license.created` (`licenseId`, `number` masked,
+`tenant.ai_quota_changed` and `tenant.send_rate_limit_changed` (`from`, `to`, `reason`; `null` = default), `tenant.ai_schedule_changed` (`from` and `to` as
+`{mode, nightlyHour, intervalHours}`, `reason`), the AI switch also with `previousTermsVersion`, `license.created` (`licenseId`, `number` masked,
 `customerOwned`, `monthlyCostUsd`), `license.assigned` (`licenseId`, `number`, `channelId`), `license.released` (`licenseId`, `number`, `channelId`,
 `lineDeactivated`) and `license.retired` (`licenseId`, `number`). Refused changes and no-ops (same quota, line already off) write nothing. Rows hold ids, statuses, numbers and
 the reason the administrator typed: never a secret, a message or customer data. There is no foreign key on the company, so the trail survives it.
@@ -396,7 +400,7 @@ The Web (`src/Conversia.Web`) has two separate areas. Everything is static serve
 | `/admin/empresas/{id}/sandbox/{activar\|desactivar}` | administrator | The confirmation of switching the internal sandbox mode, with a **required** reason (up to 200 characters). The company page has the card "Modo sandbox" and the listing marks the companies that are in it ([SANDBOX.md](SANDBOX.md)). |
 | `/admin/auditoria` | administrator | The audit trail in words, newest first, 20 per page, optionally for one company (`empresa`). |
 | `/admin/monitoreo` | administrator | The overview: flags, health, backlogs, deliveries, AI this month, sends by outcome, frequent errors, silent companies, companies with the AI used up. |
-| `/admin/empresas/{id}` (sections) | administrator | Besides the above: "Límites" (each effective limit and whether it is the default; AI quota and send limit forms, empty = default), "Inteligencia artificial" (state, accepted terms, usage this month, real and sandbox), "Licencias de 360dialog" and "Monitoreo" (counts and the last 14 days). |
+| `/admin/empresas/{id}` (sections) | administrator | Besides the above: "Límites" (each effective limit and whether it is the default, the AI schedule and the next window; AI quota, AI schedule and send limit forms, empty = default), "Inteligencia artificial" (state, accepted terms, usage this month, real and sandbox, the last analysis window's counts and the pending conversations), "Licencias de 360dialog" and "Monitoreo" (counts and the last 14 days). |
 | `/admin/empresas/{id}/ia/{activar\|desactivar}` | administrator | The confirmation of switching the AI, with a required reason and, to switch on, the version of the accepted terms. |
 | `/admin/licencias`, `/admin/licencias/nueva`, `/admin/licencias/{id}` | administrator | The licence inventory (filter by state), the new licence form and one licence with its assign, release and retire forms. |
 | `POST /admin/logout` | administrator | Ends only the administrator's session. |
@@ -466,7 +470,9 @@ stops the Web, naming the key) and absent when empty.
   docs/CLASSIFICATION.md, "The worker"; `silent_companies`: confirm with the company that its numbers still point to Conversia (360dialog
   webhook) and are not suspended; `ai_limited_companies`: raise the company's quota or wait for the month to end; `ai_deployment_cap`: raise
   `Classification:Quota:DeploymentMonthlyUsdCap` (restart) if the spend is expected; `llm_breaker_open`: the provider fails, the rules read
-  meanwhile; `send_failures`: look at the outcome codes (docs/MESSAGING.md).
+  meanwhile; batches `Submitted` for many hours or `failed` in the last 24 h: the provider is slow or refuses batches; their conversations take
+  the synchronous path at the next window (docs/CLASSIFICATION.md, "Batch mode"); a company that needs fresher AI fields: change its schedule
+  (`EveryHours`), not the deployment default; `send_failures`: look at the outcome codes (docs/MESSAGING.md).
 
 ## Limits
 

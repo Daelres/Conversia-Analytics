@@ -36,6 +36,9 @@ internal sealed class MetricsStub
 
     public AlertsResponse Alerts { get; set; } = null!;
 
+    /// <summary>The company's AI status (<c>/api/metrics/ai-analysis</c>): off by default.</summary>
+    public AiAnalysisStatusResponse AiAnalysis { get; set; } = new();
+
     public IReadOnlyList<BranchResponse> Branches { get; set; } =
     [
         new() { Id = Centro, Name = "Centro", IsActive = true },
@@ -214,6 +217,11 @@ internal sealed class MetricsStub
         if (path == "/api/users/me")
         {
             return Task.FromResult<HttpResponseMessage?>(MemberPermissions is null ? null : FakeBackend.Answer(HttpStatusCode.OK, Member(request)));
+        }
+
+        if (path == "/api/tenant/ai-analysis")
+        {
+            return Task.FromResult<HttpResponseMessage?>(Failures.TryGetValue(path, out var aiFailure) ? aiFailure() : FakeBackend.Answer(HttpStatusCode.OK, AiAnalysis));
         }
 
         if (path == "/api/branches")

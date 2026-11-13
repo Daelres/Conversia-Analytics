@@ -187,6 +187,17 @@ else if (!Redirected)
                             <dt>Envíos por minuto</dt>
                             <dd data-testid="limit-send-rate" data-default="@(_company.Limits.SendRateLimitIsDefault ? "true" : "false")">@MetricsFormat.Whole(_company.Limits.SendRateLimitPerMinute) (@AdminFormat.Origin(_company.Limits.SendRateLimitIsDefault))</dd>
                         </div>
+                        <div>
+                            <dt>Análisis con IA</dt>
+                            <dd data-testid="ai-schedule" data-mode="@_company.Limits.AiAnalysisMode">@AdminFormat.AiSchedule(_company.Limits.AiAnalysisMode, _company.Limits.AiAnalysisNightlyHour, _company.Limits.AiAnalysisIntervalHours)@(_company.Limits.AiAnalysisMode == "Nightly" ? $" ({AdminFormat.Origin(_company.Limits.AiAnalysisNightlyHourIsDefault)})" : string.Empty)</dd>
+                        </div>
+                        @if (_company.Limits.NextAiAnalysisWindowAt is { } next)
+                        {
+                            <div>
+                                <dt>Próxima ventana de análisis</dt>
+                                <dd data-testid="ai-next-window">@(_company.Limits.AiAnalysisMode == "NearRealTime" ? "Continua" : MetricsFormat.Moment(TimeZone.ToLocal(next)))</dd>
+                            </div>
+                        }
                     </dl>
                 }
 
@@ -204,6 +215,37 @@ else if (!Redirected)
                     <ApiFieldErrors Errors="_aiQuotaErrors" KnownFields="@(["MonthlyConversations", "Reason"])" />
                     <div class="form-actions">
                         <button type="submit" class="btn btn--secondary"><Icon Name="check" />Guardar cupo de IA</button>
+                    </div>
+                </EditForm>
+
+                <EditForm Model="AiSchedule" FormName="set-ai-schedule" OnValidSubmit="SaveAiScheduleAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="ai-schedule-form">
+                    <DataAnnotationsValidator />
+                    <FormField TValue="string" For="() => AiSchedule.Mode" Id="ai-schedule-mode" Label="Frecuencia del análisis con IA" IconName="sparkles"
+                               Hint="Por defecto, cada noche: reparte la carga y el costo. Las reglas siguen leyendo cada conversación casi en tiempo real." ApiErrors="_aiScheduleErrors" Context="field">
+                        <select id="ai-schedule-mode" name="@($"{nameof(AiSchedule)}.{nameof(AiScheduleInput.Mode)}")" class="input" @attributes="field">
+                            @foreach (var (value, label) in ScheduleModes)
+                            {
+                                <option value="@value" selected="@(value == CurrentScheduleMode)">@label</option>
+                            }
+                        </select>
+                    </FormField>
+                    <FormField TValue="string" For="() => AiSchedule.NightlyHour" Id="ai-schedule-hour" Label="Hora de inicio (cada noche)"
+                               Hint="De 0 a 23, hora de Colombia; vacío para la hora por defecto." ApiErrors="_aiScheduleErrors" Context="field">
+                        <input id="ai-schedule-hour" name="@($"{nameof(AiSchedule)}.{nameof(AiScheduleInput.NightlyHour)}")" type="number" inputmode="numeric" min="0" max="23" step="1"
+                               class="input input--num" autocomplete="off" value="@(AiSchedule.NightlyHour ?? OwnNightlyHour)" @attributes="field" />
+                    </FormField>
+                    <FormField TValue="string" For="() => AiSchedule.IntervalHours" Id="ai-schedule-interval" Label="Intervalo en horas (cada N horas)"
+                               Hint="De 1 a 24. Las ventanas se cuentan desde la medianoche." ApiErrors="_aiScheduleErrors" Context="field">
+                        <input id="ai-schedule-interval" name="@($"{nameof(AiSchedule)}.{nameof(AiScheduleInput.IntervalHours)}")" type="number" inputmode="numeric" min="1" max="@Conversia.Domain.Entities.Tenant.MaxAiAnalysisIntervalHours" step="1"
+                               class="input input--num" autocomplete="off" value="@(AiSchedule.IntervalHours ?? OwnInterval)" @attributes="field" />
+                    </FormField>
+                    <FormField TValue="string" For="() => AiSchedule.Reason" Id="ai-schedule-reason" Label="Motivo"
+                               Hint="Obligatorio. Queda en la auditoría. No incluyas datos personales de clientes. Hasta 200 caracteres." ApiErrors="_aiScheduleErrors" Context="field">
+                        <input id="ai-schedule-reason" name="@($"{nameof(AiSchedule)}.{nameof(AiScheduleInput.Reason)}")" class="input" maxlength="@Conversia.Domain.Entities.Tenant.AiChangeReasonMaxLength" autocomplete="off" value="@AiSchedule.Reason" @attributes="field" />
+                    </FormField>
+                    <ApiFieldErrors Errors="_aiScheduleErrors" KnownFields="@(["Mode", "NightlyHour", "IntervalHours", "Reason"])" />
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn--secondary"><Icon Name="check" />Guardar frecuencia del análisis</button>
                     </div>
                 </EditForm>
 
@@ -251,6 +293,10 @@ else if (!Redirected)
                             <div>
                                 <dt>Sandbox este mes (no cuenta en el cupo)</dt>
                                 <dd data-testid="ai-sandbox-usage">@MetricsFormat.Whole(m.Ai.SandboxThisMonth.Conversations) conversaciones · @AdminFormat.Usd(m.Ai.SandboxThisMonth.EstimatedUsd)</dd>
+                            </div>
+                            <div>
+                                <dt>Última ventana de análisis</dt>
+                                <dd data-testid="ai-last-run">@LastRunText(m.AiAnalysis)</dd>
                             </div>
                         }
                     </dl>
@@ -436,6 +482,55 @@ else if (!Redirected)
     private SendLimitInput? _sendLimit;
     private IReadOnlyDictionary<string, string[]>? _aiQuotaErrors;
     private IReadOnlyDictionary<string, string[]>? _sendLimitErrors;
+    private AiScheduleInput? _aiSchedule;
+    private IReadOnlyDictionary<string, string[]>? _aiScheduleErrors;
+
+    [SupplyParameterFromForm(FormName = "set-ai-schedule")]
+    private AiScheduleInput AiSchedule
+    {
+        get => _aiSchedule ??= new();
+        set => _aiSchedule = value;
+    }
+
+    private static readonly (string Value, string Label)[] ScheduleModes =
+    [
+        ("Nightly", "Cada noche (recomendado)"),
+        ("EveryHours", "Cada N horas"),
+        ("NearRealTime", "Casi en tiempo real (casos especiales)"),
+    ];
+
+    private string CurrentScheduleMode => AiSchedule.Mode ?? _company?.Limits.AiAnalysisMode ?? "Nightly";
+
+    private string? OwnNightlyHour => _company is { Limits: { AiAnalysisMode: "Nightly", AiAnalysisNightlyHourIsDefault: false } l } ? l.AiAnalysisNightlyHour?.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
+
+    private string? OwnInterval => _company?.Limits.AiAnalysisIntervalHours?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    // Counts only: what the runner did in the latest window, and what is waiting now.
+    private string LastRunText(TenantAiAnalysisResponse analysis)
+    {
+        var pending = AdminFormat.Count(analysis.Pending, "pendiente", "pendientes");
+        if (analysis.LastRun is not { } r)
+        {
+            return $"Aún sin ventanas · {pending}";
+        }
+
+        return string.Join(" · ",
+            MetricsFormat.Moment(TimeZone.ToLocal(r.WindowStart)),
+            AdminFormat.Count(r.Analysed, "analizada", "analizadas"),
+            AdminFormat.Count(r.Unchanged, "sin cambios", "sin cambios"),
+            AdminFormat.Count(r.Skipped, "omitida", "omitidas"),
+            AdminFormat.Count(r.Discarded, "descartada", "descartadas"),
+            AdminFormat.Count(r.Failed, "fallida", "fallidas"),
+            AdminFormat.Count(r.Deferred, "aplazada", "aplazadas"),
+            AdminFormat.Count(r.Batched, "en lote", "en lote"),
+            pending);
+    }
+
+    private async Task SaveAiScheduleAsync()
+    {
+        var result = await Api.SetTenantAiScheduleAsync(Token!, Id, AiSchedule.ToRequest());
+        await AfterLimitAsync(result, AdminNotice.AiScheduleSaved, errors => _aiScheduleErrors = errors);
+    }
 
     [SupplyParameterFromForm(FormName = "set-ai-quota")]
     private AiQuotaInput AiQuota

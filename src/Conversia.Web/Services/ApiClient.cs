@@ -73,6 +73,9 @@ public sealed class ApiClient : IApiClient
     public Task<ApiResult<Unit>> RevokePermissionAsync(string token, Guid userId, Permission permission, CancellationToken cancellationToken = default)
         => SendAsync<Unit>(HttpMethod.Delete, $"api/users/{userId}/permissions/{Uri.EscapeDataString(permission.ToString())}", token, body: null, isUsable: null, cancellationToken);
 
+    public Task<ApiResult<AiAnalysisStatusResponse>> GetAiAnalysisStatusAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<AiAnalysisStatusResponse>(HttpMethod.Get, "api/tenant/ai-analysis", token, body: null, isUsable: null, cancellationToken);
+
     public Task<ApiResult<SummaryResponse>> GetMetricsSummaryAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default)
         => SendAsync<SummaryResponse>(HttpMethod.Get, "api/metrics/summary" + MetricsQueryString.Build(query), token, body: null, r => r.Conversion is not null && r.FirstResponse is not null && r.Period is not null, cancellationToken);
 
@@ -180,6 +183,9 @@ public sealed class ApiClient : IApiClient
 
     public Task<ApiResult<TenantSummaryResponse>> SetTenantAiEnabledAsync(string token, Guid id, SetAiEnabledRequest request, CancellationToken cancellationToken = default)
         => SendAsync<TenantSummaryResponse>(HttpMethod.Put, $"api/admin/tenants/{id}/ai-enabled", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<TenantSummaryResponse>> SetTenantAiScheduleAsync(string token, Guid id, SetAiScheduleRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<TenantSummaryResponse>(HttpMethod.Put, $"api/admin/tenants/{id}/ai-schedule", token, request, isUsable: null, cancellationToken);
 
     public Task<ApiResult<TenantSummaryResponse>> SetTenantAiQuotaAsync(string token, Guid id, SetAiQuotaRequest request, CancellationToken cancellationToken = default)
         => SendAsync<TenantSummaryResponse>(HttpMethod.Put, $"api/admin/tenants/{id}/ai-quota", token, request, isUsable: null, cancellationToken);

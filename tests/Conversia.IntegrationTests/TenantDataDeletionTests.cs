@@ -89,6 +89,16 @@ public class TenantDataDeletionTests
             await db.Database.ExecuteSqlAsync($"""
                 INSERT INTO "MessageSendOutcomes" ("TenantId", "Day", "IsSandbox", "Outcome", "Count") VALUES ({f.TenantId}, DATE '2026-10-01', false, 'sent', 3)
                 """);
+            // The LLM schedule's rows (docs/CLASSIFICATION.md): a window's counts and a batched request of the conversation.
+            await db.Database.ExecuteSqlAsync($"""
+                INSERT INTO "AiAnalysisRuns" ("TenantId", "WindowStart", "WindowEnd", "Mode", "StartedAt", "LastActivityAt", "Claimed", "Analysed", "Unchanged",
+                    "Skipped", "Discarded", "Failed", "Deferred", "Batched", "Calls")
+                VALUES ({f.TenantId}, TIMESTAMP '2026-10-01 06:00', TIMESTAMP '2026-10-01 11:00', 'Nightly', now(), now(), 1, 1, 0, 0, 0, 0, 0, 1, 1)
+                """);
+            var batch = LlmBatch.Prepare(1, DateTime.UtcNow);
+            db.LlmBatches.Add(batch);
+            db.LlmBatchRequests.Add(LlmBatchRequest.For(
+                batch.Id, f.TenantId, seeded.ConversationId, DateTime.UtcNow, new string('e', 64), false, null, OpportunityStage.New, null, DateTime.UtcNow));
             // The billing rows (docs/BILLING.md): a subscription with a paid charge, its attempt and its AI add-on grant.
             var plan = BillingPlan.Create("del" + Guid.NewGuid().ToString("N")[..12], "Plan", 100, 10);
             var addOn = BillingAddOn.Create(plan.Id, "ia", "IA", 10, 100);

@@ -62,6 +62,10 @@
             </div>
         }
     </dl>
+    @if (AiAnalyzedAt is { } analysed)
+    {
+        <p class="muted" data-testid="ai-analyzed-at">Análisis de IA: última actualización el @MetricsFormat.Moment(ToLocal(analysed)).</p>
+    }
     @if (!string.IsNullOrWhiteSpace(Opportunity.ClassificationRules))
     {
         <details class="chart__data" data-testid="rules">
@@ -82,4 +86,8 @@
 
     [Parameter, EditorRequired]
     public Func<DateTime, DateTime> ToLocal { get; set; } = utc => utc;
+
+    /// <summary>When the AI last updated the conversation's fields; null hides the note.</summary>
+    [Parameter]
+    public DateTime? AiAnalyzedAt { get; set; }
 }

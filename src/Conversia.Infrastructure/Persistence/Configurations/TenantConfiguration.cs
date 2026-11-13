@@ -32,6 +32,16 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
         builder.Property(t => t.AiEnabledChangedAt);
         builder.Property(t => t.AiMonthlyConversationQuota);
         builder.Property(t => t.SendRateLimitPerMinute);
+        // When the LLM reads the company (docs/CLASSIFICATION.md, "When the AI reads"): nightly by default.
+        builder.Property(t => t.AiAnalysisMode).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength)
+            .HasDefaultValue(Domain.Enums.AiAnalysisMode.Nightly).HasSentinel((Domain.Enums.AiAnalysisMode)(-1));
+        builder.Property(t => t.AiAnalysisNightlyHour);
+        builder.Property(t => t.AiAnalysisIntervalHours);
+        builder.ToTable(t => t.HasCheckConstraint(
+            "CK_Tenants_AiAnalysisSchedule",
+            "(\"AiAnalysisMode\" = 'Nightly' AND \"AiAnalysisIntervalHours\" IS NULL AND (\"AiAnalysisNightlyHour\" IS NULL OR \"AiAnalysisNightlyHour\" BETWEEN 0 AND 23))"
+            + $" OR (\"AiAnalysisMode\" = 'EveryHours' AND \"AiAnalysisNightlyHour\" IS NULL AND \"AiAnalysisIntervalHours\" BETWEEN 1 AND {Tenant.MaxAiAnalysisIntervalHours})"
+            + " OR (\"AiAnalysisMode\" = 'NearRealTime' AND \"AiAnalysisNightlyHour\" IS NULL AND \"AiAnalysisIntervalHours\" IS NULL)"));
         builder.ToTable(t => t.HasCheckConstraint(
             "CK_Tenants_AiMonthlyConversationQuota", $"\"AiMonthlyConversationQuota\" IS NULL OR \"AiMonthlyConversationQuota\" BETWEEN 0 AND {Tenant.MaxAiMonthlyConversationQuota}"));
         builder.ToTable(t => t.HasCheckConstraint(

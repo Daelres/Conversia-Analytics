@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using Conversia.Application.DTOs.Admin;
 using Conversia.Domain.Entities;
+using Conversia.Domain.Enums;
 
 namespace Conversia.Web.Services;
 
@@ -127,6 +128,61 @@ public sealed class AiQuotaInput : IValidatableObject
             MonthlyConversations = OptionalWholeNumber.TryParse(MonthlyConversations, 0, Tenant.MaxAiMonthlyConversationQuota, out var value) ? value : null,
             Reason = Reason?.Trim(),
         };
+}
+
+/// <summary>The AI schedule form: the mode, the hour (nightly) or the interval (every N hours), and the reason.</summary>
+public sealed class AiScheduleInput : IValidatableObject
+{
+    public const string ModeRuleMessage = "Elige la frecuencia del análisis con IA: cada noche, cada N horas o casi en tiempo real.";
+
+    [Display(Name = "Frecuencia del análisis con IA")]
+    public string? Mode { get; set; }
+
+    [Display(Name = "Hora de inicio")]
+    public string? NightlyHour { get; set; }
+
+    [Display(Name = "Intervalo en horas")]
+    public string? IntervalHours { get; set; }
+
+    [Display(Name = "Motivo")]
+    [Conversia.Application.Validation.TrimmedText(Tenant.AiChangeReasonMaxLength)]
+    public string? Reason { get; set; }
+
+    private AiAnalysisMode? ParsedMode
+        => Enum.TryParse<AiAnalysisMode>(Mode?.Trim(), ignoreCase: false, out var mode) && Enum.IsDefined(mode) ? mode : null;
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (ParsedMode is not { } mode)
+        {
+            yield return new ValidationResult(ModeRuleMessage, [nameof(Mode)]);
+            yield break;
+        }
+
+        // Only the field of the chosen mode counts; the other is ignored (it is not sent).
+        if (mode == AiAnalysisMode.Nightly && !OptionalWholeNumber.TryParse(NightlyHour, 0, 23, out _))
+        {
+            yield return new ValidationResult(Tenant.AiAnalysisScheduleRuleMessage, [nameof(NightlyHour)]);
+        }
+
+        if (mode == AiAnalysisMode.EveryHours
+            && (!OptionalWholeNumber.TryParse(IntervalHours, 1, Tenant.MaxAiAnalysisIntervalHours, out var interval) || interval is null))
+        {
+            yield return new ValidationResult(Tenant.AiAnalysisScheduleRuleMessage, [nameof(IntervalHours)]);
+        }
+    }
+
+    public SetAiScheduleRequest ToRequest()
+    {
+        var mode = ParsedMode ?? AiAnalysisMode.Nightly;
+        return new()
+        {
+            Mode = mode.ToString(),
+            NightlyHour = mode == AiAnalysisMode.Nightly && OptionalWholeNumber.TryParse(NightlyHour, 0, 23, out var hour) ? hour : null,
+            IntervalHours = mode == AiAnalysisMode.EveryHours && OptionalWholeNumber.TryParse(IntervalHours, 1, Tenant.MaxAiAnalysisIntervalHours, out var interval) ? interval : null,
+            Reason = Reason?.Trim(),
+        };
+    }
 }
 
 /// <summary>The send rate limit form: empty resets to the default.</summary>

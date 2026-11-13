@@ -150,6 +150,77 @@ public class AdminPlatformPagesTests
         Assert.Single(harness.Writes);
     }
 
+    // ---- the AI schedule ----
+
+    [Fact]
+    public async Task The_company_page_shows_when_the_ai_reads_the_next_window_and_the_last_runs_counts()
+    {
+        using var harness = AdminHarness.Create();
+
+        var page = (await harness.OpenAsync(Detail(AdminStub.Aurora))).ShouldBe(HttpStatusCode.OK);
+
+        var schedule = page.Document.QuerySelector("[data-testid=ai-schedule]")!.Plain();
+        Assert.Contains("Cada noche desde las 01:00 (Por defecto)", schedule);
+        Assert.Contains("13 nov, 01:00", page.Document.QuerySelector("[data-testid=ai-next-window]")!.Plain());
+        var run = page.Document.QuerySelector("[data-testid=ai-last-run]")!.Plain();
+        foreach (var expected in new[] { "12 nov, 01:00", "31 analizadas", "4 sin cambios", "2 omitidas", "1 descartada", "1 fallida", "1 aplazada", "33 en lote", "12 pendientes" })
+        {
+            Assert.Contains(expected, run);
+        }
+
+        Assert.Equal("Nightly", page.Document.QuerySelector("#ai-schedule-mode option[selected]")!.GetAttribute("value"));
+    }
+
+    [Fact]
+    public async Task Saving_the_ai_schedule_sends_the_mode_the_interval_and_the_reason_and_confirms()
+    {
+        using var harness = AdminHarness.Create();
+        using var session = await harness.SignInAsync();
+        var page = (await session.GetAsync(Detail(AdminStub.Aurora))).ShouldBe(HttpStatusCode.OK);
+
+        var response = await session.SubmitAsync(FormModel.From(page, Form(page, "ai-schedule-form"))
+            .Set("Mode", "EveryHours").Set("NightlyHour", "").Set("IntervalHours", " 6 ").Set("Reason", " Campaña de fin de año "));
+
+        response.ShouldRedirectTo($"{Detail(AdminStub.Aurora)}?aviso=analisis-ia");
+        var write = Assert.Single(harness.Writes);
+        Assert.Equal($"/api/admin/tenants/{AdminStub.Aurora}/ai-schedule", write.Path);
+        using var body = write.BodyJson();
+        Assert.Equal(("EveryHours", 6, "Campaña de fin de año"),
+            (body.RootElement.GetProperty("mode").GetString(), body.RootElement.GetProperty("intervalHours").GetInt32(), body.RootElement.GetProperty("reason").GetString()));
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, body.RootElement.GetProperty("nightlyHour").ValueKind);
+    }
+
+    [Theory]
+    [InlineData("EveryHours", "", "", "Motivo", "motivo")]
+    [InlineData("EveryHours", "", "", "x", "cada N horas")]
+    [InlineData("Nightly", "25", "", "x", "cada noche")]
+    [InlineData("Weekly", "", "", "x", "frecuencia")]
+    public async Task An_invalid_ai_schedule_is_refused_on_the_page_and_nothing_is_sent(string mode, string hour, string interval, string reason, string expected)
+    {
+        using var harness = AdminHarness.Create();
+        using var session = await harness.SignInAsync();
+        var page = (await session.GetAsync(Detail(AdminStub.Aurora))).ShouldBe(HttpStatusCode.OK);
+
+        var response = await session.SubmitAsync(FormModel.From(page, Form(page, "ai-schedule-form"))
+            .Set("Mode", mode).Set("NightlyHour", hour).Set("IntervalHours", interval).Set("Reason", reason == "Motivo" ? " " : reason));
+
+        Assert.Contains(expected, response.Document.QuerySelector("[data-testid=ai-schedule-form]")!.Plain(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(harness.Writes);
+    }
+
+    [Fact]
+    public async Task The_monitoring_page_shows_the_batches_by_state()
+    {
+        using var harness = AdminHarness.Create();
+
+        var page = (await harness.OpenAsync("/admin/monitoreo")).ShouldBe(HttpStatusCode.OK);
+
+        var batches = page.Document.QuerySelector("[data-testid=ai-batches]")!.Plain();
+        Assert.Contains("1 en proceso", batches);
+        Assert.Contains("3 recogidos", batches);
+        Assert.Contains("1 fallido", batches);
+    }
+
     // ---- the AI switch ----
 
     [Fact]

@@ -69,6 +69,62 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.ToTable("Advisors", (string)null);
                 });
 
+            modelBuilder.Entity("Conversia.Domain.Entities.AiAnalysisRun", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("WindowStart")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Analysed")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Batched")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Calls")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Claimed")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Deferred")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Discarded")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Failed")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("LastActivityAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("Skipped")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Unchanged")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("WindowEnd")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TenantId", "WindowStart");
+
+                    b.HasIndex("WindowStart");
+
+                    b.ToTable("AiAnalysisRuns", (string)null);
+                });
+
             modelBuilder.Entity("Conversia.Domain.Entities.AiQuotaGrant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1021,10 +1077,24 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("LastMessageAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("LlmAnalyzedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LlmAttemptedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("LlmFailures")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
+
+                    b.Property<DateTime?>("LlmLeaseUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("LlmPending")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<string>("PendingAgeRange")
                         .HasMaxLength(20)
@@ -1090,6 +1160,9 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.HasIndex(new[] { "LastMessageAt" }, "IX_Conversations_LastMessageAt_Open")
                         .HasFilter("\"Status\" = 'Open'");
+
+                    b.HasIndex(new[] { "TenantId", "ClassificationRequestedAt" }, "IX_Conversations_LlmPending")
+                        .HasFilter("\"LlmPending\"");
 
                     b.HasIndex(new[] { "TenantId" }, "IX_Conversations_TenantId_Sandbox")
                         .HasFilter("\"IsSandbox\"");
@@ -1307,6 +1380,167 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_LineLicenses_MonthlyCostUsd", "\"MonthlyCostUsd\" BETWEEN 0 AND 10000");
                         });
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.LlmBatch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Canceled")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("CollectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("Errored")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Expired")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastPolledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("PreparedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProviderBatchId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("RequestCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("SubmitStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Succeeded")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("LlmBatches", (string)null);
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.LlmBatchRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CollectingAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CustomId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<decimal>("EstimatedUsd")
+                        .HasPrecision(12, 6)
+                        .HasColumnType("numeric(12,6)");
+
+                    b.Property<bool>("IsSandbox")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LeaseUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("RequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SnapshotHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.Property<string>("StageAtPlan")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("StageChangedAtPlan")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("WindowStart")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("BatchId", "CustomId")
+                        .IsUnique();
+
+                    b.HasIndex("ConversationId", "CreatedAt");
+
+                    b.HasIndex("Status", "TenantId");
+
+                    b.ToTable("LlmBatchRequests", (string)null);
                 });
 
             modelBuilder.Entity("Conversia.Domain.Entities.Message", b =>
@@ -1616,6 +1850,19 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("AiAnalysisIntervalHours")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AiAnalysisMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Nightly");
+
+                    b.Property<int?>("AiAnalysisNightlyHour")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("AiEnabled")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -1698,6 +1945,8 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.ToTable("Tenants", null, t =>
                         {
+                            t.HasCheckConstraint("CK_Tenants_AiAnalysisSchedule", "(\"AiAnalysisMode\" = 'Nightly' AND \"AiAnalysisIntervalHours\" IS NULL AND (\"AiAnalysisNightlyHour\" IS NULL OR \"AiAnalysisNightlyHour\" BETWEEN 0 AND 23)) OR (\"AiAnalysisMode\" = 'EveryHours' AND \"AiAnalysisNightlyHour\" IS NULL AND \"AiAnalysisIntervalHours\" BETWEEN 1 AND 24) OR (\"AiAnalysisMode\" = 'NearRealTime' AND \"AiAnalysisNightlyHour\" IS NULL AND \"AiAnalysisIntervalHours\" IS NULL)");
+
                             t.HasCheckConstraint("CK_Tenants_AiMonthlyConversationQuota", "\"AiMonthlyConversationQuota\" IS NULL OR \"AiMonthlyConversationQuota\" BETWEEN 0 AND 1000000");
 
                             t.HasCheckConstraint("CK_Tenants_Cancellation", "(\"Status\" = 'Cancelled') = (\"CancelledAt\" IS NOT NULL AND \"DataDeletionDueAt\" IS NOT NULL) AND (\"DataDeletionStartedAt\" IS NULL OR \"Status\" = 'Cancelled')");
@@ -2010,6 +2259,15 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("Conversia.Domain.Entities.AiAnalysisRun", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Conversia.Domain.Entities.AiQuotaGrant", b =>
                 {
                     b.HasOne("Conversia.Domain.Entities.BillingCharge", null)
@@ -2140,6 +2398,27 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.LlmBatchRequest", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.LlmBatch", null)
+                        .WithMany()
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Conversia.Domain.Entities.Conversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Conversia.Domain.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

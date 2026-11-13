@@ -1,4 +1,5 @@
 using Conversia.Application.Classification.Llm;
+using Conversia.Application.Classification.Scheduling;
 using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Admin;
 using Conversia.Application.Exceptions;
@@ -283,6 +284,34 @@ public class PlatformAdminService : IPlatformAdminService
         return await ReadSummaryAsync(tenantId, cancellationToken);
     }
 
+    public async Task<TenantSummaryResponse> SetAiScheduleAsync(
+        Guid adminId, Guid tenantId, SetAiScheduleRequest request, CancellationToken cancellationToken = default)
+    {
+        var reason = Tenant.LimitChangeReason(request.Reason);
+        var mode = Enum.Parse<AiAnalysisMode>(request.Mode!, ignoreCase: true);
+        await using (var change = await _unitOfWork.BeginAsync(tenantId, cancellationToken) ?? throw new TenantNotFoundException())
+        {
+            var tenant = change.Tenant;
+            var from = Schedule(tenant.AiAnalysisMode, tenant.AiAnalysisNightlyHour, tenant.AiAnalysisIntervalHours);
+            if (tenant.SetAiAnalysisSchedule(mode, request.NightlyHour, request.IntervalHours))
+            {
+                // Counts and settings only: the change takes effect at the company's next window (docs/CLASSIFICATION.md).
+                change.Record(PlatformAuditLog.Record(adminId, PlatformAuditLog.Actions.TenantAiScheduleChanged, tenantId, new Dictionary<string, object?>
+                {
+                    ["from"] = from,
+                    ["to"] = Schedule(tenant.AiAnalysisMode, tenant.AiAnalysisNightlyHour, tenant.AiAnalysisIntervalHours),
+                    ["reason"] = reason,
+                }));
+                await change.CommitAsync(cancellationToken);
+            }
+        }
+
+        return await ReadSummaryAsync(tenantId, cancellationToken);
+    }
+
+    private static Dictionary<string, object?> Schedule(AiAnalysisMode mode, int? hour, int? interval)
+        => new() { ["mode"] = mode.ToString(), ["nightlyHour"] = hour, ["intervalHours"] = interval };
+
     public async Task<TenantSummaryResponse> SetSendRateLimitAsync(
         Guid adminId, Guid tenantId, SetSendRateLimitRequest request, CancellationToken cancellationToken = default)
     {
@@ -333,6 +362,13 @@ public class PlatformAdminService : IPlatformAdminService
             SendRateLimitIsDefault = s.SendRateLimitPerMinute is null,
             DefaultSendRateLimitPerMinute = _defaults.TenantSendRateLimitPerMinute,
             MaxSendRateLimitPerMinute = _defaults.MaxSendRateLimitPerMinute,
+            AiAnalysisMode = s.AiAnalysisMode.ToString(),
+            AiAnalysisNightlyHour = s.AiAnalysisMode == AiAnalysisMode.Nightly ? s.AiAnalysisNightlyHour ?? _defaults.ScheduleSettings.DefaultNightlyHour : null,
+            AiAnalysisNightlyHourIsDefault = s.AiAnalysisMode == AiAnalysisMode.Nightly && s.AiAnalysisNightlyHour is null,
+            AiAnalysisIntervalHours = s.AiAnalysisIntervalHours,
+            NextAiAnalysisWindowAt = AnalysisSchedule.NextWindow(
+                new TenantAnalysisSchedule(s.AiAnalysisMode, s.AiAnalysisNightlyHour, s.AiAnalysisIntervalHours), s.Id, _time.GetUtcNow().UtcDateTime,
+                _defaults.ScheduleSettings).OpensAt,
         };
     }
 

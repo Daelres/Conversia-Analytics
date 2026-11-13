@@ -1,3 +1,4 @@
+using Conversia.Domain.Entities;
 using Conversia.Application.Classification.Llm;
 using Conversia.Application.Ingestion;
 using Conversia.Infrastructure.Persistence;
@@ -58,6 +59,19 @@ public sealed class AiUsageMeter(IServiceScopeFactory scopeFactory, AiQuotaSetti
                 Usd = db.AiUsageMonths.IgnoreQueryFilters().Where(u => u.TenantId == t.Id && u.Month == month && !u.IsSandbox).Select(u => (decimal?)u.EstimatedUsd).FirstOrDefault(),
                 SandboxUsd = db.AiUsageMonths.IgnoreQueryFilters().Where(u => u.TenantId == t.Id && u.Month == month && u.IsSandbox).Select(u => (decimal?)u.EstimatedUsd).FirstOrDefault(),
                 Deployment = db.AiUsageMonths.IgnoreQueryFilters().Where(u => u.Month == month).Sum(u => (decimal?)u.EstimatedUsd),
+                // Batched requests not resolved yet are RESERVED (review: a batch must not overshoot by its size): counted as analysed
+                // conversations and at their estimated cost, for the company and for the deployment, until each is collected.
+                ReservedConversations = db.LlmBatchRequests.IgnoreQueryFilters()
+                    .Count(r => r.TenantId == t.Id && !r.IsSandbox && (r.Status == LlmBatchRequestStatus.Pending || r.Status == LlmBatchRequestStatus.Collecting)),
+                ReservedUsd = db.LlmBatchRequests.IgnoreQueryFilters()
+                    .Where(r => r.TenantId == t.Id && !r.IsSandbox && (r.Status == LlmBatchRequestStatus.Pending || r.Status == LlmBatchRequestStatus.Collecting))
+                    .Sum(r => (decimal?)r.EstimatedUsd),
+                ReservedSandboxUsd = db.LlmBatchRequests.IgnoreQueryFilters()
+                    .Where(r => r.TenantId == t.Id && r.IsSandbox && (r.Status == LlmBatchRequestStatus.Pending || r.Status == LlmBatchRequestStatus.Collecting))
+                    .Sum(r => (decimal?)r.EstimatedUsd),
+                ReservedDeployment = db.LlmBatchRequests.IgnoreQueryFilters()
+                    .Where(r => r.Status == LlmBatchRequestStatus.Pending || r.Status == LlmBatchRequestStatus.Collecting)
+                    .Sum(r => (decimal?)r.EstimatedUsd),
             })
             .FirstOrDefaultAsync(cancellationToken);
         if (facts is null)
@@ -67,8 +81,9 @@ public sealed class AiUsageMeter(IServiceScopeFactory scopeFactory, AiQuotaSetti
 
         var quota = settings.EffectiveQuota(facts.Own ?? facts.Plan) + (facts.Extra ?? 0);
         var admission = AiAdmissionPolicy.Decide(new AiAdmissionFacts(
-            facts.AiEnabled, isSandbox, quota, facts.Used ?? 0, facts.Usd ?? 0m, settings.CeilingUsd(quota), facts.Deployment ?? 0m, settings.DeploymentMonthlyUsdCap,
-            facts.SandboxUsd ?? 0m, settings.SandboxMonthlyUsdPerCompany));
+            facts.AiEnabled, isSandbox, quota, (facts.Used ?? 0) + facts.ReservedConversations, (facts.Usd ?? 0m) + (facts.ReservedUsd ?? 0m), settings.CeilingUsd(quota),
+            (facts.Deployment ?? 0m) + (facts.ReservedDeployment ?? 0m), settings.DeploymentMonthlyUsdCap, (facts.SandboxUsd ?? 0m) + (facts.ReservedSandboxUsd ?? 0m),
+            settings.SandboxMonthlyUsdPerCompany));
         if (admission == AiAdmission.DeploymentCapReached && Interlocked.Exchange(ref _capReportedFor, month.DayNumber) != month.DayNumber)
         {
             logger.LogWarning(

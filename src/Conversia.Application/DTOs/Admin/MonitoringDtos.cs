@@ -147,6 +147,9 @@ public class PlatformAiResponse
     public long LostUsageRecords { get; set; }
 
     public DateTime? LastLostUsageAt { get; set; }
+
+    /// <summary>The Message Batches of the night analysis by state.</summary>
+    public LlmBatchStatesResponse Batches { get; set; } = new();
 }
 
 public class ErrorGroupResponse
@@ -351,4 +354,73 @@ public class TenantMonitoringResponse
     public SendsResponse Sends { get; set; } = new();
 
     public IReadOnlyList<DailyActivityResponse> Days { get; set; } = [];
+
+    /// <summary>When the LLM reads the company and what its last window did (counts only).</summary>
+    public TenantAiAnalysisResponse AiAnalysis { get; set; } = new();
+}
+
+/// <summary>The company's LLM schedule and its last analysis window (docs/CLASSIFICATION.md, "When the AI reads"). Counts only.</summary>
+public class TenantAiAnalysisResponse
+{
+    /// <summary><c>Nightly</c>, <c>EveryHours</c> or <c>NearRealTime</c>.</summary>
+    public string Mode { get; set; } = string.Empty;
+
+    public int? NightlyHour { get; set; }
+
+    public int? IntervalHours { get; set; }
+
+    /// <summary>When the current or next window opens (UTC).</summary>
+    public DateTime? NextWindowAt { get; set; }
+
+    /// <summary>Conversations waiting for the LLM now.</summary>
+    public int Pending { get; set; }
+
+    public AiAnalysisRunResponse? LastRun { get; set; }
+}
+
+/// <summary>What the runner did in one window of a company.</summary>
+public class AiAnalysisRunResponse
+{
+    public DateTime WindowStart { get; set; }
+
+    public DateTime WindowEnd { get; set; }
+
+    public string Mode { get; set; } = string.Empty;
+
+    public DateTime StartedAt { get; set; }
+
+    public DateTime LastActivityAt { get; set; }
+
+    public int Claimed { get; set; }
+
+    public int Analysed { get; set; }
+
+    public int Unchanged { get; set; }
+
+    public int Skipped { get; set; }
+
+    public int Discarded { get; set; }
+
+    public int Failed { get; set; }
+
+    public int Deferred { get; set; }
+
+    public int Batched { get; set; }
+}
+
+/// <summary>The Message Batches of the platform by state (no company, no content).</summary>
+public class LlmBatchStatesResponse
+{
+    public int Preparing { get; set; }
+
+    public int Submitted { get; set; }
+
+    public int Ended { get; set; }
+
+    public int FailedLast24h { get; set; }
+
+    public int CollectedLast24h { get; set; }
+
+    /// <summary>The oldest batch still waiting for the provider (a batch may take up to 24 hours).</summary>
+    public DateTime? OldestSubmittedAt { get; set; }
 }

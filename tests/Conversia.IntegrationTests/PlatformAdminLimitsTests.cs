@@ -109,6 +109,52 @@ public class PlatformAdminLimitsTests
     }
 
     [Fact]
+    public async Task TheAiSchedule_IsNightlyByDefault_AndTheAdministratorChangesIt_WithAReason_Audited()
+    {
+        using var admin = await StartAdminAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
+
+        var initial = (await DetailAsync(admin, tenant.TenantId)).Limits;
+        Assert.Equal(("Nightly", 1, true, (int?)null), (initial.AiAnalysisMode, initial.AiAnalysisNightlyHour, initial.AiAnalysisNightlyHourIsDefault, initial.AiAnalysisIntervalHours));
+        Assert.NotNull(initial.NextAiAnalysisWindowAt);
+
+        Assert.Equal(HttpStatusCode.OK, (await admin.Client.PutAsJsonAsync(Url(tenant.TenantId, "ai-schedule"), new { mode = "EveryHours", intervalHours = 6, reason = "Campaña de fin de año" })).StatusCode);
+        var everySix = (await DetailAsync(admin, tenant.TenantId)).Limits;
+        Assert.Equal(("EveryHours", (int?)6), (everySix.AiAnalysisMode, everySix.AiAnalysisIntervalHours));
+
+        Assert.Equal(HttpStatusCode.OK, (await admin.Client.PutAsJsonAsync(Url(tenant.TenantId, "ai-schedule"), new { mode = "Nightly", nightlyHour = 3, reason = "Volver a la noche" })).StatusCode);
+        var atThree = (await DetailAsync(admin, tenant.TenantId)).Limits;
+        Assert.Equal(("Nightly", 3, false), (atThree.AiAnalysisMode, atThree.AiAnalysisNightlyHour, atThree.AiAnalysisNightlyHourIsDefault));
+
+        // The same schedule again changes nothing and records nothing.
+        Assert.Equal(HttpStatusCode.OK, (await admin.Client.PutAsJsonAsync(Url(tenant.TenantId, "ai-schedule"), new { mode = "Nightly", nightlyHour = 3, reason = "Otra vez" })).StatusCode);
+
+        var changes = (await AuditAsync(admin, tenant.TenantId)).Where(e => e.Action == "tenant.ai_schedule_changed").OrderBy(e => e.OccurredAt).ToList();
+        Assert.Equal(2, changes.Count);
+        Assert.Equal(("Nightly", "EveryHours", 6, "Campaña de fin de año"),
+            (changes[0].Details.GetProperty("from").GetProperty("mode").GetString(), changes[0].Details.GetProperty("to").GetProperty("mode").GetString(),
+             changes[0].Details.GetProperty("to").GetProperty("intervalHours").GetInt32(), changes[0].Details.GetProperty("reason").GetString()));
+    }
+
+    [Fact]
+    public async Task AnInvalidAiSchedule_IsRefused_NamingTheProblem()
+    {
+        using var admin = await StartAdminAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
+
+        await AssertValidationErrorUnderAsync(await admin.Client.PutAsJsonAsync(Url(tenant.TenantId, "ai-schedule"), new { mode = "Weekly", reason = "x" }), "Mode");
+        await AssertValidationErrorUnderAsync(await admin.Client.PutAsJsonAsync(Url(tenant.TenantId, "ai-schedule"), new { mode = "Nightly" }), "Reason");
+        await AssertValidationErrorUnderAsync(await admin.Client.PutAsJsonAsync(Url(tenant.TenantId, "ai-schedule"), new { mode = "Nightly", nightlyHour = 24, reason = "x" }), "NightlyHour");
+        await AssertValidationErrorUnderAsync(await admin.Client.PutAsJsonAsync(Url(tenant.TenantId, "ai-schedule"), new { mode = "EveryHours", intervalHours = 25, reason = "x" }), "IntervalHours");
+        var missingInterval = await admin.Client.PutAsJsonAsync(Url(tenant.TenantId, "ai-schedule"), new { mode = "EveryHours", reason = "x" });
+        Assert.Equal(HttpStatusCode.BadRequest, missingInterval.StatusCode);
+        Assert.Contains("cada N horas", await missingInterval.Content.ReadAsStringAsync());
+        Assert.Equal("Nightly", (await DetailAsync(admin, tenant.TenantId)).Limits.AiAnalysisMode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.Client.PutAsJsonAsync(Url(Guid.NewGuid(), "ai-schedule"), new { mode = "Nightly", reason = "x" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await tenant.Owner.Client.PutAsJsonAsync(Url(tenant.TenantId, "ai-schedule"), new { mode = "NearRealTime", reason = "x" })).StatusCode);
+    }
+
+    [Fact]
     public async Task ACompanysToken_CannotChangeItsOwnLimits()
     {
         using var tenant = await StartTenantAsync(_factory, _client);

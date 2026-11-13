@@ -39,8 +39,45 @@ public sealed record LlmOptions(
     bool AllowRealClientNonSandbox = false,
     Uri? BaseUrl = null,
     byte[]? HashKey = null,
-    int ClaimWarningMilliseconds = 5000)
+    int ClaimWarningMilliseconds = 5000,
+    int MaxConcurrent = 4,
+    int Workers = 4,
+    bool BatchEnabled = true,
+    int BatchMaxRequests = 1000,
+    int BatchPollSeconds = 60,
+    decimal BatchDiscountFactor = 0.5m,
+    int PerCompanyConcurrency = 2,
+    int BatchPoisonGraceHours = 48,
+    int BatchRetentionDays = 30)
 {
+    public const string PerCompanyConcurrencyKey = SectionName + ":PerCompanyConcurrency";
+    public const string BatchPoisonGraceHoursKey = SectionName + ":Batch:PoisonGraceHours";
+    public const string BatchRetentionDaysKey = SectionName + ":Batch:RetentionDays";
+
+    /// <summary>A conversation the company may not analyse now (quota, ceiling, cap) is retried this much later in near-real-time mode.</summary>
+    public static readonly TimeSpan NotAdmittedRetry = TimeSpan.FromHours(1);
+
+    /// <summary>A request a collector took but never resolved (a crash) is released after this long, without recording its usage again.</summary>
+    public static readonly TimeSpan CollectingTimeout = TimeSpan.FromMinutes(10);
+
+    /// <summary>The estimated answer of one request, for the reservation of a batched request (an assumption, not a measure).</summary>
+    public const int EstimatedOutputTokens = 400;
+    public const string MaxConcurrentKey = SectionName + ":MaxConcurrent";
+    public const string WorkersKey = "Classification:Workers";
+    public const string BatchEnabledKey = SectionName + ":Batch:Enabled";
+    public const string BatchMaxRequestsKey = SectionName + ":Batch:MaxRequests";
+    public const string BatchPollSecondsKey = SectionName + ":Batch:PollSeconds";
+    public const string BatchDiscountFactorKey = SectionName + ":Batch:DiscountFactor";
+
+    /// <summary>How long a synchronous analysis holds its lease (phase 1 to phase 3): the retry delay, which must exceed <see cref="TotalBudgetSeconds"/>.</summary>
+    public static TimeSpan LeaseFor(TimeSpan retryDelay) => retryDelay;
+
+    /// <summary>How long a batched conversation is leased: the provider's 24-hour processing window plus a margin.</summary>
+    public static readonly TimeSpan BatchLease = TimeSpan.FromHours(25);
+
+    /// <summary>A batch still being prepared after this long was abandoned by a crash: its conversations are released.</summary>
+    public static readonly TimeSpan BatchPreparingTimeout = TimeSpan.FromMinutes(10);
+
     public const string AllowRealClientNonSandboxKey = SectionName + ":AllowRealClientNonSandbox";
     public const string BaseUrlKey = SectionName + ":BaseUrl";
     public const string HashKeyKey = SectionName + ":HashKey";
@@ -83,8 +120,11 @@ public sealed record LlmOptions(
     public const string AnthropicClient = "Anthropic";
     public const string ReplayClient = "Replay";
 
-    /// <summary>Stage A ceiling of <see cref="TimeoutSeconds"/> (design D4); the hardening slice may raise it.</summary>
-    public const int MaxStageATimeoutSeconds = 8;
+    /// <summary>Ceiling of <see cref="TimeoutSeconds"/>: the call runs outside any lock (design H1), bounded by the lease.</summary>
+    public const int MaxTimeoutSeconds = 15;
+
+    /// <summary>Ceiling of <see cref="MaxRetries"/> (design H1).</summary>
+    public const int MaxHttpRetries = 1;
 
     /// <summary>Wait of a conversation while another one is the breaker's half-open probe.</summary>
     public static readonly TimeSpan ProbeDeferral = TimeSpan.FromSeconds(30);
@@ -93,8 +133,8 @@ public sealed record LlmOptions(
     public const int MaxJitterSeconds = 30;
 
     /// <summary>
-    /// The worst time the claim transaction can stay open on the LLM path: every HTTP attempt plus the other waits (design D4). Must be shorter
-    /// than <c>Classification:ProcessingTimeoutSeconds</c> and <c>Classification:RetryDelaySeconds</c>.
+    /// The worst time of one analysis from its claim to its apply: every HTTP attempt plus the other waits (design D4, H1). Must be shorter than
+    /// <c>Classification:RetryDelaySeconds</c>, the lease: a conversation is never claimed twice while its call is in flight.
     /// </summary>
     public int TotalBudgetSeconds => (TimeoutSeconds * (MaxRetries + 1)) + OtherWaitsSeconds;
 

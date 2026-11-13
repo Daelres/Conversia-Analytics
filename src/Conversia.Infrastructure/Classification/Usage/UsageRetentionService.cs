@@ -1,5 +1,6 @@
 using Conversia.Application.Ingestion;
 using Conversia.Infrastructure.Messaging;
+using Conversia.Infrastructure.Classification;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -11,7 +12,8 @@ namespace Conversia.Infrastructure.Classification.Usage;
 /// next run.
 /// </summary>
 public sealed class UsageRetentionService(
-    AiUsageMeter meter, MessageSendOutcomeRecorder outcomes, TimeProvider timeProvider, ILogger<UsageRetentionService> logger) : BackgroundService
+    AiUsageMeter meter, MessageSendOutcomeRecorder outcomes, TimeProvider timeProvider, ILogger<UsageRetentionService> logger, LlmAnalysisRunner? batches = null)
+    : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromHours(6);
 
@@ -40,9 +42,12 @@ public sealed class UsageRetentionService(
         {
             var sets = await meter.PurgeConversationSetsAsync(cancellationToken);
             var counters = await outcomes.PurgeAsync(cancellationToken);
-            if (sets + counters > 0)
+            // The resolved Message Batches (Classification:Llm:Batch:RetentionDays): they only steered the collection.
+            var resolved = batches is null ? 0 : await batches.PurgeResolvedBatchesAsync(cancellationToken);
+            if (sets + counters + resolved > 0)
             {
-                logger.LogInformation("Usage retention deleted {Sets} AI conversation-set rows and {Counters} send counters.", sets, counters);
+                logger.LogInformation(
+                    "Usage retention deleted {Sets} AI conversation-set rows, {Counters} send counters and {Batches} resolved batches.", sets, counters, resolved);
             }
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)

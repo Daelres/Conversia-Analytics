@@ -19,11 +19,13 @@ internal static class TenantDataDeletionPlan
         ByTenant("Messages"), // -> Conversations, WhatsAppChannels
         ByTenant("Opportunities"), // -> Conversations
         ByTenant("AiUsageConversations"), // the AI distinct conversation sets (design D24: they go with the conversations)
+        ByTenant("LlmBatchRequests"), // -> Conversations, LlmBatches; ids and hashes of the batched analyses (the batch rows hold no company)
         ByTenant("Conversations"), // -> Contacts, WhatsAppChannels, Branches, Advisors
         ByTenant("ContactSuppressions"),
         ByTenant("Contacts"),
         ByTenant("WebhookEvents"), // -> WhatsAppChannels; the raw payloads (numbers, texts)
         ByTenant("AiUsageMonths"),
+        ByTenant("AiAnalysisRuns"), // counts per analysis window
         ByTenant("MessageSendOutcomes"),
         ByTenant("AiQuotaGrants"), // -> BillingCharges
         ByTenant("BillingPaymentAttempts"), // -> BillingCharges; ids, amounts and statuses (the audit trail keeps the money history)

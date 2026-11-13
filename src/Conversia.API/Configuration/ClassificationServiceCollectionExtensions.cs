@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using Conversia.Application.Classification;
 using Conversia.Application.Classification.Llm;
+using Conversia.Application.Classification.Scheduling;
 using Conversia.Infrastructure.Classification;
 using Conversia.Infrastructure.Classification.Llm;
 using Conversia.Infrastructure.Classification.Usage;
@@ -37,16 +38,23 @@ public static partial class ClassificationServiceCollectionExtensions
 
         if (options.Llm is { } llm)
         {
+            ValidatePoolSize(configuration.GetConnectionString("DefaultConnection"), llm);
             AddLlm(services, options, llm, rules, configuration[LlmOptions.ApiKeyKey]);
         }
 
         services.AddSingleton<ConversationClassificationRunner>();
         services.AddSingleton<ClassificationBacklogMonitor>();
         services.AddSingleton<ClassificationBacklogReporter>();
+        services.AddSingleton(options.ScheduleSettings);
 
         if (options.Enabled)
         {
+            // The rules read every conversation near real time; with Provider=Llm the LLM reads them on each company's schedule.
             services.AddHostedService<ConversationClassificationService>();
+            if (options.Llm is not null)
+            {
+                services.AddHostedService<LlmAnalysisService>();
+            }
         }
 
         return services;
@@ -68,6 +76,16 @@ public static partial class ClassificationServiceCollectionExtensions
             sp.GetRequiredService<ILlmClient>(),
             new LlmClassifierSettings(llm.Client == LlmOptions.ReplayClient ? ReplayLlmClient.ModelId : llm.Model, llm.ExtractAgeRange, llm.Preprocessing.Fingerprint,
                 rules.Fingerprint(), llm.HashKey)));
+        // Message Batches (Nightly companies, Classification:Llm:Batch:Enabled): their own SDK client (a bigger upload, 60 s) with NO retry:
+        // creating a batch is not idempotent, and a lost answer is recovered from the provider's list (LlmAnalysisRunner.RecoverAbandonedBatchesAsync).
+        services.AddSingleton<ILlmBatchClient>(sp => llm.Client == LlmOptions.ReplayClient
+            ? new ReplayLlmBatchClient(sp.GetRequiredService<ILlmClient>())
+            : AnthropicLlmBatchClient.Create(
+                apiKey!, llm.BaseUrl ?? AnthropicLlmClient.OfficialBaseUrl, new AnthropicRequestSettings(llm.Model, llm.MaxTokens, llm.Effort, llm.DisableThinking)));
+        services.AddSingleton(sp => new LlmAnalysisRunner(
+            sp.GetRequiredService<IServiceScopeFactory>(), options, sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<LlmAnalysisRunner>>(),
+            sp.GetRequiredService<ClassificationCoordinator>(), sp.GetRequiredService<ILlmBatchClient>()));
+        services.AddSingleton<LlmAnalysisScheduler>();
         services.AddSingleton(sp => new LlmCircuitBreaker(
             llm.BreakerFailures, TimeSpan.FromSeconds(llm.BreakerCooldownSeconds), sp.GetRequiredService<ILoggerFactory>().CreateLogger<LlmCircuitBreaker>()));
         // The metered admission and usage record (design D12, D13, D18): every company starts with the AI off until the administrator switches it on.
@@ -120,7 +138,67 @@ public static partial class ClassificationServiceCollectionExtensions
         // A bad rules file stops the API now, not when the first conversation is read.
         _ = LoadRules(options);
 
+        // The schedule is read whatever the provider: the administrator sees each company's windows.
+        options = options with { Schedule = GetValidatedSchedule(configuration) };
+
         return isLlm ? options with { Llm = GetValidatedLlmOptions(configuration, options, environmentName) } : options;
+    }
+
+    /// <summary>The <c>Classification:Schedule</c> section (docs/CLASSIFICATION.md, "When the AI reads"); invalid values name their key.</summary>
+    public static AnalysisScheduleSettings GetValidatedSchedule(IConfiguration configuration)
+    {
+        var defaults = AnalysisScheduleSettings.Default;
+        var zoneId = configuration[AnalysisScheduleSettings.TimeZoneKey];
+        var zone = defaults.TimeZone;
+        if (!string.IsNullOrWhiteSpace(zoneId) && !string.Equals(zoneId.Trim(), AiQuotaSettings.BogotaTimeZoneId, StringComparison.Ordinal))
+        {
+            zone = TimeZoneInfo.TryFindSystemTimeZoneById(zoneId.Trim(), out var found)
+                ? found
+                : throw new InvalidOperationException($"{AnalysisScheduleSettings.TimeZoneKey} must be an IANA time zone id (America/Bogota).");
+        }
+
+        return new AnalysisScheduleSettings(
+            zone,
+            ConfigurationReader.ReadInt(configuration, AnalysisScheduleSettings.DefaultNightlyHourKey, defaults.DefaultNightlyHour, 0, 23),
+            ConfigurationReader.ReadInt(configuration, AnalysisScheduleSettings.NightlyWindowHoursKey, defaults.NightlyWindowHours, 1, 12),
+            ConfigurationReader.ReadInt(configuration, AnalysisScheduleSettings.SpreadMinutesKey, defaults.SpreadMinutes, 0, 180),
+            ConfigurationReader.ReadInt(configuration, AnalysisScheduleSettings.MaxConversationsPerWindowKey, defaults.MaxConversationsPerWindow, 1, 1_000_000));
+    }
+
+    /// <summary>
+    /// Design D20: the database pool must hold every LLM worker's connections. <c>Maximum Pool Size</c> of the connection string (Npgsql's
+    /// default 100) must be at least <c>MaxConcurrent x 2 + 1 (webhook worker) + Workers + 20</c>; otherwise the API refuses to start, naming
+    /// both values. Not checked without a connection string (tests that replace the database).
+    /// </summary>
+    public static void ValidatePoolSize(string? connectionString, LlmOptions llm)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return;
+        }
+
+        var pool = new Npgsql.NpgsqlConnectionStringBuilder(connectionString).MaxPoolSize;
+        var needed = (llm.MaxConcurrent * 2) + 1 + llm.Workers + 20;
+        if (pool < needed)
+        {
+            throw new InvalidOperationException(
+                $"The connection string's Maximum Pool Size ({pool}) is too small for {LlmOptions.MaxConcurrentKey} ({llm.MaxConcurrent}) and {LlmOptions.WorkersKey} ({llm.Workers}): it needs at least {needed} (MaxConcurrent x 2 + 1 + Workers + 20).");
+        }
+    }
+
+    /// <summary>
+    /// Review: a batch request's custom id carries a prefix of the snapshot hash, which leaves the process. Outside Development (once the gate
+    /// is lifted) batch mode therefore requires the keyed hash (<c>Classification:Llm:HashKey</c>), so the prefix cannot be confirmed by
+    /// hashing a guessed conversation.
+    /// </summary>
+    public static void ValidateBatchHashKey(string environmentName, LlmOptions llm)
+    {
+        ArgumentNullException.ThrowIfNull(llm);
+        if (llm.BatchEnabled && llm.HashKey is not { Length: > 0 } && !string.Equals(environmentName, Environments.Development, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"{LlmOptions.BatchEnabledKey}=true requires {LlmOptions.HashKeyKey} outside Development: the batch custom id carries a prefix of the conversation hash.");
+        }
     }
 
     /// <summary>
@@ -198,8 +276,8 @@ public static partial class ClassificationServiceCollectionExtensions
             Effort: effort,
             DisableThinking: thinking == "Disabled",
             MaxTokens: ConfigurationReader.ReadInt(configuration, LlmOptions.MaxTokensKey, defaults.MaxTokens, 256, 16_000),
-            TimeoutSeconds: ConfigurationReader.ReadInt(configuration, LlmOptions.TimeoutSecondsKey, defaults.TimeoutSeconds, 1, LlmOptions.MaxStageATimeoutSeconds),
-            MaxRetries: ConfigurationReader.ReadInt(configuration, LlmOptions.MaxRetriesKey, defaults.MaxRetries, 0, 0),
+            TimeoutSeconds: ConfigurationReader.ReadInt(configuration, LlmOptions.TimeoutSecondsKey, defaults.TimeoutSeconds, 1, LlmOptions.MaxTimeoutSeconds),
+            MaxRetries: ConfigurationReader.ReadInt(configuration, LlmOptions.MaxRetriesKey, defaults.MaxRetries, 0, LlmOptions.MaxHttpRetries),
             OtherWaitsSeconds: ConfigurationReader.ReadInt(configuration, LlmOptions.OtherWaitsSecondsKey, defaults.OtherWaitsSeconds, 0, 60),
             MaxFallbackRetries: ConfigurationReader.ReadInt(configuration, LlmOptions.MaxFallbackRetriesKey, defaults.MaxFallbackRetries, 0, 10),
             PrivacyApproved: true,
@@ -221,20 +299,30 @@ public static partial class ClassificationServiceCollectionExtensions
             HashKey: ReadHashKey(configuration),
             ClaimWarningMilliseconds: ConfigurationReader.ReadInt(configuration, LlmOptions.ClaimWarningMillisecondsKey, defaults.ClaimWarningMilliseconds, 100, 60_000));
 
-        // Design D4: the claim transaction holds the conversation row during the call, so the worst case must end before the transaction's
-        // own timeout and before the row becomes claimable again. No relation with the debounce.
-        var budget = llm.TotalBudgetSeconds;
-        foreach (var (key, value) in new[]
-                 {
-                     (ClassificationOptions.ProcessingTimeoutSecondsKey, options.ProcessingTimeoutSeconds),
-                     (ClassificationOptions.RetryDelaySecondsKey, options.RetryDelaySeconds),
-                 })
+        var maxConcurrent = ConfigurationReader.ReadInt(configuration, LlmOptions.MaxConcurrentKey, defaults.MaxConcurrent, 1, 16);
+        llm = llm with
         {
-            if (budget >= value)
-            {
-                throw new InvalidOperationException(
-                    $"{LlmOptions.TotalBudgetKey} ({LlmOptions.TimeoutSecondsKey} x ({LlmOptions.MaxRetriesKey} + 1) + {LlmOptions.OtherWaitsSecondsKey} = {budget} s) must be shorter than {key} ({value} s).");
-            }
+            MaxConcurrent = maxConcurrent,
+            // Design D20: as many workers as calls in flight by default (more would only wait for a permit).
+            Workers = ConfigurationReader.ReadInt(configuration, LlmOptions.WorkersKey, maxConcurrent, 1, 16),
+            BatchEnabled = ConfigurationReader.ReadBool(configuration, LlmOptions.BatchEnabledKey, defaults.BatchEnabled),
+            BatchMaxRequests = ConfigurationReader.ReadInt(configuration, LlmOptions.BatchMaxRequestsKey, defaults.BatchMaxRequests, 1, 100_000),
+            BatchPollSeconds = ConfigurationReader.ReadInt(configuration, LlmOptions.BatchPollSecondsKey, defaults.BatchPollSeconds, 1, 3600),
+            BatchDiscountFactor = ReadFactor(configuration, LlmOptions.BatchDiscountFactorKey, defaults.BatchDiscountFactor),
+            PerCompanyConcurrency = ConfigurationReader.ReadInt(configuration, LlmOptions.PerCompanyConcurrencyKey, defaults.PerCompanyConcurrency, 1, 16),
+            BatchPoisonGraceHours = ConfigurationReader.ReadInt(configuration, LlmOptions.BatchPoisonGraceHoursKey, defaults.BatchPoisonGraceHours, 1, 24 * 60),
+            BatchRetentionDays = ConfigurationReader.ReadInt(configuration, LlmOptions.BatchRetentionDaysKey, defaults.BatchRetentionDays, 1, 3650),
+        };
+        ValidateBatchHashKey(environmentName, llm);
+
+        // Design H1: the call runs outside any lock, between a lease (phase 1) and a short relock (phase 3). Its worst case must end before
+        // the lease (the retry delay) expires, so a conversation is never claimed twice while its call is in flight. No relation with the
+        // transaction timeout (no transaction is open during the call) or with any debounce.
+        var budget = llm.TotalBudgetSeconds;
+        if (budget >= options.RetryDelaySeconds)
+        {
+            throw new InvalidOperationException(
+                $"{LlmOptions.TotalBudgetKey} ({LlmOptions.TimeoutSecondsKey} x ({LlmOptions.MaxRetriesKey} + 1) + {LlmOptions.OtherWaitsSecondsKey} = {budget} s) must be shorter than {ClassificationOptions.RetryDelaySecondsKey} ({options.RetryDelaySeconds} s), the lease of an analysis in flight.");
         }
 
         return llm;
@@ -289,6 +377,19 @@ public static partial class ClassificationServiceCollectionExtensions
         return key.Length >= 32
             ? key
             : throw new InvalidOperationException($"{LlmOptions.HashKeyKey} must be base64 of at least 32 random bytes (openssl rand -base64 32).");
+    }
+
+    private static decimal ReadFactor(IConfiguration configuration, string key, decimal defaultValue)
+    {
+        var raw = configuration[key];
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return defaultValue;
+        }
+
+        return decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out var value) && value is >= 0m and <= 1m
+            ? value
+            : throw new InvalidOperationException($"{key} must be a number between 0 and 1 (the share of the list price a batched request costs).");
     }
 
     private static decimal ReadPrice(IConfiguration configuration, string key, decimal defaultValue)

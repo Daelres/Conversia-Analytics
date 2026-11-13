@@ -42,7 +42,7 @@ Fuera del MVP: respuestas automáticas del bot, conteo de personas o análisis d
 - **WhatsApp:** 360dialog como proveedor de la API de WhatsApp Business (por validar). Ingesta por webhook y envío manual de texto con clave de API por canal cifrada (docs/MESSAGING.md); modo sandbox interno por empresa para pruebas sin 360dialog (docs/SANDBOX.md).
 - **Infraestructura:** Azure.
 - **Frontend del dashboard:** Blazor Web.
-- **Análisis de texto / IA:** reglas en español (por defecto) y Claude Haiku 5.5 vía el SDK oficial de Anthropic (`Classification:Provider=Llm`), con seudonimización y preprocesamiento para ahorrar tokens; solo en Development hasta completar el endurecimiento del diseño llm-extraction (docs/CLASSIFICATION.md).
+- **Análisis de texto / IA:** reglas en español (por defecto) y Claude Haiku 5.5 vía el SDK oficial de Anthropic (`Classification:Provider=Llm`), con seudonimización y preprocesamiento para ahorrar tokens; lee cada empresa según su horario (cada noche por defecto, configurable por el administrador; lotes de Message Batches), solo en Development hasta levantar la puerta del diseño llm-extraction (docs/CLASSIFICATION.md).
 
 ## Arquitectura propuesta (inicial, abierta a cambios)
 

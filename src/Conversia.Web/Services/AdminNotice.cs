@@ -12,6 +12,7 @@ public static class AdminNotice
     public const string AiOff = "ia-inactiva";
     public const string AiQuotaSaved = "cupo-ia";
     public const string SendLimitSaved = "limite-envios";
+    public const string AiScheduleSaved = "analisis-ia";
     public const string DataDeletionRequested = "eliminacion";
 
     public static string Url(Guid companyId, string code) => $"/admin/empresas/{companyId}?aviso={code}";
@@ -27,6 +28,7 @@ public static class AdminNotice
         AiOff => "IA desactivada: las conversaciones de la empresa se clasifican solo con reglas.",
         AiQuotaSaved => "Cupo mensual de IA guardado.",
         SendLimitSaved => "Límite de envíos guardado.",
+        AiScheduleSaved => "Frecuencia del análisis con IA guardada: se aplica desde su próxima ventana.",
         DataDeletionRequested => "Eliminación de datos en curso: se hace en segundo plano. Cuando termine, la empresa deja de aparecer y la auditoría lo registra.",
         _ => null,
     };

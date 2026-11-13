@@ -26,6 +26,7 @@ public class PlatformAuditLog : BaseEntity
         public const string TenantSandboxModeChanged = "tenant.sandbox_mode_changed";
         public const string TenantAiEnabledChanged = "tenant.ai_enabled_changed";
         public const string TenantAiQuotaChanged = "tenant.ai_quota_changed";
+        public const string TenantAiScheduleChanged = "tenant.ai_schedule_changed";
         public const string TenantSendRateLimitChanged = "tenant.send_rate_limit_changed";
         public const string LicenseCreated = "license.created";
         public const string LicenseAssigned = "license.assigned";

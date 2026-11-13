@@ -159,7 +159,10 @@ Compose merges the `environment` maps: the simulator overlay shortens both debou
 1. Create a company and a line, and play conversations through the webhook with the simulator (docs/SIMULATOR.md), or turn on the company's
    internal sandbox and start a simulated conversation from `/conversaciones/simular` (docs/SANDBOX.md). **Switch the AI on for the company
    first** (`/admin/empresas/{id}/ia/activar`, docs/PLATFORM_ADMIN.md): it is off by default and, while it is off, the rules read everything
-   and no call is made. Each call is then recorded in the company's usage (`/admin/empresas/{id}`, "Inteligencia artificial").
+   and no call is made. Each call is then recorded in the company's usage (`/admin/empresas/{id}`, "Inteligencia artificial"). The LLM reads
+   a company on its **schedule** (docs/CLASSIFICATION.md, "When the AI reads"), nightly at 01:00 Bogota by default: to see it now, set the
+   company's schedule to "Casi en tiempo real" (or "Cada noche" with the current hour) in "Límites" on the same page. A nightly company goes in
+   a Message Batch; the Replay batch client answers it at once and the next poll (`Classification__Llm__Batch__PollSeconds`, 60 s) applies it.
 2. Wait for the debounce (about 5 s) and look for the call in the API log:
    `docker compose logs api | grep "LLM classification"`. Each line carries the ids, `Sandbox`, provider, model (`replay`), status, the four
    token counters, the estimated USD (0 with replay) and the preprocessor statistics, never text.

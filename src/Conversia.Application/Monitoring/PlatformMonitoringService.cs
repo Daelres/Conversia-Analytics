@@ -1,6 +1,8 @@
 using Conversia.Application.Classification.Llm;
+using Conversia.Application.Classification.Scheduling;
 using Conversia.Application.DTOs.Admin;
 using Conversia.Application.Exceptions;
+using Conversia.Domain.Enums;
 using Conversia.Domain.Interfaces;
 using Conversia.Domain.ReadModels;
 
@@ -76,11 +78,14 @@ public sealed class PlatformMonitoringService : IPlatformMonitoringService
     private readonly TimeProvider _time;
     private readonly IAiUsageLossCounter? _lost;
     private readonly PlatformOverviewCache? _cache;
+    private readonly AnalysisScheduleSettings _schedule;
 
     public PlatformMonitoringService(
         IPlatformMonitoringQueries queries, IPlatformAdminQueries tenants, IPlatformHealthProbe health, IClassificationEngineStatus engine,
-        MonitoringThresholds thresholds, AiQuotaSettings ai, TimeProvider time, IAiUsageLossCounter? lost = null, PlatformOverviewCache? cache = null)
+        MonitoringThresholds thresholds, AiQuotaSettings ai, TimeProvider time, IAiUsageLossCounter? lost = null, PlatformOverviewCache? cache = null,
+        AnalysisScheduleSettings? schedule = null)
     {
+        _schedule = schedule ?? AnalysisScheduleSettings.Default;
         _cache = cache;
         _lost = lost;
         _queries = queries;
@@ -146,7 +151,8 @@ public sealed class PlatformMonitoringService : IPlatformMonitoringService
                 activity.Backlog.StuckDeletions,
                 activity.Backlog.BillingEventsFailed,
                 activity.Backlog.BillingAttemptsStuck,
-                activity.Backlog.BillingNeedsReview),
+                activity.Backlog.BillingNeedsReview,
+                activity.Batches?.FailedLast24h ?? 0),
             _thresholds);
 
         return new PlatformOverviewResponse
@@ -169,6 +175,13 @@ public sealed class PlatformMonitoringService : IPlatformMonitoringService
                 DeploymentCapUsd = _ai.DeploymentMonthlyUsdCap,
                 LostUsageRecords = _lost?.LostRecords ?? 0,
                 LastLostUsageAt = _lost?.LastLostAt,
+                Batches = activity.Batches is { } b
+                    ? new LlmBatchStatesResponse
+                    {
+                        Preparing = b.Preparing, Submitted = b.Submitted, Ended = b.Ended, FailedLast24h = b.FailedLast24h, CollectedLast24h = b.CollectedLast24h,
+                        OldestSubmittedAt = b.OldestSubmittedAt,
+                    }
+                    : new LlmBatchStatesResponse(),
             },
             Errors = new ErrorsResponse { Last24h = activity.Errors24h, TopLast24h = activity.TopErrors24h.Select(ErrorGroupResponse.From).ToList() },
             Sends = sends,
@@ -248,6 +261,23 @@ public sealed class PlatformMonitoringService : IPlatformMonitoringService
                     ConversationsClosed = d.ConversationsClosed,
                 })
                 .ToList(),
+            AiAnalysis = new TenantAiAnalysisResponse
+            {
+                Mode = summary.AiAnalysisMode.ToString(),
+                NightlyHour = summary.AiAnalysisMode == AiAnalysisMode.Nightly ? summary.AiAnalysisNightlyHour ?? _schedule.DefaultNightlyHour : null,
+                IntervalHours = summary.AiAnalysisIntervalHours,
+                NextWindowAt = AnalysisSchedule.NextWindow(
+                    new TenantAnalysisSchedule(summary.AiAnalysisMode, summary.AiAnalysisNightlyHour, summary.AiAnalysisIntervalHours), tenantId, now, _schedule).OpensAt,
+                Pending = activity.LlmPending,
+                LastRun = activity.LastAnalysisRun is { } r
+                    ? new AiAnalysisRunResponse
+                    {
+                        WindowStart = r.WindowStart, WindowEnd = r.WindowEnd, Mode = r.Mode, StartedAt = r.StartedAt, LastActivityAt = r.LastActivityAt, Claimed = r.Claimed,
+                        Analysed = r.Analysed, Unchanged = r.Unchanged, Skipped = r.Skipped, Discarded = r.Discarded, Failed = r.Failed, Deferred = r.Deferred,
+                        Batched = r.Batched,
+                    }
+                    : null,
+            },
         };
     }
 

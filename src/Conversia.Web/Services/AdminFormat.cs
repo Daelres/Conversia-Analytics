@@ -43,6 +43,18 @@ public static class AdminFormat
     /// <summary>"Por defecto" or "Propio": whether a limit is the deployment's or the company's own.</summary>
     public static string Origin(bool isDefault) => isDefault ? "Por defecto" : "Propio de la empresa";
 
+    /// <summary>When the AI reads a company, in words (<c>Cada noche desde las 01:00</c>, <c>Cada 6 horas</c>, <c>Casi en tiempo real</c>).</summary>
+    public static string AiSchedule(string mode, int? nightlyHour, int? intervalHours) => mode switch
+    {
+        "Nightly" => nightlyHour is { } hour ? $"Cada noche desde las {hour:00}:00" : "Cada noche",
+        "EveryHours" => intervalHours is 1 ? "Cada hora" : $"Cada {intervalHours} horas",
+        "NearRealTime" => "Casi en tiempo real",
+        _ => mode,
+    };
+
+    /// <summary>A count with its word in singular or plural (<c>1 fallida</c>, <c>3 fallidas</c>).</summary>
+    public static string Count(int count, string one, string many) => $"{MetricsFormat.Whole(count)} {(count == 1 ? one : many)}";
+
     /// <summary>The Spanish word of a licence status.</summary>
     public static string LicenseStatus(string status) => status switch
     {

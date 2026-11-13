@@ -1,3 +1,4 @@
+using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
 using Conversia.Domain.Interfaces;
 using Conversia.Domain.ReadModels;
@@ -109,7 +110,21 @@ public sealed class PlatformMonitoringQueries : IPlatformMonitoringQueries
         var silentTotal = silent.FirstOrDefault()?.Total ?? 0;
         var limitedTotal = limited.FirstOrDefault()?.Total ?? 0;
 
-        return new PlatformActivity(backlog, deliveries, ai, errors, topErrors, sends, silentTotal, silentList, limitedTotal, limitedList);
+        // The night analysis's Message Batches by state: a platform table, no company, no content.
+        var since = request.Now.AddHours(-24);
+        var batches = await _db.LlmBatches.AsNoTracking()
+            .GroupBy(_ => 1)
+            .Select(g => new LlmBatchCounts(
+                g.Count(b => b.Status == LlmBatchStatus.Preparing),
+                g.Count(b => b.Status == LlmBatchStatus.Submitted),
+                g.Count(b => b.Status == LlmBatchStatus.Ended),
+                g.Count(b => b.Status == LlmBatchStatus.Failed && b.CollectedAt >= since),
+                g.Count(b => b.Status == LlmBatchStatus.Collected && b.CollectedAt >= since),
+                g.Where(b => b.Status == LlmBatchStatus.Submitted).Min(b => b.SubmittedAt)))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return new PlatformActivity(
+            backlog, deliveries, ai, errors, topErrors, sends, silentTotal, silentList, limitedTotal, limitedList, batches ?? new LlmBatchCounts(0, 0, 0, 0, 0, null));
     }
 
     private async Task<TenantActivity> ReadTenantAsync(Guid tenantId, MonitoringRequest request, CancellationToken cancellationToken)
@@ -152,9 +167,19 @@ public sealed class PlatformMonitoringQueries : IPlatformMonitoringQueries
             GROUP BY d."Day", d."IsSandbox"
             """).ToListAsync(cancellationToken);
 
+        // The LLM schedule: conversations waiting for it and the latest window's counts (never a conversation id).
+        var llmPending = await _db.Conversations.IgnoreQueryFilters().AsNoTracking().CountAsync(c => c.TenantId == tenantId && c.LlmPending, cancellationToken);
+        var lastRun = await _db.AiAnalysisRuns.IgnoreQueryFilters().AsNoTracking()
+            .Where(r => r.TenantId == tenantId)
+            .OrderByDescending(r => r.WindowStart)
+            .Select(r => new AiAnalysisRunCounts(
+                r.WindowStart, r.WindowEnd, r.Mode.ToString(), r.StartedAt, r.LastActivityAt, r.Claimed, r.Analysed, r.Unchanged, r.Skipped, r.Discarded, r.Failed,
+                r.Deferred, r.Batched))
+            .FirstOrDefaultAsync(cancellationToken);
+
         return new TenantActivity(
             backlog, deliveries, lastReal, ai, errors, topErrors, sends,
-            days.Select(d => new DailyActivity(d.Day, d.IsSandbox, d.MessagesIn, d.MessagesOut, d.Opened, d.Closed)).ToList());
+            days.Select(d => new DailyActivity(d.Day, d.IsSandbox, d.MessagesIn, d.MessagesOut, d.Opened, d.Closed)).ToList(), llmPending, lastRun);
     }
 
     private sealed class DailyRow

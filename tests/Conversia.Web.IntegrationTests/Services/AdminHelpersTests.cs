@@ -154,6 +154,18 @@ public class AdminHelpersTests
         => new() { Action = action, Details = JsonDocument.Parse(json).RootElement.Clone() };
 
     [Fact]
+    public void An_ai_schedule_change_reads_both_schedules_in_words_and_the_reason()
+    {
+        var text = AuditFormat.Describe(Entry("tenant.ai_schedule_changed",
+            """{"from":{"mode":"Nightly","nightlyHour":null,"intervalHours":null},"to":{"mode":"EveryHours","nightlyHour":null,"intervalHours":6},"reason":"Campaña"}"""));
+
+        Assert.Equal("Cambió la frecuencia del análisis con IA: cada noche (hora por defecto) → cada 6 horas", text.Title);
+        Assert.Equal("Motivo: Campaña", text.Detail);
+        Assert.Equal("Cambió la frecuencia del análisis con IA: cada noche desde las 03:00 → casi en tiempo real", AuditFormat.Describe(Entry("tenant.ai_schedule_changed",
+            """{"from":{"mode":"Nightly","nightlyHour":3,"intervalHours":null},"to":{"mode":"NearRealTime","nightlyHour":null,"intervalHours":null},"reason":"x"}""")).Title);
+    }
+
+    [Fact]
     public void A_status_change_names_both_statuses_and_the_reason_when_there_is_one()
     {
         var text = AuditFormat.Describe(Entry("tenant.status_changed", """{"from":"Suspended","to":"Active","reason":"Pagó"}"""));

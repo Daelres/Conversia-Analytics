@@ -80,6 +80,7 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
             AdvisorName = item.AdvisorName,
             AdvisorAssignedBy = row.Conversation.AdvisorAssignedBy,
             AdvisorAssignedAt = row.Conversation.AdvisorAssignedAt,
+            AiAnalyzedAt = row.Conversation.LlmAnalyzedAt,
             Source = item.Source,
             SourceReference = item.SourceReference,
             Status = item.Status,

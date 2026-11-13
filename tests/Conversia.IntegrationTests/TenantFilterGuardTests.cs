@@ -16,6 +16,8 @@ public class TenantFilterGuardTests
     [
         "Conversia.Infrastructure/Classification/ClassificationBacklogMonitor.cs", // counts of the shared backlog (operations view)
         "Conversia.Infrastructure/Classification/ConversationClassificationRunner.cs", // the worker claims across companies
+        "Conversia.Infrastructure/Classification/LlmAnalysisRunner.cs", // claims and relocks name the company explicitly; batch collection spans companies
+        "Conversia.Infrastructure/Classification/LlmAnalysisScheduler.cs", // which companies are due: every company's pending conversations and window counts
         "Conversia.Infrastructure/Classification/Usage/AiUsageMeter.cs", // the deployment USD cap sums every company; the recorder has no company set
         "Conversia.Infrastructure/Conversations/ConversationAutoCloser.cs", // the worker claims across companies
         "Conversia.Infrastructure/Messaging/MessageSendOutcomeRecorder.cs", // retention of the send counters across companies

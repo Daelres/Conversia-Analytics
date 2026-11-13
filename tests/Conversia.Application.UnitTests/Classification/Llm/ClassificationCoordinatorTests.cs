@@ -559,4 +559,110 @@ public class ClassificationCoordinatorTests
         Assert.Equal(0.000150m, price.Estimate(new LlmUsage(1000, 100, 0, 0)));
         Assert.Equal(price, LlmPricing.Default);
     }
+
+    // ---- The three phases (design H1) and batch answers ----------------------------------------------------------------
+
+    [Fact]
+    public async Task APlan_PreparesTheCall_WithoutMakingIt_AndExecutingItGivesTheSameReadingAsDecide()
+    {
+        var service = Catalog.Services[0];
+        var setup = New(_ => Completed(Answer("lost", "price", "price", [service])));
+        var context = Context();
+
+        var plan = await setup.Coordinator.PlanAsync(Refused, context, Now);
+
+        Assert.True(plan.NeedsCall);
+        Assert.Empty(setup.Client.Requests);
+        Assert.Empty(setup.Meter.Successes);
+        Assert.Equal(RulesClassifier.Classify(Refused).Outcome, plan.Rules.Outcome);
+
+        var executed = await setup.Coordinator.ExecuteAsync(plan, context, Now);
+        var decided = await New(_ => Completed(Answer("lost", "price", "price", [service]))).Coordinator.DecideAsync(Refused, Context(), Now);
+
+        Assert.Single(setup.Client.Requests);
+        Assert.Equal((decided.Completion, decided.Applied!.Outcome, decided.Applied.ServiceInterest, decided.SnapshotHash),
+            (executed.Completion, executed.Applied!.Outcome, executed.Applied.ServiceInterest, executed.SnapshotHash));
+        Assert.Equal(plan.Prepared!.SnapshotHash, executed.SnapshotHash);
+        Assert.Single(setup.Meter.Successes);
+    }
+
+    [Fact]
+    public async Task APlan_ResolvesWithoutACall_WhenTheHashIsUnchanged_OrTheCompanyIsNotAdmitted()
+    {
+        var setup = New(_ => Completed(Answer()));
+        var hash = (await setup.Coordinator.PlanAsync(Refused, Context(), Now)).Prepared!.SnapshotHash;
+
+        var unchanged = await setup.Coordinator.PlanAsync(Refused, Context(lastHash: hash), Now);
+        var refused = await New(_ => Completed(Answer()), admission: AiAdmission.TenantExhausted).Coordinator.PlanAsync(Refused, Context(), Now);
+
+        Assert.Equal((false, ClassificationCompletion.Unchanged, "hash_unchanged"), (unchanged.NeedsCall, unchanged.Resolved!.Completion, unchanged.Resolved.Reason));
+        Assert.Equal((false, ClassificationCompletion.Rules), (refused.NeedsCall, refused.Resolved!.Completion));
+        Assert.StartsWith("not_admitted:", refused.Resolved.Reason);
+        Assert.Empty(setup.Client.Requests);
+    }
+
+    [Fact]
+    public async Task AReleasedPlan_GivesTheBreakersProbeBack()
+    {
+        var setup = New(Throws(LlmFailureKind.Unavailable), breakerFailures: 1);
+        await setup.Coordinator.DecideAsync(Refused, Context(), Now); // opens the breaker
+        var halfOpen = Now.AddSeconds(301);
+
+        var probe = await setup.Coordinator.PlanAsync(Refused, Context(), halfOpen);
+        var other = await setup.Coordinator.PlanAsync(Refused, Context(), halfOpen);
+        setup.Coordinator.Release(probe);
+        var again = await setup.Coordinator.PlanAsync(Refused, Context(), halfOpen);
+
+        Assert.True(probe.NeedsCall);
+        Assert.Equal("probe_in_flight", other.Resolved!.Reason);
+        Assert.True(again.NeedsCall);
+    }
+
+    [Fact]
+    public async Task ABatchPlan_TakesNoBreakerTicket()
+    {
+        var setup = New(Throws(LlmFailureKind.Unavailable), breakerFailures: 1);
+        await setup.Coordinator.DecideAsync(Refused, Context(), Now);
+        var halfOpen = Now.AddSeconds(301);
+
+        var batch = await setup.Coordinator.PlanAsync(Refused, Context(), halfOpen, useBreaker: false);
+        var probe = await setup.Coordinator.PlanAsync(Refused, Context(), halfOpen);
+
+        Assert.True(batch.NeedsCall);
+        Assert.True(probe.NeedsCall); // the batch request did not take the probe
+    }
+
+    [Fact]
+    public async Task ABatchAnswer_IsReadLikeASynchronousOne_AndItsUsageIsRecordedAtTheDiscount()
+    {
+        var service = Catalog.Services[0];
+        var setup = New(_ => throw new InvalidOperationException("a batch answer never calls the client"));
+        var context = Context();
+        var plan = await setup.Coordinator.PlanAsync(Refused, context, Now, useBreaker: false);
+        var completion = Completed(Answer("won", services: [service], wonLine: 2));
+
+        var decision = await setup.Coordinator.InterpretBatchAsync(plan.Prepared!, plan.Rules, completion, context, Now, costFactor: 0.5m);
+
+        Assert.Equal(ClassificationCompletion.Llm, decision.Completion);
+        Assert.Equal(ClassificationOutcome.Lost, decision.Applied!.Outcome); // the Won guard still runs: the rules read Lost
+        Assert.Equal(plan.Prepared!.SnapshotHash, decision.SnapshotHash);
+        var record = Assert.Single(setup.Meter.Successes);
+        Assert.Equal(LlmPricing.Default.Estimate(completion.Usage) * 0.5m, record.EstimatedUsd);
+        Assert.Equal(record.EstimatedUsd, decision.Call!.EstimatedUsd);
+        Assert.Equal(BreakerState.Closed, setup.Breaker.State(Now));
+    }
+
+    [Fact]
+    public async Task ARefusedBatchAnswer_IsACountedContentFailure_WithItsDiscountedCostRecorded()
+    {
+        var setup = New(_ => throw new InvalidOperationException("never called"));
+        var context = Context();
+        var plan = await setup.Coordinator.PlanAsync(Refused, context, Now, useBreaker: false);
+        var completion = Completed(null, LlmStopReason.Refusal);
+
+        var decision = await setup.Coordinator.InterpretBatchAsync(plan.Prepared!, plan.Rules, completion, context, Now, costFactor: 0.5m);
+
+        Assert.Equal((ClassificationCompletion.RulesFallback, (LlmFailureKind?)LlmFailureKind.Refused, true), (decision.Completion, decision.FailureKind, decision.CountAsLlmFailure));
+        Assert.Equal(LlmPricing.Default.Estimate(completion.Usage) * 0.5m, Assert.Single(setup.Meter.Failures).EstimatedUsd);
+    }
 }

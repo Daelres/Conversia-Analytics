@@ -102,6 +102,51 @@ public class Tenant : BaseEntity
     /// <summary>Distinct conversations the LLM may analyse per month (America/Bogota). Null: the deployment default.</summary>
     public int? AiMonthlyConversationQuota { get; private set; }
 
+    /// <summary>When the LLM reads the company's conversations (<see cref="Enums.AiAnalysisMode"/>). Default: nightly.</summary>
+    public AiAnalysisMode AiAnalysisMode { get; private set; } = AiAnalysisMode.Nightly;
+
+    /// <summary>With <see cref="AiAnalysisMode.Nightly"/>: the local hour (0 to 23) the night window opens. Null: the deployment default.</summary>
+    public int? AiAnalysisNightlyHour { get; private set; }
+
+    /// <summary>With <see cref="AiAnalysisMode.EveryHours"/>: the hours between windows (1 to 24).</summary>
+    public int? AiAnalysisIntervalHours { get; private set; }
+
+    public const int MaxAiAnalysisIntervalHours = 24;
+
+    public static readonly string AiAnalysisScheduleRuleMessage =
+        "La frecuencia del análisis con IA no es válida: «cada noche» admite una hora de inicio entre 0 y 23 (o vacía para la hora por defecto), " +
+        $"«cada N horas» exige N entre 1 y {MaxAiAnalysisIntervalHours} y «casi en tiempo real» no admite hora ni intervalo.";
+
+    /// <summary>
+    /// Sets when the LLM reads the company's conversations. Nightly takes an optional start hour (0 to 23; null = the deployment default) and no
+    /// interval; EveryHours takes an interval of 1 to 24 hours and no hour; NearRealTime takes neither. Validated before anything is assigned.
+    /// Returns false, and changes nothing, when the schedule already was that one.
+    /// </summary>
+    public bool SetAiAnalysisSchedule(AiAnalysisMode mode, int? nightlyHour, int? intervalHours)
+    {
+        var valid = mode switch
+        {
+            AiAnalysisMode.Nightly => nightlyHour is null or (>= 0 and <= 23) && intervalHours is null,
+            AiAnalysisMode.EveryHours => nightlyHour is null && intervalHours is >= 1 and <= MaxAiAnalysisIntervalHours,
+            AiAnalysisMode.NearRealTime => nightlyHour is null && intervalHours is null,
+            _ => false,
+        };
+        if (!valid)
+        {
+            throw new DomainException(AiAnalysisScheduleRuleMessage);
+        }
+
+        if (AiAnalysisMode == mode && AiAnalysisNightlyHour == nightlyHour && AiAnalysisIntervalHours == intervalHours)
+        {
+            return false;
+        }
+
+        AiAnalysisMode = mode;
+        AiAnalysisNightlyHour = nightlyHour;
+        AiAnalysisIntervalHours = intervalHours;
+        return true;
+    }
+
     /// <summary>Messages the company's users may send per minute, all together. Null: the deployment default (<c>Messaging:TenantSendRateLimitPerMinute</c>).</summary>
     public int? SendRateLimitPerMinute { get; private set; }
 

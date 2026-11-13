@@ -44,6 +44,15 @@ public sealed record ClassificationDecision(
     bool CountAsLlmFailure, DateTime AttemptedAt, LlmCallReport? Call);
 
 /// <summary>
+/// Phase 1 of the three-phase runner (design H1): either a decision that needs no call (<see cref="Resolved"/>), or a call to make outside
+/// any lock (<see cref="Prepared"/>, with the rules reading of the same snapshot for the Won guard and the breaker ticket it holds).
+/// </summary>
+public sealed record LlmPlan(ClassificationDecision? Resolved, PreparedLlmCall? Prepared, ClassificationResult Rules, BreakerTicket Ticket)
+{
+    public bool NeedsCall => Resolved is null;
+}
+
+/// <summary>
 /// Decides how one claimed conversation is read when <c>Classification:Provider=Llm</c> (design D1, D12, D21; Stage A). Pure application
 /// logic: no database, no clock of its own (the runner passes <c>now</c>). In order:
 /// <list type="number">
@@ -95,37 +104,53 @@ public sealed class ClassificationCoordinator
     /// <param name="now">The runner's time (database precision).</param>
     public async Task<ClassificationDecision> DecideAsync(ConversationSnapshot snapshot, ClassificationContext context, DateTime now, CancellationToken cancellationToken = default)
     {
+        var plan = await PlanAsync(snapshot, context, now, useBreaker: true, cancellationToken);
+        return plan.Resolved ?? await ExecuteAsync(plan, context, now, cancellationToken);
+    }
+
+    /// <summary>
+    /// Phase 1: everything up to the call, without making it (rules, sandbox rules, admission, call reduction, and, with
+    /// <paramref name="useBreaker"/>, the breaker ticket). A batch request uses no ticket: nothing is called synchronously.
+    /// </summary>
+    public async Task<LlmPlan> PlanAsync(ConversationSnapshot snapshot, ClassificationContext context, DateTime now, bool useBreaker = true, CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(context);
 
         var rules = _rules.Classify(snapshot, cancellationToken);
+        LlmPlan Resolved(ClassificationDecision decision) => new(decision, null, rules, default);
 
         if (context.IsSandbox && !_settings.IncludeSandbox)
         {
-            return Plain(rules, "sandbox_excluded", now);
+            return Resolved(Plain(rules, "sandbox_excluded", now));
         }
 
         if (_settings.SandboxOnly && !context.IsSandbox)
         {
-            return Plain(rules, RealClientSandboxOnly, now);
+            return Resolved(Plain(rules, RealClientSandboxOnly, now));
         }
 
         var admission = await _meter.CheckAdmissionAsync(context.TenantId, context.IsSandbox, cancellationToken);
         if (admission != AiAdmission.Allowed)
         {
-            return new ClassificationDecision(
-                ClassificationCompletion.Rules, rules with { IsRulesFallback = true }, "not_admitted:" + admission, null, null, false, now, null);
+            return Resolved(new ClassificationDecision(
+                ClassificationCompletion.Rules, rules with { IsRulesFallback = true }, "not_admitted:" + admission, null, null, false, now, null));
         }
 
         var prepared = _llm.Prepare(snapshot);
         if (!prepared.HasCustomerText)
         {
-            return Plain(rules, "no_customer_text", now);
+            return Resolved(Plain(rules, "no_customer_text", now));
         }
 
         if (string.Equals(prepared.SnapshotHash, context.LastLlmSnapshotHash, StringComparison.Ordinal))
         {
-            return new ClassificationDecision(ClassificationCompletion.Unchanged, null, "hash_unchanged", prepared.SnapshotHash, null, false, now, null);
+            return Resolved(new ClassificationDecision(ClassificationCompletion.Unchanged, null, "hash_unchanged", prepared.SnapshotHash, null, false, now, null));
+        }
+
+        if (!useBreaker)
+        {
+            return new LlmPlan(null, prepared, rules, new BreakerTicket(true, false, BreakerDenial.None, null));
         }
 
         var ticket = _breaker.TryEnter(now);
@@ -135,9 +160,25 @@ public sealed class ClassificationCoordinator
                 ? ticket.ReopensAt!.Value - _settings.RetryDelay + TimeSpan.FromSeconds(Jitter())
                 : now + _settings.ProbeDeferral - _settings.RetryDelay;
             var reason = ticket.Denial == BreakerDenial.Open ? "breaker_open" : "probe_in_flight";
-            return Fallback(rules, reason, null, countAsLlmFailure: false, attemptedAt, null);
+            return Resolved(Fallback(rules, reason, null, countAsLlmFailure: false, attemptedAt, null));
         }
 
+        return new LlmPlan(null, prepared, rules, ticket);
+    }
+
+    /// <summary>Phase 2: the call of a plan that needs one, its usage recorded, the breaker told. Never holds a database lock.</summary>
+    public async Task<ClassificationDecision> ExecuteAsync(LlmPlan plan, ClassificationContext context, DateTime now, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(context);
+        if (plan.Resolved is { } resolved)
+        {
+            return resolved;
+        }
+
+        var prepared = plan.Prepared!;
+        var rules = plan.Rules;
+        var ticket = plan.Ticket;
         LlmAttempt attempt;
         try
         {
@@ -153,7 +194,7 @@ public sealed class ClassificationCoordinator
         {
             // The breaker gets the time the call ENDED: a call that took the whole timeout must not shorten the cooldown.
             var ended = DatabasePrecision(_time.GetUtcNow().UtcDateTime);
-            var report = Report(attempt, prepared, StatusOf(kind), null);
+            var report = Report(attempt, prepared, StatusOf(kind), null, 1m);
             var billed = BilledUsage(kind, attempt.Usage, prepared);
             // The call reached the provider: its cost is recorded whatever happened to the caller's budget meanwhile, and the breaker learns
             // the outcome; only then is the caller's cancellation honoured.
@@ -183,12 +224,92 @@ public sealed class ClassificationCoordinator
 
         _breaker.RecordSuccess(ticket);
         var guarded = WonGuard.Apply(attempt.Result!, rules);
-        var succeeded = Report(attempt, prepared, "succeeded", guarded);
+        var succeeded = Report(attempt, prepared, "succeeded", guarded, 1m);
         await _meter.RecordSuccessAsync(
             new AiUsageRecord(context.TenantId, context.ConversationId, context.IsSandbox, attempt.Usage, succeeded.EstimatedUsd, guarded.WonDisagreement),
             CancellationToken.None);
         cancellationToken.ThrowIfCancellationRequested();
         return new ClassificationDecision(ClassificationCompletion.Llm, guarded.Result, "llm", prepared.SnapshotHash, null, false, now, succeeded);
+    }
+
+    /// <summary>
+    /// A batch answer that cannot be applied any more (the conversation changed after the batch was sent): it was billed, so its usage is
+    /// recorded like an unusable answer (a call, no conversation analysed) at <paramref name="costFactor"/> of the list price.
+    /// </summary>
+    public Task RecordUnappliedBatchAnswerAsync(ClassificationContext context, LlmUsage usage, decimal costFactor)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(usage);
+        return _meter.RecordFailureAsync(
+            new AiUsageRecord(context.TenantId, context.ConversationId, context.IsSandbox, usage, _settings.Pricing.Estimate(usage) * costFactor), CancellationToken.None);
+    }
+
+    /// <summary>What the model would be sent for this snapshot, and its hash (phase 3 compares it; a batch result is read against it).</summary>
+    public PreparedLlmCall Prepare(ConversationSnapshot snapshot) => _llm.Prepare(snapshot);
+
+    /// <summary>The rules reading of the REAL snapshot: the Won guard's reference for a batch answer.</summary>
+    public ClassificationResult ReadRules(ConversationSnapshot snapshot, CancellationToken cancellationToken = default) => _rules.Classify(snapshot, cancellationToken);
+
+    /// <summary>A plan that will not be executed (phase 1 failed to commit its lease): its breaker ticket is given back.</summary>
+    public void Release(LlmPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        if (plan.NeedsCall && plan.Ticket.Admitted)
+        {
+            _breaker.Abandon(plan.Ticket);
+        }
+    }
+
+    /// <summary>
+    /// A batch answer (design batch mode): read like a synchronous one (mapper, Won guard over <paramref name="rules"/>), its usage recorded at
+    /// <paramref name="costFactor"/> of the list price (0.5: the Message Batches discount). The breaker is not involved.
+    /// </summary>
+    public async Task<ClassificationDecision> InterpretBatchAsync(
+        PreparedLlmCall prepared, ClassificationResult rules, LlmCompletion completion, ClassificationContext context, DateTime now, decimal costFactor,
+        CancellationToken cancellationToken = default)
+    {
+        var decision = InterpretBatch(prepared, rules, completion, now, costFactor);
+        await RecordBatchUsageAsync(context, decision, applied: decision.Completion == ClassificationCompletion.Llm);
+        cancellationToken.ThrowIfCancellationRequested();
+        return decision;
+    }
+
+    /// <summary>A batch answer read like a synchronous one (mapper, Won guard), WITHOUT recording its usage: the collector records it once,
+    /// after it knows whether the answer was applied (<see cref="RecordBatchUsageAsync"/>).</summary>
+    public ClassificationDecision InterpretBatch(PreparedLlmCall prepared, ClassificationResult rules, LlmCompletion completion, DateTime now, decimal costFactor)
+    {
+        ArgumentNullException.ThrowIfNull(prepared);
+        ArgumentNullException.ThrowIfNull(rules);
+        ArgumentNullException.ThrowIfNull(completion);
+
+        var attempt = _llm.Interpret(prepared, completion, latencyMs: 0);
+        if (attempt.Failure is { } kind)
+        {
+            return Fallback(rules, "content_failure", kind, countAsLlmFailure: true, now, Report(attempt, prepared, StatusOf(kind), null, costFactor));
+        }
+
+        var guarded = WonGuard.Apply(attempt.Result!, rules);
+        return new ClassificationDecision(
+            ClassificationCompletion.Llm, guarded.Result, "llm", prepared.SnapshotHash, null, false, now, Report(attempt, prepared, "succeeded", guarded, costFactor));
+    }
+
+    /// <summary>
+    /// Records a batch answer's usage once: an applied reading as a success (the conversation counts for the quota), anything else (an
+    /// unusable answer, a reading thrown away in phase 3) as a failed call with its billed tokens and cost.
+    /// </summary>
+    public Task RecordBatchUsageAsync(ClassificationContext context, ClassificationDecision decision, bool applied)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(decision);
+        if (decision.Call is not { } call)
+        {
+            return Task.CompletedTask;
+        }
+
+        var record = new AiUsageRecord(context.TenantId, context.ConversationId, context.IsSandbox, call.Usage, call.EstimatedUsd, applied && call.WonDisagreement);
+        return applied && decision.Completion == ClassificationCompletion.Llm
+            ? _meter.RecordSuccessAsync(record, CancellationToken.None)
+            : _meter.RecordFailureAsync(record, CancellationToken.None);
     }
 
     /// <summary>
@@ -215,8 +336,8 @@ public sealed class ClassificationCoordinator
         ClassificationResult rules, string reason, LlmFailureKind? kind, bool countAsLlmFailure, DateTime attemptedAt, LlmCallReport? call)
         => new(ClassificationCompletion.RulesFallback, rules with { IsRulesFallback = true }, reason, null, kind, countAsLlmFailure, attemptedAt, call);
 
-    private LlmCallReport Report(LlmAttempt attempt, PreparedLlmCall prepared, string status, WonGuardDecision? guard)
-        => new(attempt.ModelId, status, attempt.Usage, _settings.Pricing.Estimate(attempt.Usage), attempt.LatencyMs, prepared.Stats,
+    private LlmCallReport Report(LlmAttempt attempt, PreparedLlmCall prepared, string status, WonGuardDecision? guard, decimal costFactor)
+        => new(attempt.ModelId, status, attempt.Usage, _settings.Pricing.Estimate(attempt.Usage) * costFactor, attempt.LatencyMs, prepared.Stats,
             guard?.WonDowngraded ?? false, guard?.WonDisagreement ?? false, attempt.Error);
 
     private static string StatusOf(LlmFailureKind kind) => kind switch

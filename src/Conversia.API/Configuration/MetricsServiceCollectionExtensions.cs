@@ -20,6 +20,7 @@ public static class MetricsServiceCollectionExtensions
         services.AddHeavyQueryRateLimiting(options);
         services.AddScoped<IMetricsQueries, MetricsQueries>();
         services.AddScoped<IMetricsService, MetricsService>();
+        services.AddScoped<IAiAnalysisStatusQueries, AiAnalysisStatusQueries>();
         return services;
     }
 

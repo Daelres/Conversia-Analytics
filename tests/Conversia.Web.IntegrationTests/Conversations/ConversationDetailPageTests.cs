@@ -477,4 +477,18 @@ public class ConversationDetailPageTests
         Assert.Empty(SpanishUi.Leaks(SpanishUi.Extract(page)));
         Assert.NotNull(page.FindLogoutForm());
     }
+
+    [Fact]
+    public async Task The_detail_says_when_the_ai_last_updated_the_conversation_in_local_time_and_nothing_when_it_never_did()
+    {
+        using var analysed = ConversationsHarness.Create(null, stub => stub.AiAnalyzedAt = new DateTime(2026, 11, 12, 6, 30, 0, DateTimeKind.Utc));
+        var page = (await analysed.OpenAsync(Url(ConversationsStub.Won))).ShouldBe(HttpStatusCode.OK);
+
+        var note = page.Document.QuerySelector("[data-testid=ai-analyzed-at]")!.Plain();
+        Assert.Contains("Análisis de IA: última actualización el 12 nov, 01:30", note); // 01:30 in Bogota
+        Assert.DoesNotContain("lote", note, StringComparison.OrdinalIgnoreCase);
+
+        using var never = ConversationsHarness.Create(null);
+        Assert.Null((await never.OpenAsync(Url(ConversationsStub.Won))).Document.QuerySelector("[data-testid=ai-analyzed-at]"));
+    }
 }

@@ -43,6 +43,7 @@ internal sealed class AdminStub
             {
                 MaxActiveLines = 2, ActiveLines = 1, AiEnabled = false, AiMonthlyConversationQuota = 500, AiQuotaIsDefault = true, DefaultAiMonthlyConversationQuota = 500,
                 AiMonthlyUsdCeiling = 10m, SendRateLimitPerMinute = 45, SendRateLimitIsDefault = false, DefaultSendRateLimitPerMinute = 120, MaxSendRateLimitPerMinute = 1200,
+                AiAnalysisMode = "Nightly", AiAnalysisNightlyHour = 1, AiAnalysisNightlyHourIsDefault = true, NextAiAnalysisWindowAt = new DateTime(2026, 11, 13, 6, 0, 0, DateTimeKind.Utc),
             },
             Licenses =
             [
@@ -76,6 +77,16 @@ internal sealed class AdminStub
         Deliveries = new() { RealLast24h = new() { Events = 7, StoredMessages = 9, DuplicateMessages = 1, SkippedMessages = 0, FailedEvents = 1 } },
         Ai = new() { Enabled = false, State = "Disabled", Quota = 500, QuotaIsDefault = true, CeilingUsd = 10m, ThisMonth = new() { Conversations = 0 }, SandboxThisMonth = new() { Conversations = 3, EstimatedUsd = 0.01m } },
         Sends = new() { RealLast7d = 4, RealFailedLast7d = 1 },
+        AiAnalysis = new()
+        {
+            Mode = "Nightly", NightlyHour = 1, NextWindowAt = new DateTime(2026, 11, 13, 6, 0, 0, DateTimeKind.Utc), Pending = 12,
+            LastRun = new()
+            {
+                WindowStart = new DateTime(2026, 11, 12, 6, 0, 0, DateTimeKind.Utc), WindowEnd = new DateTime(2026, 11, 12, 11, 0, 0, DateTimeKind.Utc), Mode = "Nightly",
+                StartedAt = new DateTime(2026, 11, 12, 6, 7, 0, DateTimeKind.Utc), LastActivityAt = new DateTime(2026, 11, 12, 6, 41, 0, DateTimeKind.Utc),
+                Claimed = 40, Analysed = 31, Unchanged = 4, Skipped = 2, Discarded = 1, Failed = 1, Deferred = 1, Batched = 33,
+            },
+        },
         Days =
         [
             new() { Day = "2026-10-20", IsSandbox = false, MessagesIn = 5, MessagesOut = 4, ConversationsOpened = 2, ConversationsClosed = 1 },
@@ -88,7 +99,11 @@ internal sealed class AdminStub
         GeneratedAt = LastActivity,
         Health = new() { Status = "Degraded", Checks = [new() { Name = "webhook-queue", Status = "Degraded" }] },
         Backlog = new() { WebhookPending = 612, OldestPendingSeconds = 900, ClassificationWaiting = 3, OldestClassificationSeconds = 30, ClassificationStopped = 0 },
-        Ai = new() { Provider = "Llm", BreakerState = "Open", Real = new() { Conversations = 40, Calls = 45 }, Sandbox = new() { Calls = 2 }, DeploymentUsd = 3.5m, DeploymentCapUsd = 20m, LostUsageRecords = 2 },
+        Ai = new()
+        {
+            Provider = "Llm", BreakerState = "Open", Real = new() { Conversations = 40, Calls = 45 }, Sandbox = new() { Calls = 2 }, DeploymentUsd = 3.5m, DeploymentCapUsd = 20m, LostUsageRecords = 2,
+            Batches = new() { Submitted = 1, Ended = 0, FailedLast24h = 1, CollectedLast24h = 3, OldestSubmittedAt = new DateTime(2026, 11, 12, 6, 30, 0, DateTimeKind.Utc) },
+        },
         Errors = new() { Last24h = 2, TopLast24h = [new() { Fingerprint = "abc123", Source = "Api", Kind = "Unhandled", Count = 2, LastOccurredAt = LastActivity }] },
         Sends = new() { RealLast7d = 10, RealFailedLast7d = 1, ByOutcomeLast7d = [new() { Outcome = "sent", Real = 9, Sandbox = 1 }, new() { Outcome = "provider_limit_reached", Real = 1 }] },
         Flags = [new() { Code = "webhook_backlog", Severity = "warning", Message = "Hay 612 entregas de webhook pendientes (umbral 500)." }, new() { Code = "health", Severity = "critical", Message = "La comprobación de salud falla." }],
@@ -117,6 +132,7 @@ internal sealed class AdminStub
             ("GET", _) when TenantId(path, "/monitoring") is { } id => Companies.Any(c => c.Id == id) ? FakeBackend.Answer(HttpStatusCode.OK, Monitoring) : FakeBackend.Raw(HttpStatusCode.NotFound, null),
             ("PUT", _) when TenantId(path, "/ai-enabled") is { } id => SetAi(id, request),
             ("PUT", _) when TenantId(path, "/ai-quota") is { } id => FakeBackend.Answer(HttpStatusCode.OK, Summary(Companies.First(c => c.Id == id))),
+            ("PUT", _) when TenantId(path, "/ai-schedule") is { } id => FakeBackend.Answer(HttpStatusCode.OK, Summary(Companies.First(c => c.Id == id))),
             ("PUT", _) when TenantId(path, "/send-rate-limit") is { } id => FakeBackend.Answer(HttpStatusCode.OK, Summary(Companies.First(c => c.Id == id))),
             ("GET", "/api/admin/licenses") => FakeBackend.Answer(HttpStatusCode.OK, Page(Licenses, 1, 20)),
             ("POST", "/api/admin/licenses") => CreateLicense(request),

@@ -34,7 +34,9 @@ public static class PlatformAdministrationServiceCollectionExtensions
         services.AddSingleton(sp =>
         {
             var sending = sp.GetRequiredService<MessageSendingOptions>();
-            return new PlatformLimitDefaults(sending.TenantSendRateLimitPerMinute, sp.GetRequiredService<AiQuotaSettings>(), sending.TenantSendRateLimitMaxPerMinute);
+            return new PlatformLimitDefaults(
+                sending.TenantSendRateLimitPerMinute, sp.GetRequiredService<AiQuotaSettings>(), sending.TenantSendRateLimitMaxPerMinute,
+                sp.GetRequiredService<Application.Classification.Scheduling.AnalysisScheduleSettings>());
         });
 
         services.AddSingleton<TenantSendRateLimits>();

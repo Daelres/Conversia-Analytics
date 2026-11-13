@@ -299,12 +299,16 @@ A review asked whether two ingestion workers that touch conversations A and B in
   wants the tenant lock (the manual outcome and the jobs never take it). `TenantIngestionLock` is the one definition of the key for both sides.
   Both waits are bounded by the transaction's `lock_timeout` and `statement_timeout` (`Messaging:RecordTimeoutSeconds`), so a stuck holder cannot hang the request.
 
-- **The LLM classifier** (`Classification:Provider=Llm`, Development only, docs/CLASSIFICATION.md) claims like the rules worker, but in Stage A it **calls the
-  model inside the claim transaction**, holding the conversation row for up to `Classification:Llm:TimeoutSeconds` (8 s, one attempt). Ingestion, a manual edit or
-  the auto-closer touching that conversation waits that long (an accepted Stage A limit; the hardening slice moves the call out of the transaction before the
-  gate is lifted). Ingestion takes the **contact row before the conversation row**; the classifier writes the contact profile **only after its commit**, in a
-  transaction of its own that takes the contact row alone, so it never holds the conversation while it waits for a contact (a deterministic two-session test,
-  `LlmClassificationTests.IngestionAndTheRunner_TakeContactAndConversationInAnOrderThatCannotDeadlock`, pins it).
+- **The LLM analysis** (`Classification:Provider=Llm`, Development only, docs/CLASSIFICATION.md, "When the AI reads") **never calls the model while it holds
+  a row**. Phase 1 claims one conversation of a company with `FOR UPDATE SKIP LOCKED`, reads it, writes a lease (`LlmLeaseUntil`) and commits in a few
+  milliseconds; the call runs with no lock and no open transaction; phase 3 takes the row again by id with `SKIP LOCKED` (three tries 200 ms apart, then it
+  gives up and the lease expires) and applies the answer only if the snapshot hash, `ClassificationRequestedAt` and the opportunity's stage did not change
+  meanwhile. So ingestion, a manual edit or the auto-closer never wait for the model: they may change the conversation during the call, and the answer is then
+  discarded (`LlmClassificationTests.DuringASlowCall_TheConversationRowIsFree_IngestionWritesItAtOnce_AndTheAnswerIsDiscarded` measures ingestion under one
+  second during a slow call). The first stage's limit (the call inside the claim transaction, up to 8 s) is gone for every mode. Message Batches (nightly
+  companies) hold no row at all while the provider processes them; their results go through the same phase 3. Ingestion takes the **contact row before the
+  conversation row**; the runner writes the contact profile **only after its phase 3 commit**, in a transaction of its own that takes the contact row alone, so it
+  never holds the conversation while it waits for a contact.
 
 If a new code path ever locks several conversations and *waits* for them, it must either take the tenant lock first or lock them in `Id` order.
 

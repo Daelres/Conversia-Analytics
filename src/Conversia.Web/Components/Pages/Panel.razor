@@ -64,6 +64,13 @@ else if (!Redirected)
             {
                 <p class="range" data-testid="panel-updated">Actualizado a las @MetricsFormat.Clock(TimeZone.ToLocal(_data.Alerts.GeneratedAt)).</p>
             }
+            @if (_aiStatus is { Enabled: true } ai)
+            {
+                @* When the AI last updated its fields; the rest of the numbers are read as they are, near real time. *@
+                <p class="range" data-testid="panel-ai-updated">@(ai.LastUpdatedAt is { } updated
+                    ? $"Análisis de IA: última actualización el {MetricsFormat.Moment(TimeZone.ToLocal(updated))}."
+                    : "Análisis de IA: aún no hay una actualización.")</p>
+            }
             <a class="btn btn--ghost btn--sm" href="@PanelUrl()" data-testid="panel-refresh"><Icon Name="refresh" Class="icon--sm" />Actualizar</a>
         </div>
 
@@ -213,6 +220,8 @@ else if (!Redirected)
 }
 
 @code {
+    private Conversia.Application.DTOs.Metrics.AiAnalysisStatusResponse? _aiStatus;
+
     private DashboardData? _data;
     private DashboardKpis _kpis = default!;
     private IReadOnlyList<BreakdownRow> _branchRows = [];
@@ -284,6 +293,9 @@ else if (!Redirected)
         }
 
         _data = load.Data;
+        // A note of the page: if it cannot be read, the numbers are shown without it.
+        var aiStatus = await Api.GetAiAnalysisStatusAsync(Token!);
+        _aiStatus = aiStatus.IsSuccess ? aiStatus.Value : null;
         _kpis = DashboardKpis.From(_data!);
         _branchRows = BreakdownRow.Sorted(BreakdownRow.ByBranch(_data!), SortBranch);
         _advisorRows = BreakdownRow.Sorted(BreakdownRow.ByAdvisor(_data!), SortAdvisor);

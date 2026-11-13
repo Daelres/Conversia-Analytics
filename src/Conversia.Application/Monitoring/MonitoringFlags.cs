@@ -48,7 +48,8 @@ public sealed record MonitoringFlagInput(
     int StuckDeletions = 0,
     int BillingEventsFailed = 0,
     int BillingAttemptsStuck = 0,
-    int BillingNeedsReview = 0);
+    int BillingNeedsReview = 0,
+    int FailedBatches24h = 0);
 
 /// <param name="Code">Stable machine code (<c>webhook_backlog</c>, ...).</param>
 /// <param name="Severity"><c>warning</c> or <c>critical</c>.</param>
@@ -171,6 +172,12 @@ public static class MonitoringFlags
         if (input.BreakerState is "Open" or "HalfOpen")
         {
             flags.Add(new("llm_breaker_open", Warning, "El proveedor de IA falla y el cortacircuitos está abierto: las conversaciones se leen con reglas mientras tanto."));
+        }
+
+        if (input.FailedBatches24h > 0)
+        {
+            flags.Add(new("llm_batches_failed", Warning,
+                $"{input.FailedBatches24h} lotes del análisis nocturno fallaron en las últimas 24 horas (no se pudieron enviar o leer): sus conversaciones pasan a la llamada directa."));
         }
 
         return flags;

@@ -38,6 +38,8 @@ public static class AuditFormat
                     Text(details, "termsVersion") is { Length: > 0 } terms ? $"Términos: {terms}" : null)),
             PlatformAuditLog.Actions.TenantAiQuotaChanged => new AuditText(
                 $"Cambió el cupo mensual de IA: {Text(details, "from") ?? DefaultWord} → {Text(details, "to") ?? DefaultWord}", Reason(details)),
+            PlatformAuditLog.Actions.TenantAiScheduleChanged => new AuditText(
+                $"Cambió la frecuencia del análisis con IA: {Schedule(details, "from")} → {Schedule(details, "to")}", Reason(details)),
             PlatformAuditLog.Actions.TenantSendRateLimitChanged => new AuditText(
                 $"Cambió el límite de envíos por minuto: {Text(details, "from") ?? DefaultWord} → {Text(details, "to") ?? DefaultWord}", Reason(details)),
             PlatformAuditLog.Actions.LicenseCreated => new AuditText("Creó una licencia de línea", Number(details)),
@@ -50,6 +52,25 @@ public static class AuditFormat
     }
 
     private const string DefaultWord = "por defecto";
+
+    // One side of an AI schedule change, in lower-case words.
+    private static string Schedule(JsonElement details, string side)
+    {
+        if (details.ValueKind != JsonValueKind.Object || !details.TryGetProperty(side, out var schedule) || schedule.ValueKind != JsonValueKind.Object)
+        {
+            return DefaultWord;
+        }
+
+        int? Number(string name) => schedule.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
+        var mode = schedule.TryGetProperty("mode", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString() ?? string.Empty : string.Empty;
+        return mode switch
+        {
+            "Nightly" => Number("nightlyHour") is { } hour ? $"cada noche desde las {hour:00}:00" : "cada noche (hora por defecto)",
+            "EveryHours" => Number("intervalHours") is 1 ? "cada hora" : $"cada {Number("intervalHours")} horas",
+            "NearRealTime" => "casi en tiempo real",
+            _ => DefaultWord,
+        };
+    }
 
     // What a cancellation did: the lines switched off, the licences released.
     private static string? Cancellation(JsonElement details)

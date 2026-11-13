@@ -73,6 +73,11 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.PendingAgeRange).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.PendingGender).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.IsSandbox).IsRequired().HasDefaultValue(false);
+        // The LLM analysis state (docs/CLASSIFICATION.md, "When the AI reads"), apart from the rules' flag.
+        builder.Property(c => c.LlmPending).IsRequired().HasDefaultValue(false);
+        builder.Property(c => c.LlmLeaseUntil);
+        builder.Property(c => c.LlmAttemptedAt);
+        builder.Property(c => c.LlmAnalyzedAt);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.UpdatedAt);
 
@@ -87,6 +92,10 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
             .HasFilter("\"Status\" = 'Open'");
 
         builder.HasIndex(c => c.TenantId);
+
+        // The LLM runner claims a company's pending conversations, oldest request first: only pending ones are indexed.
+        builder.HasIndex(c => new { c.TenantId, c.ClassificationRequestedAt }, "IX_Conversations_LlmPending")
+            .HasFilter("\"LlmPending\"");
 
         // The conversation list and the metrics read a tenant's conversations by the day they started and by whether they are still open.
         builder.HasIndex(c => new { c.TenantId, c.StartedAt });

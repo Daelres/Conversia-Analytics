@@ -83,6 +83,10 @@
                     <dt>Cortacircuitos del proveedor</dt>
                     <dd data-testid="ai-breaker">@BreakerText(o.Ai.BreakerState)</dd>
                 </div>
+                <div>
+                    <dt>Lotes del análisis nocturno</dt>
+                    <dd data-testid="ai-batches">@AdminFormat.Count(o.Ai.Batches.Submitted, "en proceso", "en proceso") · @AdminFormat.Count(o.Ai.Batches.Ended, "por recoger", "por recoger") · @AdminFormat.Count(o.Ai.Batches.CollectedLast24h, "recogido", "recogidos") y @AdminFormat.Count(o.Ai.Batches.FailedLast24h, "fallido", "fallidos") en 24 h@(o.Ai.Batches.OldestSubmittedAt is { } oldest ? $" · el más antiguo enviado el {MetricsFormat.Moment(TimeZone.ToLocal(oldest))}" : string.Empty)</dd>
+                </div>
             </dl>
             <p class="muted">El cortacircuitos es de la instancia del API que respondió; sus cambios también quedan en el registro (Warning).</p>
         </Card>

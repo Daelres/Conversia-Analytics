@@ -181,4 +181,44 @@ public class PlatformMonitoringApiTests
         Assert.Equal(2, recorder.Commands.Count(c => c.Text.Contains("\"ErrorLogs\"", StringComparison.Ordinal))); // overview and company: one each
         Assert.Single(recorder.Commands, c => c.Text.Contains("\"SandboxMode\"", StringComparison.Ordinal) && c.Text.Contains("\"WebhookEvents\"", StringComparison.Ordinal)); // silent companies
     }
+
+    [Fact]
+    public async Task ACompanysView_ShowsItsAiSchedule_TheNextWindow_ThePendingConversations_AndTheLastRun_AndTheOverviewTheBatches()
+    {
+        using var admin = await StartAdminAsync(_factory, _client);
+        using var f = await StartChannelAsync(_factory, _client);
+        await SeedConversationAsync(_factory.Services, f, DateTime.UtcNow.AddHours(-2), [In(0, Secret)], requestClassification: true);
+        var window = new DateTime(2026, 11, 12, 6, 0, 0, DateTimeKind.Utc);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            await db.Database.ExecuteSqlAsync($"UPDATE \"Conversations\" SET \"ClassificationDirty\" = false WHERE \"TenantId\" = {f.TenantId}");
+            await db.Database.ExecuteSqlAsync($"""
+                INSERT INTO "AiAnalysisRuns" ("TenantId", "WindowStart", "WindowEnd", "Mode", "StartedAt", "LastActivityAt", "Claimed", "Analysed", "Unchanged",
+                    "Skipped", "Discarded", "Failed", "Deferred", "Batched", "Calls")
+                VALUES ({f.TenantId}, {window.AddDays(-1)}, {window.AddDays(-1).AddHours(5)}, 'Nightly', {window.AddDays(-1)}, {window.AddDays(-1).AddMinutes(9)}, 3, 3, 0, 0, 0, 0, 0, 3, 3),
+                       ({f.TenantId}, {window}, {window.AddHours(5)}, 'Nightly', {window.AddMinutes(1)}, {window.AddMinutes(20)}, 9, 5, 1, 1, 1, 1, 0, 6, 7)
+                """);
+            var batch = LlmBatch.Prepare(2, DateTime.UtcNow);
+            batch.MarkSubmitted("msgbatch_monitoring", DateTime.UtcNow.AddHours(24), DateTime.UtcNow);
+            db.LlmBatches.Add(batch);
+            await db.SaveChangesAsync();
+        }
+
+        var response = await admin.Client.GetAsync(TenantUrl(f.TenantId));
+        var body = await response.Content.ReadAsStringAsync();
+        var view = (await response.Content.ReadFromJsonAsync<TenantMonitoringResponse>())!;
+
+        var analysis = view.AiAnalysis;
+        Assert.Equal(("Nightly", (int?)1, 1), (analysis.Mode, analysis.NightlyHour, analysis.Pending));
+        Assert.NotNull(analysis.NextWindowAt);
+        var last = analysis.LastRun!;
+        Assert.Equal((window, window.AddHours(5), window.AddMinutes(20)), (last.WindowStart, last.WindowEnd, last.LastActivityAt));
+        Assert.Equal((9, 5, 1, 1, 1, 1, 0, 6), (last.Claimed, last.Analysed, last.Unchanged, last.Skipped, last.Discarded, last.Failed, last.Deferred, last.Batched));
+        Assert.DoesNotContain(Secret, body);
+
+        var overview = (await admin.Client.GetFromJsonAsync<PlatformOverviewResponse>("/api/admin/monitoring"))!;
+        Assert.True(overview.Ai.Batches.Submitted >= 1);
+        Assert.NotNull(overview.Ai.Batches.OldestSubmittedAt);
+    }
 }

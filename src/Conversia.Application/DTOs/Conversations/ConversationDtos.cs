@@ -174,6 +174,9 @@ public class ConversationDetailResponse : ConversationListItem
 
     public DateTime? AdvisorAssignedAt { get; set; }
 
+    /// <summary>When the AI last updated this conversation's fields (its scheduled analysis); null when it never did.</summary>
+    public DateTime? AiAnalyzedAt { get; set; }
+
     /// <summary>Oldest first, at most <see cref="MaxMessages"/>; <see cref="ConversationListItem.MessageCount"/> says how many exist.</summary>
     public IReadOnlyList<MessageResponse> Messages { get; set; } = [];
 

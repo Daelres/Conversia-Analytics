@@ -81,6 +81,44 @@ public class TenantLimitsResponse
 
     /// <summary>The most a company's own send limit may be (<c>Messaging:TenantSendRateLimitMaxPerMinute</c>).</summary>
     public int MaxSendRateLimitPerMinute { get; set; }
+
+    /// <summary>When the LLM reads the company: <c>Nightly</c>, <c>EveryHours</c> or <c>NearRealTime</c> (docs/CLASSIFICATION.md).</summary>
+    public string AiAnalysisMode { get; set; } = string.Empty;
+
+    /// <summary>With <c>Nightly</c>: the effective local start hour (the company's, or the deployment default).</summary>
+    public int? AiAnalysisNightlyHour { get; set; }
+
+    public bool AiAnalysisNightlyHourIsDefault { get; set; }
+
+    /// <summary>With <c>EveryHours</c>: the hours between windows.</summary>
+    public int? AiAnalysisIntervalHours { get; set; }
+
+    /// <summary>When the company's current or next analysis window opens (UTC); always now for near real time.</summary>
+    public DateTime? NextAiAnalysisWindowAt { get; set; }
+}
+
+/// <summary>Body of <c>PUT /api/admin/tenants/{id}/ai-schedule</c>: when the LLM reads the company, and why it changes.</summary>
+public class SetAiScheduleRequest
+{
+    [Display(Name = "Frecuencia del análisis con IA")]
+    [Required(ErrorMessage = ValidationMessages.Required)]
+    [EnumName(typeof(AiAnalysisMode))]
+    public string? Mode { get; set; }
+
+    /// <summary>With <c>Nightly</c>: the local start hour (0 to 23); empty = the deployment default.</summary>
+    [Display(Name = "Hora de inicio")]
+    [Range(0, 23, ErrorMessage = ValidationMessages.Range)]
+    public int? NightlyHour { get; set; }
+
+    /// <summary>With <c>EveryHours</c>: the hours between windows (1 to 24).</summary>
+    [Display(Name = "Intervalo en horas")]
+    [Range(1, Tenant.MaxAiAnalysisIntervalHours, ErrorMessage = ValidationMessages.Range)]
+    public int? IntervalHours { get; set; }
+
+    /// <summary>Why it changes: required and audited.</summary>
+    [Display(Name = "Motivo")]
+    [TrimmedText(Tenant.AiChangeReasonMaxLength)]
+    public string? Reason { get; set; }
 }
 
 /// <summary>Query string of <c>GET /api/admin/licenses</c>.</summary>
