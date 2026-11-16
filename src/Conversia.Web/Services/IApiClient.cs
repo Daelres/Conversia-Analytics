@@ -49,6 +49,8 @@ public interface IApiClient
 
     Task<ApiResult<AlertsResponse>> GetMetricsAlertsAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
 
+    Task<ApiResult<ClosingPointResponse>> GetMetricsClosingPointAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
+
     // ---- organization (OrganizationView) ----
 
     Task<ApiResult<IReadOnlyList<BranchResponse>>> GetBranchesAsync(string token, CancellationToken cancellationToken = default);

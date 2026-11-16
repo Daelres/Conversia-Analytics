@@ -53,7 +53,7 @@ public class SnapshotHasherTests
     {
         { "prompt version", Inputs with { PromptVersion = "es-CO.2" } },
         { "model", Inputs with { ModelId = "claude-other" } },
-        { "schema version", Inputs with { SchemaVersion = "2" } },
+        { "schema version", Inputs with { SchemaVersion = Inputs.SchemaVersion + "x" } },
         { "age extraction", Inputs with { ExtractAgeRange = true } },
         { "preprocessing", Inputs with { PreprocessingFingerprint = (ConversationPreprocessorOptions.Default with { TokenBudget = 5000 }).Fingerprint } },
         { "rules file", Inputs with { RulesFingerprint = "another-rules-file" } },

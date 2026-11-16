@@ -194,7 +194,9 @@ shape, with `contacts`, `messages` and `statuses` at the root, is read too.
 | `messages[].timestamp` (unix seconds, string or number; decimals and exponents such as `1792324800.0` or `1.7923248e9` are truncated to the second) | `Message.SentAt`, UTC. Only 2015-01-01 up to one day after now is plausible; anything else is skipped and counted. |
 | `messages[].type` | `Message.Type` in lower case (`text`, `image`, `audio`, ...); an odd value becomes `unknown`. |
 | `text.body`, or `button.text`, or the title of an `interactive` reply, or the `caption` of a media message | `Message.Text` (4096 characters at most, NUL removed). Null for media without caption. |
-| `messages[].referral` (click-to-WhatsApp ad) | `Conversation.Source = Ads`; `SourceReference` is the first *non-blank* of `headline`, `source_url`, `source_id`, `body`; a later referral fills a reference the ad conversation lacked. |
+| `messages[].referral` (click-to-WhatsApp ad) | `Conversation.Source = Ads`; `SourceReference` is the first *non-blank* of `headline`, `source_url`, `source_id`, `body`; a later referral fills a reference the ad conversation lacked. The ad's data is kept too, see "Ad referral". |
+| `messages[].{image,audio,video,document,sticker}` | Media metadata, see "Media metadata". The file is never downloaded. |
+| Who sent it | Inbound: `Messages.Sender = Customer`. An echo (outbound): `PhoneApp`, no author (`SentByAdvisorId` null); `AssignedAdvisorIdAtReceipt` records the advisor assigned to the conversation when it arrived, as context, not authorship (docs/MESSAGING.md "Who sent it"). |
 | `value.statuses[]` | Ignored (delivery receipts); counted in `WebhookEvents.StatusCount`. |
 | `messages[]` with a `group_id` (or `recipient_type: group`) | Skipped and counted: group chats are not customer conversations. |
 | `messages[]` of type `reaction` or `system` | Ignored: they never create a conversation nor set `FirstInboundAt`/`FirstResponseAt`. |
@@ -203,6 +205,40 @@ shape, with `contacts`, `messages` and `statuses` at the root, is read too.
 | An outbound entry with no `to` | Belongs to `contacts[0]` only when the delivery has exactly one contact; otherwise skipped and counted (never a guess). |
 | `metadata.phone_number_id` | Not used to find the channel (the URL does). If the channel has a `ProviderPhoneNumberId` and the delivery names another one, its messages are ignored. |
 | Anything else (templates, history sync, unknown fields) | Ignored. |
+
+### Ad referral
+
+Checked on 2026-11-13 against Meta's Cloud API reference (text message webhook, "Click to WhatsApp ad" example:
+https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/text). The `referral` object
+comes only with a message sent through a Click to WhatsApp ad: `source_url` (the ad's URL), `source_id` (the ad's id), `source_type`
+(`ad`; the welcome-message sequences page also lists `post`), `body` (the ad's text), `headline`, `media_type`, `image_url` /
+`video_url` / `thumbnail_url`, `ctwa_clid` (the click id; omitted for WhatsApp Status placements) and `welcome_message.text`.
+
+| Referral field | Stored |
+|---|---|
+| `source_type` | `Conversations.ReferralSourceType` (a lower-case word, else dropped) |
+| `source_id` (the ad id) | `Conversations.ReferralSourceId` (100 characters) |
+| `source_url` | `Conversations.ReferralSourceUrl` (500): **scheme, host and path only**; the query and the fragment are dropped (tracking parameters such as `fbclid` or `utm_*` can identify the click). A value that is not an http(s) URL is not kept. The same applies when the URL is the `SourceReference` fallback |
+| `headline` | `Conversations.ReferralHeadline` (500) |
+| `ctwa_clid`, `body`, media URLs, `welcome_message` | **Not kept**: the click id identifies the person's click in Meta's systems, and the rest adds nothing to the analysis (minimisation, docs/decisiones.md) |
+
+The first referral that brings data is kept (the ad that started the conversation). **Unverified:** that 360dialog forwards the
+object unchanged, and whether `ctwa_clid` comes only on the first message (one community report says so).
+
+### Media metadata
+
+Checked on 2026-11-13 against Meta's image message reference
+(https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/image): the media object has
+`id`, `mime_type`, `sha256`, `caption` and (being rolled out) `url`; **no file size**.
+
+| Field | Stored |
+|---|---|
+| `id` | `Messages.MediaId` (200 characters; blank or longer: null). Kept **only** so roadmap stage 3 can download the file within Meta's retention window of received media (reported as 7 days; to be verified in stage 3); it must never appear in an API answer or a log line (`TenantDtoGuardTests`, `AdminDtoGuardTests`) until stage 3 decides how media is shown |
+| `mime_type` | `Messages.MediaMimeType`, lower case, parameters dropped (`audio/ogg; codecs=opus` is `audio/ogg`); a malformed value is null |
+| `caption` present | `Messages.HasCaption` (the caption itself is `Messages.Text`, as before) |
+| file size, `sha256`, `url`, a document's `filename` | Not kept. The size needs the media endpoint (download is roadmap stage 3); a file name can carry personal data |
+
+Templates: neither the message webhook nor the `smb_message_echoes` reference documents a template name or category, so none is stored.
 
 ### The unverified part: messages sent from the phone
 

@@ -30,9 +30,96 @@ LlmAnalysisService ──► LlmAnalysisScheduler ──► LlmAnalysisRunner (t
 | `LossReason` | With `Lost` only: `Price`, `Timing`, `Location`, `Competitor`, `NotInterested`, `Other` | `Opportunities.LossReason` |
 | `Confidence` | 0 to 1 | `Opportunities.ClassificationConfidence` |
 | `RuleCodes` | Short codes of the rules that fired (`outcome.won.advisor_confirmation`, `objection.price`, `service.axilas`) | `Opportunities.ClassificationRules` (200 characters, whole codes) |
+| `ClosingPoint` | How far the conversation got and where it stopped (see [Closing point](#closing-point)) | `Opportunities.ReachedStage`, `MovedOffChannel`, `OffChannelEvidenceIndex`, `ClosedBy`, `ClosedOutsideSystem` |
 
 `ClassifiedAt` is set on every run. A run that reads the same thing changes nothing else (the stage keeps its
 `StageChangedAt` and `ClosedAt`), so re-classifying is harmless.
+
+### Closing point
+
+How far each conversation got and where it stopped (roadmap point 10), read automatically, never typed by an advisor. Codes only.
+
+| Field | Values | Meaning |
+|---|---|---|
+| `ReachedStage` | ordered: `FirstContact` < `NeedsIdentified` < `PriceShared` < `ObjectionRaised` < `AppointmentProposed` < `AppointmentBooked` < `PaymentOrDeposit`; null | The **furthest** step reached, whatever the order the steps happened in. Null when the customer never wrote. |
+| `MovedOffChannel` | `None`, `PhoneCall`, `InPerson`, `OtherChannel` | The latest explicit move out of the chat. |
+| `OffChannelEvidenceIndex` | 1-based position, or null | The message that shows the move, among the messages read (the latest 200), as the LLM cites lines. Null with `None`. |
+| `ClosedBy` | `Unknown`, `Advisor`, `CustomerSelfService`, `AiAssistant` | Who closed the deal. `AiAssistant` is reserved for roadmap stage 5: no classifier may produce it and a person cannot set it yet. |
+| `ClosedOutsideSystem` | bool | The evidence says the deal continued outside WhatsApp. |
+
+The steps, with Spanish chats:
+
+| Step | Example |
+|---|---|
+| `FirstContact` | `C: Hola buenas tardes` |
+| `NeedsIdentified` | `C: ¿Cuánto vale la depilación de axilas?`, `C: Me caso en diciembre` |
+| `PriceShared` | `A: 80 mil por sesión`, `A: La sesión está en $60.000` (the business gives an amount) |
+| `ObjectionRaised` | `C: uy, está muy caro`, `C: me queda lejos` |
+| `AppointmentProposed` | `A: ¿Te agendo una valoración?`, `C: quiero agendar una cita` |
+| `AppointmentBooked` | `A: Listo, quedó agendada para el sábado a las 10` (the rules' Won), even if cancelled later |
+| `PaymentOrDeposit` | `C: ya hice la transferencia, te envío el comprobante`, `A: recibimos tu abono` |
+
+`info_shared` was left out on purpose: the rules cannot tell information from small talk, and for the pilot the information that
+matters is the price.
+
+**The rules fallback** (`RuleBasedConversationClassifier`, section `closingPoint` of the rules file) reads only obvious cues; when
+unsure it says nothing. It never changes the outcome, the objection, the service, the reason, the confidence or the rule codes (the
+guarantee and golden-set tests are unchanged). Questions and negated phrases never count.
+
+| Reads | From | Does not read |
+|---|---|---|
+| A price | a business message with `$` before a digit, or a number followed by `mil`/`pesos`/`cop`/`millon(es)` **with a price word or a service zone in its clause** (`el valor es de 60 mil`, `piernas 180 mil la sesión`), or a bare amount (`200 mil`) right after a customer message that asks the price | `más de 10 mil pacientes`, `3 millones de clientes`, `mil gracias`, `a las 10`, an amount the customer writes |
+| A payment | completed forms: `ya hice la transferencia`, `ya te envié el comprobante`, `aquí está el comprobante`, `ya cancelé el abono`, `recibimos tu abono`, `pago confirmado` | an intent (`te envío el comprobante`), a condition (`si el pago queda confirmado`, `cuando recibamos tu abono`), a question, a negation, `ya pagué el abono en otro lado` |
+| A phone call | `te llamo y cerramos`, `llámame`, `sí, te llamo ya mismo` | a condition or a deferral in the same clause (`te llamo si me decido`, `te llamo cuando salga del trabajo`, `si quieres te llamo`), `¿me pueden llamar?`, `no me llamen`, `me llamo Ana` |
+| In person | `pasa por la sede`, `paso por la sede y pago allá`, `acércate a la sede` | `paso por la sede cuando pueda`, `¿atienden en persona?` |
+| Another channel | a contact verb and a channel noun in the same clause, at most 4 words apart, the noun right after a preposition (optionally with one determiner): `escríbeme al otro número`, `te mando la info por correo`, `escríbeme a mi correo` | `te mando el correo de la sede`, `te paso el correo con la cotización` (an address), `los vi por Instagram` (the origin) |
+| Self-service | `ya agendé por la página web`, `ya pagué por el link` | `¿puedo agendar por la página?`, `no agendé por la página` |
+
+The condition and deferral words (`si`, `cuando`, `después`, `luego`, `más tarde`, `apenas`, `en cuanto`, ...) count only in the clause
+of the cue: `sí, te llamo` is a yes (the comma ends the clause; normalization drops the accent of `sí`, so a `si` in the same clause always
+blocks, on purpose). A differential test (`ClosingPointIsolationTests`) classifies the golden set and 4,000 generated chats with the
+`closingPoint` section emptied and loaded and requires the same outcome, loss reason, objection, service, reason, confidence and rule codes.
+
+**Who closed it and whether it went on outside** follow the outcome, the same for the rules and (through the Won guard) for the LLM:
+
+| Outcome | `ClosedBy` | `ClosedOutsideSystem` |
+|---|---|---|
+| `Won` (the booking was confirmed in the chat) | `Advisor`, whatever else was said (a self-service cue, a move) | `false` |
+| `Lost` | `Unknown` | `false` |
+| `InFollowUp` / `Undetermined` with a self-service cue | `CustomerSelfService` | `true` |
+| `InFollowUp` / `Undetermined` with a move that is the last commercial step (no later customer message about the sale; `ok, gracias` does not count) | `Unknown` (who closed it on the phone or at the branch cannot be told) | `true` |
+| `InFollowUp` / `Undetermined` otherwise | `Unknown` (the LLM may say `Advisor` when the text shows it) | `false` |
+
+`TheCloser_AndWhetherItContinuedOutside_FollowTheOutcome` pins every row.
+
+**The LLM** answers the same fields (schema version 2: `reached_stage`, `moved_off_channel`, `off_channel_evidence_line`, `closed_by`
+without `ai_assistant`, `closed_outside_system`; system prompt revision `es-CO.2`). The mapper is strict as for the other fields: an
+unknown code, `ai_assistant`, a non-boolean, a move without its line (or a line without a move) or a line not shown in the prompt
+rejects the whole answer. An answer with **none** of the five properties (a canned answer of schema 1) leaves the closing point unread.
+
+**The Won guard keeps its semantics** (the rules have the last word on Won) and keeps the closing point coherent with the stage it
+allows: a Won reached at least `AppointmentBooked` and an `Unknown` closer becomes `Advisor`; a downgraded Won (the rules did not read
+it) falls from `AppointmentBooked` to `AppointmentProposed` and loses its closer unless the deal continued outside the system.
+
+**How far is monotonic.** The classifiers read the latest 200 messages of a conversation, so a very long chat whose early steps fall
+out of the window could read a lower stage than before. An `Auto` `ReachedStage` a classifier produced is therefore **never lowered
+while the outcome stays the same**; a reading that changes the outcome (the stage it moves to) replaces it, higher or lower. A value
+a person set and handed back to `Auto` is the next reading's to replace. `MovedOffChannel` and the other fields are not monotonic: they
+describe the latest state.
+
+**Provenance** is per field, as for the other extracted fields: `ReachedStageSource`/`ReachedStageClassifiedBy`,
+`MovedOffChannelSource`/`MovedOffChannelClassifiedBy`, `ClosedBySource`/`ClosedByClassifiedBy`,
+`ClosedOutsideSystemSource`/`ClosedOutsideSystemClassifiedBy`. A `Manual` field is never overwritten; an explicit rules fallback
+never erases a non-empty LLM value (a stage, a move, a known closer, `true`). The domain has the manual setters and the revert
+(`SetManualReachedStage`, `SetManualMovedOffChannel`, `SetManualClosedBy`, `SetManualClosedOutsideSystem`, `RevertDetailToAuto`),
+but the API and the Web have no editing of extracted fields yet: the conversation detail shows the closing point **read-only**
+("Hasta dónde llegó"). **Upgrade note.** The migration `AddClosingPointAndAnalysisCapture` queues, outside its schema transaction and in batches of 10,000,
+every conversation with a customer message that is neither flagged already nor waiting for the LLM (`LlmPending`), so the rules give
+the history its closing point. A conversation waiting for the LLM is left exactly as it was (its request time is what phase 3 compares,
+and changing it would discard an answer that may already be paid in a batch); it gets its closing point from the LLM or at its next
+message. Expect a **one-off rules backlog** right after the upgrade: the administrator's monitoring may raise `classification_backlog`
+(500 waiting by default) until it drains; it is not an incident. The request time is the migration's, so the "oldest waiting" flag
+(60 minutes) is raised only if the backlog takes that long. No LLM call is caused by the migration.
 
 ### Outcome semantics
 
@@ -239,7 +326,7 @@ every Unicode space to an ASCII space. Look-alike or invisible characters cannot
 | White space collapsed; a character repeated more than 3 times keeps 3; a run of emoji keeps 3; a message of only symbols keeps 3 | `siiiiii` → `siii`, `!!!!!!` → `!!!`, `👍👍👍👍👍` → `👍👍👍` | Emphasis survives, the repetition costs tokens. A thumbs-up alone is kept: it can be a confirmation. |
 | Links become `[URL]` (already masked ones stay) | `https://…?utm=…` → `[URL]` | A link carries no extraction value and is token-heavy. |
 | An advisor message identical to an earlier one (ignoring case, accents, punctuation, emoji, spacing) becomes `=n` | a price list sent again → `9 A: =3` | Templates, price lists and greetings are re-sent constantly. Only exact copies: a list with a different price is not a copy. |
-| A long advisor message keeps its beginning, its end and every clause holding a phrase the rules read in a business message, around `[...]` | catalogue boilerplate between a greeting and `quedó agendada…` | The confirmation usually sits at the end; services, days and booking statements are never cut. |
+| A long advisor message keeps its beginning, its end and every clause holding a phrase the rules read in a business message, around `[...]` | catalogue boilerplate between a greeting and `quedó agendada…` | The confirmation usually sits at the end; services, days, booking statements, payments and moves off the chat are never cut. A price list keeps **one** clause with an amount (`80 mil`, `$60.000`): one price is enough to show a price was shared. |
 | Consecutive messages of one side share a line | `1 C: hola \| quiero info \|4 ¿cuánto vale?` | One prefix instead of three. Each segment keeps its number (implicit when consecutive, `\|4` when not). |
 | Over the token budget the oldest middle lines are left out and marked | `[... 37 messages omitted]` | Long chats; the first customer message (origin, interest) and the latest lines are always kept. A back-reference to a message the budget left out shows that message's text instead. |
 
@@ -255,8 +342,9 @@ one the budget left out). `PromptTextNeutralizer` guarantees no message text can
 - Customer messages are never collapsed as repeats and never cut beyond the existing 1,000-character cap.
 - No phrase the rules classifier relies on: `PreprocessorQualityGuardTests` runs the pseudonymizer and the preprocessor over the golden set,
   4,000 generated chats and 200 long synthetic chats and checks, **in the same message** (back-references resolved), that every phrase of the
-  rules file that the classifier reads on that side (all of them for the customer; services, proposals, days and hours, confirmations for the
-  business) and that appears in the pseudonymized message still appears in what is shown for it. A phrase lost from one message fails even if it
+  rules file that the classifier reads on that side (all of them for the customer; services, proposals, days and hours, confirmations and
+  the closing point's price units, payments, phone, in-person and channel cues for the business; long chats include a boilerplate
+  message with those cues in its middle) and that appears in the pseudonymized message still appears in what is shown for it. A phrase lost from one message fails even if it
   survives in another. Messages left out by the budget are reported separately (none in that corpus).
 
 ### Measured reduction
@@ -266,8 +354,10 @@ Estimated tokens are characters / 3, rounded up (conservative for Spanish); "bef
 | Corpus | Characters before → after | Estimated tokens before → after | Reduction |
 |---|---|---|---|
 | Golden set (111 short chats) | 63.8 → 58.7 | 21.6 → 19.9 | 7.9% |
-| Long synthetic chats (200, 30 to 90 messages, re-sent price lists, emoji, media, links) | 5,238 → 1,847 | 1,746 → 616 | 64.7% |
-| Whole corpus (4,311 chats) | 394.7 → 220.8 | 131.9 → 73.9 | 44.1% |
+| Long synthetic chats (200, 30 to 90 messages, re-sent price lists and closing boilerplate, emoji, media, links) | 6,272 → 2,267 | 2,091 → 756 | 63.8% |
+| Whole corpus (4,311 chats) | 442.8 → 240.3 | 147.9 → 80.4 | 45.6% |
+
+(Measured again with preprocessor version 2, 2026-11-13; the long corpus now also holds a boilerplate message with closing cues.)
 
 Short chats gain little (the compact line prefix and merged lines); the savings are in long chats with templates. All chats are synthetic;
 measure again on pilot data before tuning the defaults.

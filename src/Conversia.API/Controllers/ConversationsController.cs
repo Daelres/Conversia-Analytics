@@ -56,5 +56,5 @@ public class ConversationsController : ControllerBase
     [Authorize(Policy = nameof(Permission.ConversationsManage))]
     [EnableRateLimiting(MessageSendRateLimitingExtensions.PolicyName)]
     public async Task<ActionResult<MessageResponse>> SendMessage(Guid id, SendMessageRequest request, CancellationToken cancellationToken)
-        => StatusCode(StatusCodes.Status201Created, await _messages.SendTextAsync(id, request, cancellationToken));
+        => StatusCode(StatusCodes.Status201Created, await _messages.SendTextAsync(id, request, User.GetUserId(), cancellationToken));
 }

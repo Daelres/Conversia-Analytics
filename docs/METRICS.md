@@ -13,6 +13,7 @@ All endpoints need the `MetricsView` permission, are scoped to the caller's tena
 | `GET /api/metrics/loss-reasons` | Why sales were lost, and the objections raised |
 | `GET /api/metrics/volume` | Conversations and messages per day and per hour of the week |
 | `GET /api/metrics/alerts` | What needs attention now |
+| `GET /api/metrics/closing-point` | How far the conversations without a sale got, and how many moved off the chat |
 
 ## Query
 
@@ -63,7 +64,7 @@ filter every aggregation shares (`MetricsQueries.ConversationFilters`), decides 
 | Off (the normal case) | Real conversations only. Sandbox data is **excluded** from every number, breakdown, chart and alert |
 | On | Sandbox conversations **only**. Real data is hidden, not deleted, and comes back unchanged when the mode goes off |
 
-It applies to all nine aggregations (conversion, first response, loss reasons, objections, conversations per day, messages per day,
+It applies to all ten aggregations (the closing point too; conversion, first response, loss reasons, objections, conversations per day, messages per day,
 conversations and inbound messages per hour of the week, and the unanswered list), in every grouping, and so to `summary`,
 `conversion`, `first-response`, `loss-reasons`, `volume` and `alerts`. The statement reads the mode from the company's row itself
 (`c."IsSandbox" = (SELECT t."SandboxMode" FROM "Tenants" t WHERE t."Id" = @tenant)`), so no caller passes it and no aggregation can
@@ -147,6 +148,24 @@ Per cohort conversation: `FirstInboundAt` is the customer's first message; `Firs
   present, with `count` and `sharePercent` of the cohort (`None` included: its share says how many conversations had no objection at all); `null` over an empty cohort.
 
 `GET /api/metrics/summary` carries the same `totalLost`, `statedLost`, `noResponse` and `topLossReasons`.
+
+## Closing point: "Hasta dónde llegan las conversaciones"
+
+One actionable view: of the conversations that ended without a sale, the step where they stopped. The step of each conversation is its
+opportunity's `ReachedStage` (docs/CLASSIFICATION.md, "Closing point"), read automatically.
+
+| Field | Definition |
+|---|---|
+| `conversations` | Cohort size (same cohort, filters and sandbox rule as every metric). |
+| `stopped` | Cohort conversations that **ended without a sale**: `Lost`, or `InFollowUp`/`New` whose last message is older than `Metrics:ConversionMaturityDays` (the conversion's `stale`). Won and still-alive conversations are not stopped. |
+| `notRead` | Of `stopped`, those with no `ReachedStage` yet (never classified, or no customer message). Left out of the shares. |
+| `stages` | The seven steps in order (`FirstContact`, `NeedsIdentified`, `PriceShared`, `ObjectionRaised`, `AppointmentProposed`, `AppointmentBooked`, `PaymentOrDeposit`), each with `count` (stopped conversations whose furthest step is that one) and `sharePercent` of `stopped - notRead`; `null` over an empty set. `AppointmentBooked` here is a booking that was cancelled or lost afterwards. |
+| `mainDropOff` | The step with the highest count (ties: the earliest step); `null` when nothing was read. |
+| `movedOffChannel` | `{ count, sharePercent, byMove }`: cohort conversations (all of them, won included) whose `MovedOffChannel` is not `None`, share of the cohort, and per kind (`PhoneCall`, `InPerson`, `OtherChannel`) with its share of `count`. |
+
+Where it lives: the panel already has its six indicators (the 4 to 6 rule), so this view is a page of the conversations area,
+`/conversaciones/hasta-donde-llegan` (link "Hasta dónde llegan" on `/conversaciones`), with the period, branch, advisor and source
+filters. Same permission (`MetricsView`), the same throttling and statement time limit.
 
 ## Volume
 

@@ -39,6 +39,18 @@ public class Conversation : BaseEntity
     /// <summary>For an ad, what identified it (headline, URL or ad id).</summary>
     public string? SourceReference { get; private set; }
 
+    /// <summary>The Click-to-WhatsApp referral's <c>source_type</c> (<c>ad</c> or <c>post</c>); null when the conversation did not come from one.</summary>
+    public string? ReferralSourceType { get; private set; }
+
+    /// <summary>The referral's <c>source_id</c>: the ad's id (or the post's). Business data, never the customer's.</summary>
+    public string? ReferralSourceId { get; private set; }
+
+    /// <summary>The referral's <c>source_url</c>: the ad's or post's URL.</summary>
+    public string? ReferralSourceUrl { get; private set; }
+
+    /// <summary>The referral's <c>headline</c>: the ad's headline.</summary>
+    public string? ReferralHeadline { get; private set; }
+
     public DateTime StartedAt { get; private set; }
 
     public DateTime LastMessageAt { get; private set; }
@@ -123,7 +135,7 @@ public class Conversation : BaseEntity
 
     public static Conversation Start(
         Guid tenantId, Guid contactId, Guid channelId, Guid branchId, DateTime startedAt, ConversationSource source, string? sourceReference = null,
-        bool isSandbox = false)
+        bool isSandbox = false, AdReferral? referral = null)
     {
         if (!Enum.IsDefined(source))
         {
@@ -142,7 +154,13 @@ public class Conversation : BaseEntity
             StartedAt = started,
             LastMessageAt = started,
             IsSandbox = isSandbox,
-        };
+        }.WithReferral(source == ConversationSource.Ads ? referral : null);
+    }
+
+    private Conversation WithReferral(AdReferral? referral)
+    {
+        RecordReferral(referral);
+        return this;
     }
 
     /// <param name="advisorId">The advisor to assign.</param>
@@ -191,8 +209,9 @@ public class Conversation : BaseEntity
     /// A referral on any message of the conversation marks it as coming from an ad. A conversation that is already an ad keeps its
     /// reference, unless it has none yet and this referral brings one.
     /// </summary>
-    public void MarkAsAds(string? sourceReference)
+    public void MarkAsAds(string? sourceReference, AdReferral? referral = null)
     {
+        RecordReferral(referral);
         var reference = TextRules.Optional(sourceReference, SourceReferenceMaxLength, SourceReferenceRuleMessage);
         if (Source == ConversationSource.Ads)
         {
@@ -202,6 +221,20 @@ public class Conversation : BaseEntity
 
         Source = ConversationSource.Ads;
         SourceReference = reference;
+    }
+
+    // The first referral that brings its details is kept: the ad that started the conversation is its origin.
+    private void RecordReferral(AdReferral? referral)
+    {
+        if (referral is null || ReferralSourceType is not null || ReferralSourceId is not null || ReferralSourceUrl is not null || ReferralHeadline is not null)
+        {
+            return;
+        }
+
+        ReferralSourceType = referral.SourceType;
+        ReferralSourceId = referral.SourceId;
+        ReferralSourceUrl = referral.SourceUrl;
+        ReferralHeadline = referral.Headline;
     }
 
     /// <summary>
@@ -395,5 +428,50 @@ public class Conversation : BaseEntity
         LastMessageAt = UtcTime.Normalize(timeline.LastMessageAt);
         FirstInboundAt = UtcTime.Normalize(timeline.FirstInboundAt);
         FirstResponseAt = UtcTime.Normalize(timeline.FirstResponseAt);
+    }
+}
+
+/// <summary>
+/// The Click-to-WhatsApp <c>referral</c> of a message (docs/WEBHOOKS.md, "Ad referral"): the ad's data, never the customer's. The click id
+/// (<c>ctwa_clid</c>), the ad's body, media URLs and welcome message are not kept (data minimisation, docs/decisiones.md).
+/// </summary>
+public sealed record AdReferral(string? SourceType, string? SourceId, string? SourceUrl, string? Headline)
+{
+    public const int SourceTypeMaxLength = 20;
+    public const int SourceIdMaxLength = 100;
+    public const int SourceUrlMaxLength = 500;
+    public const int HeadlineMaxLength = 500;
+
+    /// <summary>Each value cleaned (NUL removed, trimmed, blank as null) and cut to its column; a type that is not a lower-case word is dropped.</summary>
+    public static AdReferral? Create(string? sourceType, string? sourceId, string? sourceUrl, string? headline)
+    {
+        static string? Clean(string? value, int max)
+        {
+            var text = value?.Replace("\0", string.Empty).Trim();
+            return string.IsNullOrEmpty(text) ? null : TextRules.Truncate(text, max);
+        }
+
+        var type = Clean(sourceType, SourceTypeMaxLength)?.ToLowerInvariant();
+        if (type is not null && !type.All(c => char.IsAsciiLetterLower(c) || c == '_'))
+        {
+            type = null;
+        }
+
+        var referral = new AdReferral(type, Clean(sourceId, SourceIdMaxLength), Clean(SafeUrl(sourceUrl), SourceUrlMaxLength), Clean(headline, HeadlineMaxLength));
+        return referral is { SourceType: null, SourceId: null, SourceUrl: null, Headline: null } ? null : referral;
+    }
+
+    /// <summary>
+    /// An http(s) URL reduced to scheme, host (and port) and path: the query and the fragment are dropped, since tracking parameters
+    /// (<c>fbclid</c>, <c>utm_*</c>) can carry click or user identifiers. Anything else is null.
+    /// </summary>
+    public static string? SafeUrl(string? url)
+    {
+        if (!Uri.TryCreate(url?.Replace("\0", string.Empty).Trim(), UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return null;
+        }
+
+        return uri.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped);
     }
 }

@@ -17,6 +17,9 @@ public interface IMetricsService
     Task<VolumeResponse> GetVolumeAsync(MetricsQuery query, CancellationToken cancellationToken = default);
 
     Task<AlertsResponse> GetAlertsAsync(MetricsQuery query, CancellationToken cancellationToken = default);
+
+    /// <summary>"Hasta dónde llegan las conversaciones": where the conversations without a sale stopped (docs/METRICS.md, "Closing point").</summary>
+    Task<ClosingPointResponse> GetClosingPointAsync(MetricsQuery query, CancellationToken cancellationToken = default);
 }
 
 /// <summary>The cohort of a metrics query, resolved: UTC instants (<c>FromUtc</c> inclusive, <c>ToUtc</c> exclusive) and the filters.</summary>
@@ -60,6 +63,12 @@ public sealed record DayMessagesRaw(DateOnly Date, int Inbound, int Outbound);
 
 public sealed record HourRaw(int DayOfWeek, int Hour, int Count);
 
+/// <summary>
+/// Cohort conversations by closing point: the stage reached (a <c>ReachedStage</c> name, null when not read), the move off the chat (an
+/// <c>OffChannelMove</c> name) and whether the conversation ended without a sale (<c>Stopped</c>: Lost, or undecided and idle since before the cutoff).
+/// </summary>
+public sealed record ClosingPointRaw(string? ReachedStage, string MovedOffChannel, bool Stopped, int Count);
+
 public sealed record UnansweredRaw(Guid ConversationId, Guid BranchId, string? BranchName, Guid? AdvisorId, string? AdvisorName, DateTime FirstInboundAt);
 
 /// <summary>
@@ -87,6 +96,9 @@ public interface IMetricsQueries
     Task<IReadOnlyList<HourRaw>> ConversationsPerHourOfWeekAsync(MetricsFilter filter, string timeZone, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<HourRaw>> InboundMessagesPerHourOfWeekAsync(MetricsFilter filter, string timeZone, CancellationToken cancellationToken = default);
+
+    /// <summary>The cohort grouped by closing point; an undecided conversation counts as stopped when its last message is older than <paramref name="staleBeforeUtc"/>.</summary>
+    Task<IReadOnlyList<ClosingPointRaw>> ClosingPointAsync(MetricsFilter filter, DateTime staleBeforeUtc, CancellationToken cancellationToken = default);
 
     /// <summary>The open conversations whose customer wrote before <paramref name="olderThanUtc"/> and nobody answered: the total and the oldest <paramref name="limit"/>.</summary>
     Task<(int Total, IReadOnlyList<UnansweredRaw> Items)> UnansweredAsync(MetricsFilter filter, DateTime olderThanUtc, int limit, CancellationToken cancellationToken = default);

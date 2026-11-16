@@ -28,7 +28,7 @@ public class ExtractionContractTests
 
         Assert.False(schema["additionalProperties"]!.GetValue<bool>());
         var properties = schema["properties"]!.AsObject();
-        Assert.Equal(["stage", "loss_reason", "objection", "services", "interest_reason", "gender", "confidence", "won_evidence_line"], properties.Select(p => p.Key));
+        Assert.Equal(["stage", "loss_reason", "objection", "services", "interest_reason", "gender", "confidence", "won_evidence_line", "reached_stage", "moved_off_channel", "off_channel_evidence_line", "closed_by", "closed_outside_system"], properties.Select(p => p.Key));
         Assert.Equal(properties.Select(p => p.Key), schema["required"]!.AsArray().Select(n => n!.GetValue<string>()));
         Assert.Contains("other", properties["services"]!["items"]!["enum"]!.AsArray().Select(n => n!.GetValue<string>()));
         Assert.DoesNotContain("no_response", properties["loss_reason"]!["enum"]!.AsArray().Select(n => n?.GetValue<string>()));

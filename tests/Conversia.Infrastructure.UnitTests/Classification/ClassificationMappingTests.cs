@@ -31,6 +31,35 @@ public class ClassificationMappingTests
     }
 
     [Fact]
+    public void TheClosingPoint_IsCopied_AndAMissingOneStaysMissing()
+    {
+        var point = new ClosingPointReading(ReachedStage.ObjectionRaised, OffChannelMove.PhoneCall, 5, ClosedBy.Unknown, true);
+
+        Assert.Equal(point, ConversationClassificationRunner.ToUpdate(Result(ClassificationOutcome.InFollowUp) with { ClosingPoint = point }).ClosingPoint);
+        Assert.Null(ConversationClassificationRunner.ToUpdate(Result(ClassificationOutcome.InFollowUp)).ClosingPoint);
+    }
+
+    [Fact]
+    public void AManualReachedStage_SurvivesAWonGuardDowngrade_AndAnLlmReading()
+    {
+        var opportunity = Opportunity.Open(Guid.NewGuid(), Guid.NewGuid());
+        var now = new DateTime(2026, 11, 16, 12, 0, 0, DateTimeKind.Utc);
+        opportunity.SetManualReachedStage(ReachedStage.PaymentOrDeposit, now, Guid.NewGuid());
+        var llm = Result(ClassificationOutcome.Won) with
+        {
+            ClosingPoint = new ClosingPointReading(ReachedStage.AppointmentBooked, OffChannelMove.PhoneCall, 1, ClosedBy.Advisor, false),
+        };
+
+        var decision = Application.Classification.Llm.WonGuard.Apply(llm, Result(ClassificationOutcome.InFollowUp));
+        opportunity.ApplyClassification(ConversationClassificationRunner.ToUpdate(decision.Result, ClassifierProvider.Llm), now.AddMinutes(1));
+        opportunity.ApplyClassification(ConversationClassificationRunner.ToUpdate(llm, ClassifierProvider.Llm), now.AddMinutes(2));
+
+        Assert.True(decision.WonDowngraded);
+        Assert.Equal((ReachedStage.PaymentOrDeposit, FieldSource.Manual), (opportunity.ReachedStage!.Value, opportunity.ReachedStageSource));
+        Assert.Equal(OffChannelMove.PhoneCall, opportunity.MovedOffChannel); // the Auto fields still follow the readings
+    }
+
+    [Fact]
     public void TheDescriptiveFields_AreCopied()
     {
         var update = ConversationClassificationRunner.ToUpdate(Result(ClassificationOutcome.InFollowUp));

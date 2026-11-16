@@ -18,10 +18,14 @@ public sealed record ParsedMessage(
     string Type,
     string? Text,
     DateTime SentAt,
-    ParsedReferral? Referral);
+    ParsedReferral? Referral,
+    MessageMedia? Media = null);
 
-/// <summary>The click-to-WhatsApp ad referral of a message. <see cref="Reference"/> is what identifies the ad (headline, URL or id).</summary>
-public sealed record ParsedReferral(string? Reference);
+/// <summary>
+/// The click-to-WhatsApp ad referral of a message. <see cref="Reference"/> is what identifies the ad (headline, URL or id); <see cref="Ad"/>
+/// its structured data (source type, id, URL, headline), never the customer's (docs/WEBHOOKS.md, "Ad referral").
+/// </summary>
+public sealed record ParsedReferral(string? Reference, AdReferral? Ad = null);
 
 /// <param name="Messages">The messages to store, in payload order.</param>
 /// <param name="StatusCount">Delivery receipts (<c>statuses</c>), which carry nothing to store.</param>
@@ -185,7 +189,36 @@ public static class Dialog360PayloadParser
             type,
             Clean(Text(raw, type), Message.TextMaxLength),
             sentAt.Value,
-            direction == MessageDirection.Inbound ? Referral(raw) : null));
+            direction == MessageDirection.Inbound ? Referral(raw) : null,
+            Media(raw, type)));
+    }
+
+    // The media types of the Cloud API, each with its object under the type's name.
+    private static readonly HashSet<string> MediaTypes = ["image", "audio", "video", "document", "sticker"];
+
+    // The metadata of a media message, never the file: the provider's id, the MIME type (lower case, parameters such as "; codecs=opus"
+    // dropped, an odd value dropped) and whether it has a caption. The document's file name is not read (it can carry personal data).
+    private static MessageMedia? Media(JsonElement message, string type)
+    {
+        if (!MediaTypes.Contains(type))
+        {
+            return null;
+        }
+
+        var media = Object(message, type);
+        var id = String(media, "id")?.Replace("\0", string.Empty).Trim();
+        if (string.IsNullOrEmpty(id) || id.Length > MessageMedia.MaxIdLength)
+        {
+            id = null;
+        }
+
+        var mime = String(media, "mime_type")?.Split(';')[0].Trim().ToLowerInvariant();
+        if (!MessageMedia.IsValidMimeType(mime))
+        {
+            mime = null;
+        }
+
+        return new MessageMedia(id, mime, !string.IsNullOrWhiteSpace(String(media, "caption")));
     }
 
     // Group messages (Groups API) carry a group id, or say their recipient is a group. They are not a customer conversation.
@@ -232,10 +265,13 @@ public static class Dialog360PayloadParser
         }
 
         // The first of these that has something in it: an empty headline must not hide the URL.
+        // A URL keeps only its scheme, host and path (tracking parameters can identify the click); a value that is not an http(s) URL is skipped.
         var reference = new[] { "headline", "source_url", "source_id", "body" }
-            .Select(name => String(referral, name))
+            .Select(name => name == "source_url" ? AdReferral.SafeUrl(String(referral, name)) : String(referral, name))
             .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
-        return new ParsedReferral(Clean(reference?.Trim(), Conversation.SourceReferenceMaxLength));
+        // The ad's data only: the click id (ctwa_clid), the ad's body, media URLs and welcome message are not kept (docs/decisiones.md).
+        var ad = AdReferral.Create(String(referral, "source_type"), String(referral, "source_id"), String(referral, "source_url"), String(referral, "headline"));
+        return new ParsedReferral(Clean(reference?.Trim(), Conversation.SourceReferenceMaxLength), ad);
     }
 
     // Unix seconds, as a string or a number, possibly with decimals or an exponent ("1792324800.0", "1.7923248e9"); truncated to the second.

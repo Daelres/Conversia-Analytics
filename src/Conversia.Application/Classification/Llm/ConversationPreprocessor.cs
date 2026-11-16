@@ -60,7 +60,7 @@ public sealed record PreprocessedConversation(IReadOnlyList<PromptEntry> Entries
 /// </summary>
 public sealed partial class ConversationPreprocessor
 {
-    public const int Version = 1;
+    public const int Version = 2;
 
     /// <summary>A repeated advisor message shorter than this is kept: a back-reference would save nothing worth the indirection.</summary>
     private const int MinBackReferenceLength = 12;
@@ -70,9 +70,13 @@ public sealed partial class ConversationPreprocessor
     private readonly ConversationPreprocessorOptions _options;
     private readonly (string Phrase, bool Prefix)[] _advisorSignals;
 
+    // Read once per message: one price is enough to show the business shared a price, so a price list keeps one of its clauses, not all.
+    private readonly (string Phrase, bool Prefix)[] _onceSignals;
+
     /// <param name="rules">
     /// The deployment's rules: a cut never drops a clause holding a phrase the rules classifier reads in a business message (a service, a
-    /// proposal, a day or an hour, a confirmation), so the model is never sent less than the rules read.
+    /// proposal, a day or an hour, a confirmation, and the closing point's prices, payments and moves off the chat), so the model is never sent
+    /// less than the rules read.
     /// </param>
     public ConversationPreprocessor(ConversationPreprocessorOptions options, ClassificationRuleSet rules)
     {
@@ -82,10 +86,13 @@ public sealed partial class ConversationPreprocessor
         _options = options;
         _advisorSignals = [.. rules.Services.Concat(rules.GeneralServices).SelectMany(s => s.Phrases)
             .Concat(rules.BookingProposal).Concat(rules.ProposalCue).Concat(rules.DayTime).Concat(rules.AdvisorConfirmation).Concat(rules.AdvisorScheduleStatement)
+            .Concat(rules.ClosingPoint.Payment).Concat(rules.ClosingPoint.PhoneCall).Concat(rules.ClosingPoint.InPerson)
+            .Concat(rules.ClosingPoint.ChannelVerbs).Concat(rules.ClosingPoint.ChannelNouns)
             .Select(p => p.Trim())
             .Select(p => (Phrase: TextNormalizer.Normalize(p.Trim('^', '$', ',', '*')), Prefix: p.EndsWith('*')))
             .Where(p => p.Phrase.Length > 0)
             .Distinct()];
+        _onceSignals = [.. rules.ClosingPoint.PriceUnits.Select(p => (Phrase: TextNormalizer.Normalize(p.Trim()), Prefix: false)).Where(p => p.Phrase.Length > 0).Distinct()];
     }
 
     public PreprocessedConversation Process(ConversationSnapshot snapshot)
@@ -290,6 +297,15 @@ public sealed partial class ConversationPreprocessor
             keep[i] = true;
         }
 
+        if (!Enumerable.Range(0, clauses.Count).Any(i => keep[i] && HoldsAmount(clauses[i])))
+        {
+            var once = clauses.FindIndex(HoldsAmount);
+            if (once >= 0)
+            {
+                keep[once] = true;
+            }
+        }
+
         if (keep.All(k => k))
         {
             return text;
@@ -322,10 +338,24 @@ public sealed partial class ConversationPreprocessor
         return PromptTextNeutralizer.CollapseWhitespace(result.ToString());
     }
 
-    private bool HoldsSignal(string clause)
+    private bool HoldsSignal(string clause) => Holds(_advisorSignals, clause);
+
+    // An amount as the rules read one: a number right before a price unit ("80 mil"), or "$" before a digit.
+    private bool HoldsAmount(string clause)
+    {
+        if (clause.Contains('$', StringComparison.Ordinal) && Regex.IsMatch(clause, @"\$\s?\d"))
+        {
+            return true;
+        }
+
+        var words = TextNormalizer.Normalize(clause).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return Enumerable.Range(1, Math.Max(0, words.Length - 1)).Any(i => words[i - 1].All(char.IsAsciiDigit) && _onceSignals.Any(s => s.Phrase == words[i]));
+    }
+
+    private static bool Holds((string Phrase, bool Prefix)[] signals, string clause)
     {
         var normalized = " " + TextNormalizer.Normalize(clause) + " ";
-        return _advisorSignals.Any(s => normalized.Contains(" " + s.Phrase + (s.Prefix ? string.Empty : " "), StringComparison.Ordinal));
+        return signals.Any(s => normalized.Contains(" " + s.Phrase + (s.Prefix ? string.Empty : " "), StringComparison.Ordinal));
     }
 
     // The beginning (two thirds of the room) and the end (one third), cut at word boundaries, around the marker.

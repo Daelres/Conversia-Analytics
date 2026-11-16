@@ -25,6 +25,8 @@ public class AdminDtoGuardTests
     [
         "Text", "Body", "Payload", "RawPayload", "WaId", "ContactName", "ContactId", "ConversationId", "CustomerName", "PhoneDigits", "PhoneNumber",
         "ExceptionMessage", "ExceptionDetails", "Query", "Path", "LastError", "ProviderApiKey", "WebhookSecret", "ChannelKey", "PasswordHash",
+        // Data kept for the company's own analysis (docs/decisiones.md, stage 2b): never in the administrator's answers.
+        "ReferralSourceId", "ReferralSourceUrl", "ReferralHeadline", "MediaId", "MediaMimeType", "SentByUserId", "SentByAdvisorId", "OffChannelEvidenceIndex",
     ];
 
     private static IEnumerable<Type> Responses()
@@ -79,6 +81,21 @@ public class AdminDtoGuardTests
         var offending = Responses()
             .SelectMany(t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(p => (Type: t, Property: p)))
             .Where(x => ForbiddenNames.Contains(x.Property.Name, StringComparer.OrdinalIgnoreCase))
+            .Select(x => $"{x.Type.Name}.{x.Property.Name}")
+            .ToList();
+
+        Assert.Empty(offending);
+    }
+
+    // Families of data a company keeps for its own analysis (docs/decisiones.md, unit 2b): no admin answer may carry any member of them.
+    internal static readonly string[] AnalysisPrefixes = ["Referral", "SentBy", "Media", "AssignedAdvisor"];
+
+    [Fact]
+    public void NoAdminAnswer_HasAMemberOfTheAnalysisData()
+    {
+        var offending = Responses()
+            .SelectMany(t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(p => (Type: t, Property: p)))
+            .Where(x => AnalysisPrefixes.Any(prefix => x.Property.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
             .Select(x => $"{x.Type.Name}.{x.Property.Name}")
             .ToList();
 

@@ -165,6 +165,28 @@ public class ConversationDetailPageTests
     }
 
     [Fact]
+    public async Task The_closing_point_is_shown_read_only_in_spanish()
+    {
+        using var harness = ConversationsHarness.Create();
+
+        var lost = await harness.OpenAsync(Url(ConversationsStub.Lost));
+        var won = await harness.OpenAsync(Url(ConversationsStub.Won));
+
+        var card = lost.Document.QuerySelector("[data-testid=closing-point]")!;
+        Assert.Equal("Se compartió el precio", card.QuerySelector("[data-testid=reached-stage]")!.Plain().Trim());
+        Assert.Equal("PriceShared", card.QuerySelector("[data-testid=reached-stage]")!.GetAttribute("data-value"));
+        Assert.Contains("Llamada telefónica", card.QuerySelector("[data-testid=moved-off-channel]")!.Plain());
+        Assert.Contains("mensaje 4", card.QuerySelector("[data-testid=moved-off-channel]")!.Plain());
+        Assert.Equal("Sin determinar", card.QuerySelector("[data-testid=closed-by]")!.Plain().Trim());
+        Assert.Equal("Sí", card.QuerySelector("[data-testid=closed-outside]")!.Plain().Trim());
+        Assert.Empty(card.QuerySelectorAll("form, button")); // read-only: manual editing of extracted fields is not built yet
+
+        var unread = won.Document.QuerySelector("[data-testid=closing-point]")!;
+        Assert.Equal(Conversia.Web.Services.MetricsFormat.NoData, unread.QuerySelector("[data-testid=reached-stage]")!.Plain().Trim());
+        Assert.Equal("No", unread.QuerySelector("[data-testid=moved-off-channel]")!.Plain().Trim());
+    }
+
+    [Fact]
     public async Task The_assigned_advisor_and_who_assigned_them_are_shown()
     {
         using var harness = ConversationsHarness.Create();

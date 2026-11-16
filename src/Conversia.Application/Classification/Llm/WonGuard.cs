@@ -32,7 +32,8 @@ public static class WonGuard
         var llmWon = llm.Outcome == ClassificationOutcome.Won;
         if (rules.Outcome == ClassificationOutcome.Won)
         {
-            return new WonGuardDecision(llm with { Outcome = ClassificationOutcome.Won, LossReason = null }, WonDowngraded: false, WonDisagreement: !llmWon);
+            var won = llm with { Outcome = ClassificationOutcome.Won, LossReason = null, ClosingPoint = Booked(llm.ClosingPoint) };
+            return new WonGuardDecision(Coherent(won), WonDowngraded: false, WonDisagreement: !llmWon);
         }
 
         if (llmWon)
@@ -44,12 +45,39 @@ public static class WonGuard
                 Confidence = rules.Confidence,
                 WonEvidenceIndex = null,
                 RuleCodes = [WonDowngradedCode, .. llm.RuleCodes.Where(c => c != WonDowngradedCode)],
+                ClosingPoint = NotBooked(llm.ClosingPoint),
             };
-            return new WonGuardDecision(downgraded, WonDowngraded: true, WonDisagreement: true);
+            return new WonGuardDecision(Coherent(downgraded), WonDowngraded: true, WonDisagreement: true);
         }
 
-        return new WonGuardDecision(llm, WonDowngraded: false, WonDisagreement: false);
+        return new WonGuardDecision(Coherent(llm), WonDowngraded: false, WonDisagreement: false);
     }
+
+    // The combination rules of the closing point (docs/CLASSIFICATION.md, "Closing point"), the same as the rules classifier's: a Won was
+    // closed in the chat by the business; a Lost was not closed and did not continue anywhere; an open conversation keeps what was read.
+    private static ClassificationResult Coherent(ClassificationResult result) => result.ClosingPoint is not { } point ? result : result.Outcome switch
+    {
+        ClassificationOutcome.Won => result with { ClosingPoint = point with { ClosedBy = Domain.Enums.ClosedBy.Advisor, ClosedOutsideSystem = false } },
+        ClassificationOutcome.Lost => result with { ClosingPoint = point with { ClosedBy = Domain.Enums.ClosedBy.Unknown, ClosedOutsideSystem = false } },
+        _ => result,
+    };
+
+    // A Won reached the booking (a payment step stays) and the business closed it.
+    private static Domain.Entities.ClosingPointReading? Booked(Domain.Entities.ClosingPointReading? point)
+        => point is null ? null : point with
+        {
+            ReachedStage = point.ReachedStage is { } stage && stage > Domain.Enums.ReachedStage.AppointmentBooked ? stage : Domain.Enums.ReachedStage.AppointmentBooked,
+            ClosedBy = point.ClosedBy == Domain.Enums.ClosedBy.Unknown ? Domain.Enums.ClosedBy.Advisor : point.ClosedBy,
+        };
+
+    // A Won the rules did not confirm: the booking was not reached in the chat, and nobody closed it there. A deal the text shows continued
+    // outside the chat keeps who closed it.
+    private static Domain.Entities.ClosingPointReading? NotBooked(Domain.Entities.ClosingPointReading? point)
+        => point is null ? null : point with
+        {
+            ReachedStage = point.ReachedStage == Domain.Enums.ReachedStage.AppointmentBooked ? Domain.Enums.ReachedStage.AppointmentProposed : point.ReachedStage,
+            ClosedBy = point.ClosedOutsideSystem ? point.ClosedBy : Domain.Enums.ClosedBy.Unknown,
+        };
 
     /// <summary>Runs the rules classifier over the real snapshot and applies the guard to the LLM reading.</summary>
     public static WonGuardDecision Apply(ClassificationResult llm, ConversationSnapshot realSnapshot, RuleBasedConversationClassifier rules, CancellationToken cancellationToken = default)

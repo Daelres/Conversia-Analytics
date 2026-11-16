@@ -34,13 +34,15 @@ public class MessageSendingService : IMessageSendingService
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<MessageSendingService> _logger;
     private readonly IMessageSendOutcomeRecorder? _outcomes;
+    private readonly IAdvisorRepository? _advisors;
 
     /// <param name="outcomes">Counts how each send ended, for the platform's monitoring (docs/PLATFORM_ADMIN.md, "Monitoring").</param>
     public MessageSendingService(
         IConversationRepository conversations, IWhatsAppChannelRepository channels, IContactRepository contacts, IMessageRepository messages,
         ITenantRepository tenants, IWhatsAppMessageSenderResolver senders, TimeProvider timeProvider, ILogger<MessageSendingService> logger,
-        IMessageSendOutcomeRecorder? outcomes = null)
+        IMessageSendOutcomeRecorder? outcomes = null, IAdvisorRepository? advisors = null)
     {
+        _advisors = advisors;
         _logger = logger;
         _outcomes = outcomes;
         _conversations = conversations;
@@ -52,7 +54,7 @@ public class MessageSendingService : IMessageSendingService
         _timeProvider = timeProvider;
     }
 
-    public async Task<MessageResponse> SendTextAsync(Guid conversationId, SendMessageRequest request, CancellationToken cancellationToken = default)
+    public async Task<MessageResponse> SendTextAsync(Guid conversationId, SendMessageRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default)
     {
         var text = TextRules.Required(request.Text, Message.TextMaxLength, SendMessageRequest.TextRuleMessage);
 
@@ -61,7 +63,7 @@ public class MessageSendingService : IMessageSendingService
         string? outcome = MessageSendOutcome.Unexpected;
         try
         {
-            var response = await SendAsync(conversation, text, cancellationToken);
+            var response = await SendAsync(conversation, text, actingUserId, cancellationToken);
             outcome = MessageSendOutcome.Sent;
             return response;
         }
@@ -97,7 +99,7 @@ public class MessageSendingService : IMessageSendingService
         }
     }
 
-    private async Task<MessageResponse> SendAsync(Conversation conversation, string text, CancellationToken cancellationToken)
+    private async Task<MessageResponse> SendAsync(Conversation conversation, string text, Guid? actingUserId, CancellationToken cancellationToken)
     {
         if (conversation.Status == ConversationStatus.Closed)
         {
@@ -129,6 +131,12 @@ public class MessageSendingService : IMessageSendingService
         var contact = await _contacts.GetByIdAsync(conversation.ContactId, cancellationToken)
             ?? throw new InvalidOperationException("The contact of the conversation no longer exists.");
 
+        // Who sends it (docs/MESSAGING.md, "Who sent it"): the user, and the advisor linked to that user. Never the conversation's assigned
+        // advisor: a manager writing in someone else's conversation is not that advisor.
+        var advisorId = actingUserId is { } userId && _advisors is not null
+            ? (await _advisors.GetByUserIdAsync(userId, cancellationToken))?.Id
+            : null;
+
         var result = await _senders.Resolve(channel, sandboxMode).SendTextAsync(new WhatsAppTextMessage(channel, contact.WaId, text), cancellationToken);
         if (result.Status != WhatsAppSendStatus.Sent)
         {
@@ -141,7 +149,7 @@ public class MessageSendingService : IMessageSendingService
         try
         {
             // The customer already has the message: the record must not be abandoned because the caller went away.
-            return await RecordAsync(conversation, providerMessageId, text, sentAt);
+            return await RecordAsync(conversation, providerMessageId, text, sentAt, actingUserId, advisorId);
         }
         catch (Exception ex) when (ex is not MessagingException)
         {
@@ -175,7 +183,7 @@ public class MessageSendingService : IMessageSendingService
 
     // The same writes ingestion makes for a message it stores (WebhookEventProcessor), under the same lock, so the two never interleave:
     // if the provider echoes this message to the webhook, whichever comes second finds it stored and adds nothing.
-    private async Task<MessageResponse> RecordAsync(Conversation read, string providerMessageId, string text, DateTime sentAt)
+    private async Task<MessageResponse> RecordAsync(Conversation read, string providerMessageId, string text, DateTime sentAt, Guid? userId, Guid? advisorId)
     {
         Message? recorded = null;
         var found = await _conversations.ChangeSerializedWithIngestionAsync(
@@ -188,8 +196,15 @@ public class MessageSendingService : IMessageSendingService
                 if (recorded is null)
                 {
                     recorded = Message.Create(
-                        conversation.TenantId, conversation.Id, conversation.ChannelId, providerMessageId, MessageDirection.Outbound, TextType, text, sentAt);
+                        conversation.TenantId, conversation.Id, conversation.ChannelId, providerMessageId, MessageDirection.Outbound, TextType, text, sentAt,
+                        MessageSender.Conversia, userId, advisorId);
                     await _messages.AddAsync(recorded, CancellationToken.None);
+                }
+                else if (recorded.Direction == MessageDirection.Outbound && recorded.Sender != MessageSender.Conversia)
+                {
+                    // Its echo arrived first and was stored as sent from the phone app: it was sent from here.
+                    recorded.AttributeToConversia(userId, advisorId);
+                    await _messages.UpdateAsync(recorded, CancellationToken.None);
                 }
 
                 var times = await _messages.ListTimesAsync(conversation.Id, CancellationToken.None);

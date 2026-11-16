@@ -208,7 +208,8 @@ public sealed class ConversationClassificationRunner(
             result.Confidence,
             JoinWithin(result.RuleCodes, Opportunity.ClassificationRulesMaxLength),
             provider,
-            result.IsRulesFallback);
+            result.IsRulesFallback,
+            result.ClosingPoint);
     }
 
     // Whole codes only: a code cut in half would be a different, meaningless code.

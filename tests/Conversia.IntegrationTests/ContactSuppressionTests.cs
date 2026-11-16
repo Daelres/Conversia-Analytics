@@ -87,6 +87,37 @@ public class ContactSuppressionTests
     }
 
     [Fact]
+    public async Task TheDataKeptForAnalysis_GoesWithTheContact_AdReferralMediaSenderAndClosingPoint()
+    {
+        // Stage 2b (docs/decisiones.md): the ad referral, the media metadata, who sent each message and the closing point live on the rows
+        // of the conversation, its messages and its opportunity, so suppressing the contact removes them with those rows.
+        using var f = await StartChannelAsync(_factory, _client);
+        await ClearQueueAsync(_factory.Services);
+        var waId = UniqueWaId();
+        await DeliverAsync(_client, f, Dialog360Samples.InboundFromAd(id: $"wamid.AD-{Guid.NewGuid():N}", waId: waId));
+        await DeliverAsync(_client, f, Dialog360Samples.InboundImage(id: $"wamid.IMG-{Guid.NewGuid():N}").Replace(Dialog360Samples.CustomerWaId, waId, StringComparison.Ordinal));
+        await DrainAsync(RunnerOf(_factory.Services));
+        var contact = (await ContactByWaIdAsync(f.TenantId, waId))!;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var conversation = await db.Conversations.IgnoreQueryFilters().SingleAsync(c => c.ContactId == contact.Id);
+            var opportunity = await db.Opportunities.IgnoreQueryFilters().SingleAsync(o => o.ConversationId == conversation.Id);
+            opportunity.SetManualReachedStage(ReachedStage.PriceShared, DateTime.UtcNow);
+            await db.SaveChangesAsync();
+            Assert.Equal("120200000000000", conversation.ReferralSourceId);
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await f.Tenant.Owner.Client.PostAsync(Url(contact.Id), null)).StatusCode);
+
+        using var check = _factory.Services.CreateScope();
+        var after = check.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        Assert.False(await after.Conversations.IgnoreQueryFilters().AnyAsync(c => c.TenantId == f.TenantId && c.ReferralSourceId != null));
+        Assert.False(await after.Messages.IgnoreQueryFilters().AnyAsync(m => m.TenantId == f.TenantId && (m.MediaId != null || m.Sender == MessageSender.Customer)));
+        Assert.False(await after.Opportunities.IgnoreQueryFilters().AnyAsync(o => o.TenantId == f.TenantId && o.ReachedStage != null));
+    }
+
+    [Fact]
     public async Task OldMessagesNeverBringTheContactBack_ButANewMessageOpensANewContact()
     {
         using var f = await StartChannelAsync(_factory, _client);

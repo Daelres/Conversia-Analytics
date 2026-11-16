@@ -126,5 +126,36 @@
     // In a question, a cancel verb is a request only with one of these ("¿me cancelas la cita?"); "¿puedo cancelar la cita?" asks about the policy.
     "requestCues": [ "me cancelas", "me cancelan", "me anulas", "me anulan", "me puedes cancelar", "me pueden cancelar", "me puedes anular", "me pueden anular", "me podrias cancelar", "me podrian cancelar", "cancelame", "cancelenme", "anulame" ],
     "window": 5
+  },
+
+  // The closing point (docs/CLASSIFICATION.md, "Closing point"): how far the conversation got and where it stopped. Conservative cues only:
+  // none of these changes the outcome, the objection or the service. Questions and negated phrases never count ("¿me pueden llamar?",
+  // "no me llamen").
+  "closingPoint": {
+    // A word right after an amount that makes it a price in a business message ("80 mil", "120.000 pesos"); "$" before a digit is one too.
+    // "mil gracias" is not an amount: the word before the unit must be a number.
+    "priceUnits": [ "mil", "pesos", "peso", "cop", "millon", "millones" ],
+    // An amount is a price only with one of these (or a service zone) in its clause, or right after a customer message that asks the price
+    // ("¿cuánto vale piernas?" / "200 mil"): "más de 10 mil pacientes" is not a price.
+    "priceContext": [ "valor", "valores", "precio", "precios", "cuesta", "cuestan", "vale", "valen", "cuanto", "esta en", "queda en", "sale en", "sesion", "sesiones", "paquete", "paquetes", "promocion", "promo", "descuento", "cada una", "total", "abono", "cuota", "cuotas", "tarifa", "costo" ],
+    // A move or a payment said with one of these in its own clause is a condition or a deferral, not a fact: "te llamo cuando salga del trabajo",
+    // "te llamo si me decido", "si el pago queda confirmado". "Sí, te llamo" is not one: the comma ends the clause.
+    "deferralCues": [ "si", "cuando", "despues", "luego", "mas tarde", "apenas", "en cuanto", "otro dia", "algun dia", "si quieres", "si gustas", "cuando pueda", "cuando puedas" ],
+    // A payment or a deposit, said by the customer or confirmed by the business. Not read in a message that refuses or names another provider.
+    "payment": [ "ya pague el abono", "ya pague la cita", "ya pague la valoracion", "ya pague la sesion", "ya hice el abono", "ya hice el pago", "ya hice la transferencia", "ya transferi", "ya consigne", "ya cancele el abono", "ya te envie el comprobante", "ya le envie el comprobante", "te envie el comprobante", "le envie el comprobante", "ya te mande el comprobante", "te mande el comprobante", "le mande el comprobante", "aqui esta el comprobante", "ahi va el comprobante", "adjunto el comprobante", "recibimos el pago", "recibimos tu pago", "recibimos su pago", "recibimos el abono", "recibimos tu abono", "recibimos su abono", "pago recibido", "abono recibido", "pago confirmado", "abono confirmado" ],
+    // The conversation goes on by phone.
+    "phoneCall": [ "te llamo", "le llamo", "lo llamo", "la llamo", "te llamamos", "le llamamos", "te marco", "le marco", "te marcamos", "le marcamos", "llamame", "llameme", "marcame", "marqueme", "te voy a llamar", "le voy a llamar", "te hago una llamada", "le hago una llamada", "te devuelvo la llamada", "hablamos por telefono", "hablemos por telefono", "lo hablamos por telefono", "por llamada" ],
+    // The conversation goes on at a branch.
+    "inPerson": [ "paso por la sede", "pasa por la sede", "pasate por la sede", "pase por la sede", "pasare por la sede", "pasas por la sede", "acercate a la sede", "acerquese a la sede", "me acerco a la sede", "te acercas a la sede", "voy a la sede", "voy personalmente", "en persona", "te explicamos en la sede", "le explicamos en la sede", "en la sede te explicamos", "en la sede le explicamos", "pago en la sede", "pago alla" ],
+    // Another channel: a contact verb and a channel noun in the same clause, at most channelWindow words apart, the noun right after a
+    // preposition (or a preposition and one determiner): "escríbeme al otro número", "por correo", "a mi correo". "Te mando el correo de la
+    // sede" names an address, not a channel.
+    "channelVerbs": [ "escribeme", "escribame", "escribime", "te escribo", "le escribo", "te escribimos", "le escribimos", "hablamos", "hablemos", "seguimos", "sigamos", "continuamos", "te envio", "le envio", "te mando", "le mando", "enviame", "mandame", "te contacto", "contactame", "contacteme", "te paso", "te comparto" ],
+    "channelNouns": [ "instagram", "insta", "facebook", "messenger", "telegram", "correo", "email", "mail", "otro numero", "otro whatsapp", "otro celular", "inbox" ],
+    "channelWindow": 4,
+    "channelPrepositions": [ "por", "al", "a", "en", "via" ],
+    "channelDeterminers": [ "mi", "tu", "su", "el", "este", "ese" ],
+    // The customer booked or paid on their own, outside the chat: closed by the customer.
+    "selfService": [ "agende por la pagina", "agende en la pagina", "agende por la web", "agende en la web", "agende por la app", "agende en la app", "agende en linea", "agende online", "reserve por la pagina", "reserve en la pagina", "reserve por la web", "reserve en la web", "reserve por la app", "reserve en la app", "reserve en linea", "reserve online", "pague por el link", "pague con el link", "pague en el link", "pague por el enlace", "pague con el enlace" ]
   }
 }

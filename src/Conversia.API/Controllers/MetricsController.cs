@@ -47,6 +47,12 @@ public class MetricsController : ControllerBase
     public async Task<ActionResult<VolumeResponse>> GetVolume([FromQuery] MetricsQuery query, CancellationToken cancellationToken)
         => Ok(await _metrics.GetVolumeAsync(query, cancellationToken));
 
+    /// <summary>"Hasta dónde llegan las conversaciones": where the conversations without a sale stopped, and how many moved off the chat.</summary>
+    [HttpGet("closing-point")]
+    [Authorize(Policy = nameof(Permission.MetricsView))]
+    public async Task<ActionResult<ClosingPointResponse>> GetClosingPoint([FromQuery] MetricsQuery query, CancellationToken cancellationToken)
+        => Ok(await _metrics.GetClosingPointAsync(query, cancellationToken));
+
     [HttpGet("alerts")]
     [Authorize(Policy = nameof(Permission.MetricsView))]
     public async Task<ActionResult<AlertsResponse>> GetAlerts([FromQuery] MetricsQuery query, CancellationToken cancellationToken)

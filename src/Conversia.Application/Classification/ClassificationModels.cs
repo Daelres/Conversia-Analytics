@@ -1,3 +1,4 @@
+using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
 
 namespace Conversia.Application.Classification;
@@ -71,6 +72,8 @@ public sealed record ConversationSnapshot(
 /// <param name="Gender">The customer's stated gender (LLM only).</param>
 /// <param name="WonEvidenceIndex">The message the LLM cites for a Won (1-based line of the prompt); informational only.</param>
 /// <param name="IsRulesFallback">A rules result applied because the LLM failed or was not admitted (see <c>ClassificationUpdate.IsRulesFallback</c>).</param>
+/// <param name="ClosingPoint">How far the conversation got and where it stopped (docs/CLASSIFICATION.md, "Closing point"); null when the
+/// classifier did not read it (the opportunity's closing point is then left as it is).</param>
 public sealed record ClassificationResult(
     string? ServiceInterest,
     string? InterestReason,
@@ -82,4 +85,5 @@ public sealed record ClassificationResult(
     AgeRange? AgeRange = null,
     Gender Gender = Gender.Undetermined,
     int? WonEvidenceIndex = null,
-    bool IsRulesFallback = false);
+    bool IsRulesFallback = false,
+    ClosingPointReading? ClosingPoint = null);

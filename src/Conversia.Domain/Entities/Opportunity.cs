@@ -23,6 +23,9 @@ public class Opportunity : BaseEntity
     public const string LossReasonNotAllowedMessage = "El motivo de pérdida y el detalle solo se admiten cuando la etapa es Lost.";
     public const string LossReasonInvalidMessage = "El motivo de pérdida no es válido.";
     public const string ObjectionInvalidMessage = "El tipo de objeción no es válido.";
+    public const string ReachedStageInvalidMessage = "La etapa alcanzada no es válida.";
+    public const string OffChannelInvalidMessage = "El canal al que pasó la conversación no es válido.";
+    public const string ClosedByInvalidMessage = "Quién cerró la venta no es válido.";
 
     public Guid TenantId { get; private set; }
 
@@ -96,6 +99,91 @@ public class Opportunity : BaseEntity
     /// <summary>The user who last set, confirmed or reverted a descriptive field. An id only.</summary>
     public Guid? DetailsChangedBy { get; private set; }
 
+    // ---- Closing point (docs/CLASSIFICATION.md, "Closing point"): how far the conversation got and where it stopped -----------------
+
+    /// <summary>The furthest step the conversation reached; null until a classifier read one (no customer message, or never classified).</summary>
+    public ReachedStage? ReachedStage { get; private set; }
+
+    public FieldSource ReachedStageSource { get; private set; } = FieldSource.Auto;
+
+    public ClassifierProvider? ReachedStageClassifiedBy { get; private set; }
+
+    /// <summary>Whether, and where, the conversation moved out of the chat.</summary>
+    public OffChannelMove MovedOffChannel { get; private set; } = OffChannelMove.None;
+
+    /// <summary>
+    /// The message that shows the move: its 1-based position in the messages the classifier read (the latest 200, oldest first), as the
+    /// LLM cites lines. Null with <see cref="OffChannelMove.None"/> and for a value a person set. A position, never text.
+    /// </summary>
+    public int? OffChannelEvidenceIndex { get; private set; }
+
+    public FieldSource MovedOffChannelSource { get; private set; } = FieldSource.Auto;
+
+    public ClassifierProvider? MovedOffChannelClassifiedBy { get; private set; }
+
+    /// <summary>Who closed the deal; <see cref="Enums.ClosedBy.Unknown"/> while it is not closed or it cannot be told.</summary>
+    public ClosedBy ClosedBy { get; private set; } = ClosedBy.Unknown;
+
+    public FieldSource ClosedBySource { get; private set; } = FieldSource.Auto;
+
+    public ClassifierProvider? ClosedByClassifiedBy { get; private set; }
+
+    /// <summary>The evidence says the deal continued outside WhatsApp (a call, the branch, another channel, a self-service booking).</summary>
+    public bool ClosedOutsideSystem { get; private set; }
+
+    public FieldSource ClosedOutsideSystemSource { get; private set; } = FieldSource.Auto;
+
+    public ClassifierProvider? ClosedOutsideSystemClassifiedBy { get; private set; }
+
+    /// <summary>A person sets how far the conversation got (null: unknown) and pins it <see cref="FieldSource.Manual"/>.</summary>
+    public void SetManualReachedStage(ReachedStage? stage, DateTime now, Guid? changedBy = null)
+    {
+        if (stage is { } value && !Enum.IsDefined(value))
+        {
+            throw new DomainException(ReachedStageInvalidMessage);
+        }
+
+        ReachedStage = stage;
+        ReachedStageSource = FieldSource.Manual;
+        ReachedStageClassifiedBy = null; // a person's value, not a classifier's
+        RecordDetailsChange(now, changedBy);
+    }
+
+    /// <summary>A person sets whether the conversation moved off the chat and pins it <see cref="FieldSource.Manual"/>; the evidence line is cleared.</summary>
+    public void SetManualMovedOffChannel(OffChannelMove move, DateTime now, Guid? changedBy = null)
+    {
+        if (!Enum.IsDefined(move))
+        {
+            throw new DomainException(OffChannelInvalidMessage);
+        }
+
+        MovedOffChannel = move;
+        OffChannelEvidenceIndex = null;
+        MovedOffChannelSource = FieldSource.Manual;
+        RecordDetailsChange(now, changedBy);
+    }
+
+    /// <summary>A person sets who closed the deal and pins it <see cref="FieldSource.Manual"/>. <see cref="Enums.ClosedBy.AiAssistant"/> is reserved.</summary>
+    public void SetManualClosedBy(ClosedBy closedBy, DateTime now, Guid? changedBy = null)
+    {
+        if (!Enum.IsDefined(closedBy) || closedBy == Enums.ClosedBy.AiAssistant)
+        {
+            throw new DomainException(ClosedByInvalidMessage);
+        }
+
+        ClosedBy = closedBy;
+        ClosedBySource = FieldSource.Manual;
+        RecordDetailsChange(now, changedBy);
+    }
+
+    /// <summary>A person sets whether the deal continued outside WhatsApp and pins it <see cref="FieldSource.Manual"/>.</summary>
+    public void SetManualClosedOutsideSystem(bool closedOutside, DateTime now, Guid? changedBy = null)
+    {
+        ClosedOutsideSystem = closedOutside;
+        ClosedOutsideSystemSource = FieldSource.Manual;
+        RecordDetailsChange(now, changedBy);
+    }
+
     /// <summary>A person sets the service (a code, or null for none). Saving it, even unchanged, pins it <see cref="FieldSource.Manual"/>.</summary>
     public void SetManualServiceInterest(string? code, DateTime now, Guid? changedBy = null)
     {
@@ -138,6 +226,18 @@ public class Opportunity : BaseEntity
                 break;
             case OpportunityDetailField.Objection:
                 ObjectionSource = FieldSource.Auto;
+                break;
+            case OpportunityDetailField.ReachedStage:
+                ReachedStageSource = FieldSource.Auto;
+                break;
+            case OpportunityDetailField.MovedOffChannel:
+                MovedOffChannelSource = FieldSource.Auto;
+                break;
+            case OpportunityDetailField.ClosedBy:
+                ClosedBySource = FieldSource.Auto;
+                break;
+            case OpportunityDetailField.ClosedOutsideSystem:
+                ClosedOutsideSystemSource = FieldSource.Auto;
                 break;
             default:
                 throw new DomainException("El campo no es válido.");
@@ -245,6 +345,11 @@ public class Opportunity : BaseEntity
             throw new DomainException("Solo una lectura de las reglas puede ser un respaldo de las reglas.");
         }
 
+        if (update.ClosingPoint is { } closing)
+        {
+            ValidateClosingPoint(closing);
+        }
+
         var service = NormalizeCode(update.ServiceInterest, ServiceInterestMaxLength, "El servicio de interés");
         var interest = NormalizeCode(update.InterestReason, InterestReasonMaxLength, "El motivo de interés");
         var rules = NormalizeCode(update.RuleCodes, ClassificationRulesMaxLength, "Las reglas de la clasificación");
@@ -266,6 +371,11 @@ public class Opportunity : BaseEntity
         {
             Objection = update.Objection;
             ObjectionClassifiedBy = update.Provider;
+        }
+
+        if (update.ClosingPoint is { } point)
+        {
+            ApplyClosingPoint(point, update);
         }
 
         ClassificationConfidence = Math.Round(update.Confidence, 2);
@@ -293,6 +403,63 @@ public class Opportunity : BaseEntity
         ClassifiedBy = update.Provider;
         ApplyStage(stage, lossReason, at);
         LossDetail = null;
+    }
+
+    // The closing point follows the same provenance rules as the other extracted fields: a Manual field is never written, and an explicit rules
+    // fallback never overwrites a non-empty LLM value (a stage, a move, a known closer, true).
+    private void ApplyClosingPoint(ClosingPointReading point, ClassificationUpdate update)
+    {
+        // Monotonic while the outcome stays the same: a reading that saw less (the latest 200 messages of a long chat, a weaker reader)
+        // never lowers how far the conversation already got. A changed outcome (the stage this reading moves to) lets it follow.
+        var outcomeChanges = StageSource != StageSource.Manual && update.Stage is { } next && next != Stage;
+        // Only a value a classifier produced is protected that way: a value a person set and handed back is the next reading's to replace.
+        var lower = point.ReachedStage is null || (ReachedStage is { } current && point.ReachedStage < current);
+        var keep = ReachedStage is not null && ReachedStageClassifiedBy is not null && lower && !outcomeChanges;
+        if (Writable(ReachedStageSource, ReachedStageClassifiedBy, ReachedStage is not null, update) && !keep)
+        {
+            ReachedStage = point.ReachedStage;
+            ReachedStageClassifiedBy = update.Provider;
+        }
+
+        if (Writable(MovedOffChannelSource, MovedOffChannelClassifiedBy, MovedOffChannel != OffChannelMove.None, update))
+        {
+            MovedOffChannel = point.MovedOffChannel;
+            OffChannelEvidenceIndex = point.OffChannelEvidenceIndex;
+            MovedOffChannelClassifiedBy = update.Provider;
+        }
+
+        if (Writable(ClosedBySource, ClosedByClassifiedBy, ClosedBy != Enums.ClosedBy.Unknown, update))
+        {
+            ClosedBy = point.ClosedBy;
+            ClosedByClassifiedBy = update.Provider;
+        }
+
+        if (Writable(ClosedOutsideSystemSource, ClosedOutsideSystemClassifiedBy, ClosedOutsideSystem, update))
+        {
+            ClosedOutsideSystem = point.ClosedOutsideSystem;
+            ClosedOutsideSystemClassifiedBy = update.Provider;
+        }
+    }
+
+    private static void ValidateClosingPoint(ClosingPointReading point)
+    {
+        if (point.ReachedStage is { } stage && !Enum.IsDefined(stage))
+        {
+            throw new DomainException(ReachedStageInvalidMessage);
+        }
+
+        if (!Enum.IsDefined(point.MovedOffChannel)
+            || (point.MovedOffChannel == OffChannelMove.None) != (point.OffChannelEvidenceIndex is null)
+            || point.OffChannelEvidenceIndex is < 1)
+        {
+            throw new DomainException(OffChannelInvalidMessage);
+        }
+
+        // AiAssistant is reserved for the AI sales assistant (roadmap stage 5): no classifier may claim it.
+        if (!Enum.IsDefined(point.ClosedBy) || point.ClosedBy == Enums.ClosedBy.AiAssistant)
+        {
+            throw new DomainException(ClosedByInvalidMessage);
+        }
     }
 
     // A person's value is never overwritten; an LLM value that is not empty survives an explicit rules fallback. A null producer (a row older
@@ -365,5 +532,25 @@ public sealed record ClassificationUpdate(
     decimal Confidence,
     string? RuleCodes,
     ClassifierProvider Provider = ClassifierProvider.Rules,
-    bool IsRulesFallback = false);
+    bool IsRulesFallback = false,
+    ClosingPointReading? ClosingPoint = null);
+
+/// <summary>
+/// How far a conversation got and where it stopped, as a classifier read it (docs/CLASSIFICATION.md, "Closing point"). Codes only.
+/// </summary>
+/// <param name="ReachedStage">The furthest step reached; null when nothing can be read (no customer message).</param>
+/// <param name="MovedOffChannel">Where the conversation moved out of the chat, if it did.</param>
+/// <param name="OffChannelEvidenceIndex">The 1-based position of the message that shows the move; null with <see cref="OffChannelMove.None"/>.</param>
+/// <param name="ClosedBy">Who closed the deal; never <see cref="Enums.ClosedBy.AiAssistant"/> from a classifier (reserved).</param>
+/// <param name="ClosedOutsideSystem">The evidence says the deal continued outside WhatsApp.</param>
+public sealed record ClosingPointReading(
+    ReachedStage? ReachedStage,
+    OffChannelMove MovedOffChannel,
+    int? OffChannelEvidenceIndex,
+    ClosedBy ClosedBy,
+    bool ClosedOutsideSystem)
+{
+    /// <summary>Nothing read.</summary>
+    public static ClosingPointReading Empty { get; } = new(null, OffChannelMove.None, null, ClosedBy.Unknown, false);
+}
 

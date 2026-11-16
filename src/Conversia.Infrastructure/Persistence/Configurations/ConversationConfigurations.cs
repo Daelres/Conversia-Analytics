@@ -59,6 +59,10 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.AdvisorAssignedAt);
         builder.Property(c => c.Source).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.SourceReference).HasMaxLength(Conversation.SourceReferenceMaxLength);
+        builder.Property(c => c.ReferralSourceType).HasMaxLength(AdReferral.SourceTypeMaxLength);
+        builder.Property(c => c.ReferralSourceId).HasMaxLength(AdReferral.SourceIdMaxLength);
+        builder.Property(c => c.ReferralSourceUrl).HasMaxLength(AdReferral.SourceUrlMaxLength);
+        builder.Property(c => c.ReferralHeadline).HasMaxLength(AdReferral.HeadlineMaxLength);
         builder.Property(c => c.StartedAt).IsRequired();
         builder.Property(c => c.LastMessageAt).IsRequired();
         builder.Property(c => c.Status).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
@@ -139,6 +143,13 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.Property(m => m.Type).IsRequired().HasMaxLength(Message.TypeMaxLength);
         builder.Property(m => m.Text).HasMaxLength(Message.TextMaxLength);
         builder.Property(m => m.SentAt).IsRequired();
+        builder.Property(m => m.Sender).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(MessageSender.Unknown);
+        builder.Property(m => m.SentByUserId);
+        builder.Property(m => m.SentByAdvisorId);
+        builder.Property(m => m.AssignedAdvisorIdAtReceipt);
+        builder.Property(m => m.MediaId).HasMaxLength(MessageMedia.MaxIdLength);
+        builder.Property(m => m.MediaMimeType).HasMaxLength(MessageMedia.MaxMimeTypeLength);
+        builder.Property(m => m.HasCaption).IsRequired().HasDefaultValue(false);
         builder.Property(m => m.CreatedAt).IsRequired();
         builder.Property(m => m.UpdatedAt);
 
@@ -190,6 +201,19 @@ public class OpportunityConfiguration : IEntityTypeConfiguration<Opportunity>
         builder.Property(o => o.ObjectionClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(o => o.ClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(o => o.DetailsChangedAt);
+        builder.Property(o => o.ReachedStage).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.ReachedStageSource).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(FieldSource.Auto);
+        builder.Property(o => o.ReachedStageClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.MovedOffChannel).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(OffChannelMove.None);
+        builder.Property(o => o.OffChannelEvidenceIndex);
+        builder.Property(o => o.MovedOffChannelSource).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(FieldSource.Auto);
+        builder.Property(o => o.MovedOffChannelClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.ClosedBy).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(ClosedBy.Unknown);
+        builder.Property(o => o.ClosedBySource).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(FieldSource.Auto);
+        builder.Property(o => o.ClosedByClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.ClosedOutsideSystem).IsRequired().HasDefaultValue(false);
+        builder.Property(o => o.ClosedOutsideSystemSource).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(FieldSource.Auto);
+        builder.Property(o => o.ClosedOutsideSystemClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(o => o.DetailsChangedBy);
         builder.Property(o => o.CreatedAt).IsRequired();
         builder.Property(o => o.UpdatedAt);

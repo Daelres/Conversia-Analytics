@@ -19,6 +19,8 @@ public class PreprocessorQualityGuardTests(ITestOutputHelper output)
     private static readonly HashSet<string> AdvisorSections =
     [
         "services.phrases", "generalServices.phrases", "bookingProposal", "proposalCue", "dayTime", "advisorConfirmation", "advisorScheduleStatement",
+        // The closing point (docs/CLASSIFICATION.md, "Closing point"): prices, payments and moves off the chat are read in business messages too.
+        "closingPoint.priceUnits", "closingPoint.payment", "closingPoint.phoneCall", "closingPoint.inPerson", "closingPoint.channelVerbs", "closingPoint.channelNouns",
     ];
 
     // Every phrase of the rules file, normalized as the classifier normalizes text. A trailing '*' (hour prefixes) matches as a prefix.
@@ -57,6 +59,12 @@ public class PreprocessorQualityGuardTests(ITestOutputHelper output)
         + "piernas completas 200 mil, media pierna 120 mil, brazos 110 mil, espalda 150 mil y cuerpo completo 650 mil. Los paquetes de 6 sesiones "
         + "tienen 20% de descuento y puedes pagar con tarjeta, transferencia o efectivo en cualquiera de nuestras sedes. ¿Te gustaría agendar una valoración gratuita?";
 
+    // A long advisor message whose closing-point cues sit in the middle, between boilerplate: the cut must keep them.
+    private const string ClosingBoilerplate = "Gracias por tu paciencia, te cuento que nuestros equipos son de última tecnología y los resultados se ven desde la primera sesión, "
+        + "trabajamos con personal certificado y protocolos de bioseguridad en todas las sedes. Para separar el cupo recibimos tu abono sin problema. "
+        + "Si prefieres te llamo en un rato y lo cerramos por teléfono, o pasa por la sede cuando quieras, o te mando la información por correo. "
+        + "Recuerda llegar con la zona rasurada, sin cremas ni desodorante, y evitar el sol los días anteriores; cualquier duda nos escribes por aquí con gusto.";
+
     // A synthetic long chat with the habits of real ones: a welcome and a price list sent again and again, customer bursts, stretched letters,
     // emoji, media without caption and links. Built only from the golden and generator lines, so every phrase is synthetic.
     private static string LongChat(Random random)
@@ -70,7 +78,7 @@ public class PreprocessorQualityGuardTests(ITestOutputHelper output)
                 1 => "C: [image]",
                 2 => "C: siiiiiii 😍😍😍😍😍",
                 3 => "A: Mira la promo aquí https://example.com/promo?utm_source=instagram&utm_campaign=laser",
-                4 => "A: " + Welcome,
+                4 => random.Next(2) == 0 ? "A: " + Welcome : "A: " + ClosingBoilerplate,
                 5 or 6 => "A: " + ClassifierGuaranteeTests.Compose(random, ClassifierGuaranteeTests.AdvisorLines),
                 _ => "C: " + ClassifierGuaranteeTests.Compose(random, ClassifierGuaranteeTests.CustomerLines),
             };

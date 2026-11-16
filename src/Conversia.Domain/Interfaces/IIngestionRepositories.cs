@@ -76,6 +76,9 @@ public interface IMessageRepository
 
     Task AddAsync(Message message, CancellationToken cancellationToken = default);
 
+    /// <summary>Saves a change to a stored message (its attribution, when the send path claims an echo stored first).</summary>
+    Task UpdateAsync(Message message, CancellationToken cancellationToken = default);
+
     /// <summary>Direction and time of every message of a conversation, for <see cref="ConversationTimeline"/>.</summary>
     Task<IReadOnlyList<(MessageDirection Direction, DateTime SentAt)>> ListTimesAsync(Guid conversationId, CancellationToken cancellationToken = default);
 }

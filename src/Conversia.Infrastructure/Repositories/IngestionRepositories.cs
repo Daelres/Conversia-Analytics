@@ -158,6 +158,12 @@ public class MessageRepository(ApplicationDbContext dbContext) : IMessageReposit
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task UpdateAsync(Message message, CancellationToken cancellationToken = default)
+    {
+        dbContext.Messages.Update(message);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<(MessageDirection Direction, DateTime SentAt)>> ListTimesAsync(
         Guid conversationId, CancellationToken cancellationToken = default)
     {

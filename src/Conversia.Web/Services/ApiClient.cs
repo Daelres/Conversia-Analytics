@@ -91,6 +91,9 @@ public sealed class ApiClient : IApiClient
     public Task<ApiResult<AlertsResponse>> GetMetricsAlertsAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default)
         => SendAsync<AlertsResponse>(HttpMethod.Get, "api/metrics/alerts" + MetricsQueryString.Build(query), token, body: null, r => r.Alerts is not null && r.Unanswered is not null, cancellationToken);
 
+    public Task<ApiResult<ClosingPointResponse>> GetMetricsClosingPointAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default)
+        => SendAsync<ClosingPointResponse>(HttpMethod.Get, "api/metrics/closing-point" + MetricsQueryString.Build(query), token, body: null, r => r.Stages is not null && r.MovedOffChannel is not null && r.Period is not null, cancellationToken);
+
     public Task<ApiResult<IReadOnlyList<BranchResponse>>> GetBranchesAsync(string token, CancellationToken cancellationToken = default)
         => SendAsync<IReadOnlyList<BranchResponse>>(HttpMethod.Get, "api/branches", token, body: null, isUsable: null, cancellationToken);
 

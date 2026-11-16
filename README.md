@@ -22,7 +22,7 @@ adapted to PostgreSQL and rewritten around this product.
   conversation and extracts the service asked about, the reason for interest, the
   objection and the outcome: won, lost or in follow-up
   ([`docs/CLASSIFICATION.md`](docs/CLASSIFICATION.md)).
-- **Metrics** — conversion by branch, advisor and source; first-response time;
+- **Metrics** — conversion by branch, advisor and source; how far the conversations without a sale got (closing point); first-response time;
   unanswered conversations; top reasons for not closing; volume by day and hour; and
   alerts ([`docs/METRICS.md`](docs/METRICS.md)).
 - **Executive dashboard** — `/panel` shows six headline numbers, alerts and the breakdowns.
@@ -359,7 +359,7 @@ policy in their own tenant.
 | POST | `/api/conversations/{id}/messages` | `ConversationsManage` | `201` the stored Outbound message; a person sends a plain text (1 to 4096 characters) to the customer through 360dialog. Manual, not a bot (`docs/MESSAGING.md`) | `400`, `401`, `403`, `404`, `409` closed / inactive channel / no or invalid key / sandbox and real data do not mix (`sandbox_conversation`, `sandbox_mode_active`, `sandbox_data_deleted`), `422` recipient not allowed or rejected, `429`, `500` sent but not recorded, `503` outcome unknown: verify before resending |
 | POST | `/api/sandbox/conversations`, `/api/sandbox/conversations/{id}/customer-messages` | `ConversationsManage`; only while the company is in sandbox mode; rate limited like sending | `202` a simulated customer's message is in the ingestion queue (`docs/SANDBOX.md`) | `400`, `401`, `403`, `404`, `409` `sandbox_mode_off` / `not_sandbox_conversation` / `conversation_closed` / `channel_inactive`, `429` |
 | DELETE | `/api/sandbox/data` | `OrganizationManage` | `200` how many sandbox conversations, messages, contacts and deliveries were deleted; nothing real is touched | `401`, `403` |
-| GET | `/api/metrics/summary`, `/conversion`, `/first-response`, `/loss-reasons`, `/volume`, `/alerts` | `MetricsView` | `200` the numbers of `docs/METRICS.md` for `from`/`to` (local dates between 2015-01-01 and today + 366 days, `to` exclusive, at most 366 days, default the last 30) and the filters `branchId`, `advisorId`, `unassigned`, `source` | `400`, `401`, `403`, `429` (per-user limit), `503` (a query ran out of time) |
+| GET | `/api/metrics/summary`, `/conversion`, `/first-response`, `/loss-reasons`, `/volume`, `/alerts`, `/closing-point` | `MetricsView` | `200` the numbers of `docs/METRICS.md` for `from`/`to` (local dates between 2015-01-01 and today + 366 days, `to` exclusive, at most 366 days, default the last 30) and the filters `branchId`, `advisorId`, `unassigned`, `source` | `400`, `401`, `403`, `429` (per-user limit), `503` (a query ran out of time) |
 | POST | `/api/webhooks/360dialog/{channelKey}` | anonymous; the channel's secret in the header `X-Webhook-Secret` or as the password of `Authorization: Basic` (never in the URL); rate limited (`docs/WEBHOOKS.md`) | `200` (also for a body already received) | `400` not a JSON object, `401` unknown/inactive channel, wrong secret or malformed `Authorization` (same answer), `413`, `429` |
 | GET | `/health` | anonymous | `200` `Healthy` / `Degraded`, `503` `Unhealthy` (webhook queue; status word only) | |
 | POST | `/api/diagnostics/errors` | header `X-Error-Report-Key`, rate limited; off without `ErrorLogging:ReportKey` | `201` `{code,persisted}` | `400`, `401`, `404` (off), `413` over 64 KB, `429` (`Retry-After`) |

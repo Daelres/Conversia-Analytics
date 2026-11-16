@@ -62,6 +62,26 @@
             </div>
         }
     </dl>
+    @* The closing point (docs/CLASSIFICATION.md): read automatically, shown read-only; manual editing of extracted fields is not built yet. *@
+    <h3 class="section-title">Hasta dónde llegó</h3>
+    <dl class="kv" data-testid="closing-point">
+        <div>
+            <dt>Etapa alcanzada</dt>
+            <dd data-testid="reached-stage" data-value="@Opportunity.ReachedStage">@(Opportunity.ReachedStage is null ? MetricsFormat.NoData : ConversationLabels.ReachedStage(Opportunity.ReachedStage))</dd>
+        </div>
+        <div>
+            <dt>Salió del chat</dt>
+            <dd data-testid="moved-off-channel" data-value="@Opportunity.MovedOffChannel">@ConversationLabels.OffChannelMove(Opportunity.MovedOffChannel)@(Opportunity.OffChannelEvidenceIndex is { } line ? $" (mensaje {line})" : "")</dd>
+        </div>
+        <div>
+            <dt>Quién cerró</dt>
+            <dd data-testid="closed-by" data-value="@Opportunity.ClosedBy">@ConversationLabels.ClosedBy(Opportunity.ClosedBy)</dd>
+        </div>
+        <div>
+            <dt>Siguió fuera de WhatsApp</dt>
+            <dd data-testid="closed-outside">@(Opportunity.ClosedOutsideSystem ? "Sí" : "No")</dd>
+        </div>
+    </dl>
     @if (AiAnalyzedAt is { } analysed)
     {
         <p class="muted" data-testid="ai-analyzed-at">Análisis de IA: última actualización el @MetricsFormat.Moment(ToLocal(analysed)).</p>

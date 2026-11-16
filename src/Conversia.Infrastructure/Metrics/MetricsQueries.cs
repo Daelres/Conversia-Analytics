@@ -43,7 +43,7 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
     private const string Cohort = $"""
         WITH cohort AS (
             SELECT c."Id", c."BranchId", c."AdvisorId", c."Source", c."Status", c."StartedAt", c."LastMessageAt", c."FirstInboundAt", c."FirstResponseAt",
-                   o."Stage", o."LossReason", o."Objection"
+                   o."Stage", o."LossReason", o."Objection", o."ReachedStage", o."MovedOffChannel"
             FROM "Conversations" c
             JOIN "Opportunities" o ON o."ConversationId" = c."Id" AND o."TenantId" = @tenant
             WHERE c."TenantId" = @tenant
@@ -188,6 +188,35 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
     {
         var rows = await RunAsync<ObjectionRow>($"""{Cohort} SELECT k."Objection" AS "Objection", count(*)::int AS "Count" FROM cohort k GROUP BY k."Objection" """, Parameters(filter), cancellationToken);
         return rows.Select(r => new ObjectionRaw(r.Objection, r.Count)).ToList();
+    }
+
+    // ---- Closing point -----------------------------------------------------------------------------------------------
+
+    private sealed class ClosingPointRow
+    {
+        public string? ReachedStage { get; set; }
+
+        public string MovedOffChannel { get; set; } = string.Empty;
+
+        public bool Stopped { get; set; }
+
+        public int Count { get; set; }
+    }
+
+    // Stopped: the conversation ended without a sale, Lost or undecided and gone cold (its last message is older than the cutoff), as the
+    // conversion counts "stale".
+    public async Task<IReadOnlyList<ClosingPointRaw>> ClosingPointAsync(MetricsFilter filter, DateTime staleBeforeUtc, CancellationToken cancellationToken = default)
+    {
+        var sql = $"""
+            {Cohort}
+            SELECT k."ReachedStage" AS "ReachedStage", k."MovedOffChannel" AS "MovedOffChannel",
+                   (k."Stage" = '{Lost}' OR (k."Stage" IN ('{InFollowUp}', '{New}') AND k."LastMessageAt" < @staleBefore)) AS "Stopped",
+                   count(*)::int AS "Count"
+            FROM cohort k
+            GROUP BY 1, 2, 3
+            """;
+        var rows = await RunAsync<ClosingPointRow>(sql, [.. Parameters(filter), Timestamp("staleBefore", staleBeforeUtc)], cancellationToken);
+        return rows.Select(r => new ClosingPointRaw(r.ReachedStage, r.MovedOffChannel, r.Stopped, r.Count)).ToList();
     }
 
     // ---- Volume ------------------------------------------------------------------------------------------------------

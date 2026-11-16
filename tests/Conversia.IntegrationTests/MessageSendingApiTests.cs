@@ -122,6 +122,7 @@ public class MessageSendingApiTests
         Assert.Equal(conversation.ConversationId, stored.ConversationId);
         Assert.Equal(f.Channel.Id, stored.ChannelId);
         Assert.Equal(f.Tenant.Owner.UserId, stored.CreatedBy);
+        Assert.Equal((MessageSender.Conversia, (Guid?)f.Tenant.Owner.UserId, (Guid?)null), (stored.Sender, stored.SentByUserId, stored.SentByAdvisorId));
 
         var updated = Assert.Single(snapshot.Conversations);
         Assert.Equal(stored.SentAt, updated.FirstResponseAt);
@@ -160,7 +161,8 @@ public class MessageSendingApiTests
 
         var snapshot = await SnapshotAsync(_factory.Services, f.TenantId);
         Assert.Equal(2, snapshot.Messages.Count);
-        Assert.Single(snapshot.Messages, m => m.ProviderMessageId == providerId);
+        var sent = Assert.Single(snapshot.Messages, m => m.ProviderMessageId == providerId);
+        Assert.Equal((MessageSender.Conversia, (Guid?)f.Tenant.Owner.UserId, (Guid?)null), (sent.Sender, sent.SentByUserId, sent.AssignedAdvisorIdAtReceipt)); // the echo changes nothing
         Assert.Single(snapshot.Conversations);
         var echo = snapshot.Events[^1];
         Assert.Equal(WebhookEventStatus.Processed, echo.Status);
@@ -197,6 +199,7 @@ public class MessageSendingApiTests
         var stored = Assert.Single(snapshot.Messages, m => m.ProviderMessageId == providerId);
         Assert.Equal(stored.Id, (await ReadBodyAsync<MessageResponse>(response)).Id);
         Assert.Equal(2, snapshot.Messages.Count);
+        Assert.Equal((MessageSender.Conversia, (Guid?)f.Tenant.Owner.UserId, (Guid?)null), (stored.Sender, stored.SentByUserId, stored.AssignedAdvisorIdAtReceipt)); // the echo was claimed
     }
 
     // ---- Who may send ------------------------------------------------------------------------------------------------

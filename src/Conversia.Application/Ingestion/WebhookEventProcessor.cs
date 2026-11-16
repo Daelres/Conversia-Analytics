@@ -153,13 +153,21 @@ public class WebhookEventProcessor : IWebhookEventProcessor
 
         var conversation = await GetOrCreateConversationAsync(channel, contact, message, conversations, cancellationToken);
 
+        // Who sent it (docs/MESSAGING.md, "Who sent it"): an inbound message is the customer's; an outbound one that arrives through the
+        // webhook is an echo of the WhatsApp Business app. The app does not say who typed it, so no author is recorded; the advisor assigned
+        // to the conversation right now is kept as context (AssignedAdvisorIdAtReceipt, docs/decisiones.md). A message sent from Conversia
+        // that comes back as an echo is already stored and is not added again; one whose echo arrives first is claimed by the send path.
+        var echo = message.Direction == MessageDirection.Outbound;
         await _messages.AddAsync(
-            Message.Create(channel.TenantId, conversation.Id, channel.Id, message.ProviderMessageId, message.Direction, message.Type, message.Text, message.SentAt),
+            Message.Create(
+                channel.TenantId, conversation.Id, channel.Id, message.ProviderMessageId, message.Direction, message.Type, message.Text, message.SentAt,
+                echo ? MessageSender.PhoneApp : MessageSender.Customer, media: message.Media,
+                assignedAdvisorIdAtReceipt: echo ? conversation.AdvisorId : null),
             cancellationToken);
 
         if (message.Referral is not null)
         {
-            conversation.MarkAsAds(message.Referral.Reference);
+            conversation.MarkAsAds(message.Referral.Reference, message.Referral.Ad);
         }
 
         return true;
@@ -220,7 +228,8 @@ public class WebhookEventProcessor : IWebhookEventProcessor
                 channel.TenantId, contact.Id, channel.Id, channel.BranchId, message.SentAt,
                 message.Referral is null ? ConversationSource.Organic : ConversationSource.Ads,
                 message.Referral?.Reference,
-                contact.IsSandbox);
+                contact.IsSandbox,
+                message.Referral?.Ad);
             await _conversations.AddAsync(conversation, Opportunity.Open(channel.TenantId, conversation.Id), cancellationToken);
         }
 

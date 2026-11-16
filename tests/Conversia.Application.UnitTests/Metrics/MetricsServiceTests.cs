@@ -69,6 +69,17 @@ public class MetricsServiceTests
 
         public Task<IReadOnlyList<HourRaw>> InboundMessagesPerHourOfWeekAsync(MetricsFilter filter, string timeZone, CancellationToken cancellationToken = default) => Task.FromResult(InboundHours);
 
+        public IReadOnlyList<ClosingPointRaw> ClosingPoint { get; set; } = [];
+
+        public DateTime? StaleBefore { get; private set; }
+
+        public Task<IReadOnlyList<ClosingPointRaw>> ClosingPointAsync(MetricsFilter filter, DateTime staleBeforeUtc, CancellationToken cancellationToken = default)
+        {
+            SeenFilter = filter;
+            StaleBefore = staleBeforeUtc;
+            return Task.FromResult(ClosingPoint);
+        }
+
         public Task<(int Total, IReadOnlyList<UnansweredRaw> Items)> UnansweredAsync(MetricsFilter filter, DateTime olderThanUtc, int limit, CancellationToken cancellationToken = default)
         {
             UnansweredOlderThan = olderThanUtc;

@@ -165,6 +165,20 @@ A sent message is stored through the same domain paths as an ingested one (`Mess
 - **Not verified:** whether 360dialog echoes API-sent messages to the webhook at all (only statuses are documented), and under
   which id. If an answer carries no message id the message is stored under `conversia.{guid}`, and a later echo of it could not
   be matched.
+- **Who sent it.** Every stored message carries `Messages.Sender` (`Customer`, `Conversia`, `PhoneApp`, `AiAssistant` reserved for
+  roadmap stage 5, `Unknown` for rows older than the column) and, for outbound ones, `SentByUserId` and `SentByAdvisorId` (ids only):
+  - a send from Conversia records `Conversia`, the user who sent it and the advisor **linked to that user** (`Advisors.UserId`), or no
+    advisor when the user has none (a manager writing in someone else's conversation is not the assigned advisor);
+  - an outbound message that arrives through the webhook is an echo of the WhatsApp Business app: `PhoneApp`, with **no author**
+    (`SentByUserId` and `SentByAdvisorId` null: the app does not say who typed it, and shared phones exist). The advisor assigned to the
+    conversation when it arrived is kept apart, in `AssignedAdvisorIdAtReceipt`: **context, not authorship** (docs/decisiones.md);
+  - when the echo of a Conversia send is stored first, the record step finds it and **claims** it (`Conversia`, the user, the user's
+    advisor; the echo context is cleared). Both orders are tested on PostgreSQL (`MessageSendingApiTests`).
+  - **Known gap:** a send whose record step failed (`message_sent_not_recorded`, see below) and whose echo arrives later is stored from
+    the echo as `PhoneApp`, without its user: nothing is left to claim it. The error line of the failed record has the conversation id.
+  The response latency between the two sides is not stored: it is derived from `SentAt` and `Direction` when a read model needs it
+  (docs/decisiones.md). Templates are not recorded: the send path only sends text, and neither the echo nor the message webhook
+  documents a template name or category.
 - **Not handled:** a failure of the record step after the provider accepted (`message_sent_not_recorded`) leaves the message
   out of the conversation unless an echo brings it. It is logged as an error.
 

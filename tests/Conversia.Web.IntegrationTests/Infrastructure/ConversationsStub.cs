@@ -43,7 +43,8 @@ internal sealed class ConversationsStub
             Item(Waiting, "573009990001", null, Norte, "Norte", null, null, "Ads", "Open", Now.AddMinutes(-190), Now.AddMinutes(-190), null, null, Stage("New", "Auto"), 3),
             Item(Won, WonPhone, "Camila R.", Centro, "Centro", Ana, "Ana Torres", "Organic", "Closed", Now.AddDays(-3), Now.AddDays(-3), Now.AddDays(-3).AddMinutes(9), Now.AddDays(-2), Stage("Won", "Auto", 0.92m, service: "depilacion_laser"), 12),
             Item(ClosedSilent, "573009990003", null, Norte, "Norte", null, null, "Unknown", "Closed", Now.AddDays(-12), Now.AddDays(-12), null, Now.AddDays(-5), Stage("Lost", "Auto", 0.4m, loss: "NoResponse"), 1),
-            Item(Lost, "573009990004", "Daniela", Centro, "Centro", Luis, "Luis Pérez", "Ads", "Closed", Now.AddDays(-6), Now.AddDays(-6), Now.AddDays(-6).AddMinutes(75), Now.AddDays(-5), Stage("Lost", "Auto", 0.8m, loss: "Price", objection: "Price"), 8),
+            Item(Lost, "573009990004", "Daniela", Centro, "Centro", Luis, "Luis Pérez", "Ads", "Closed", Now.AddDays(-6), Now.AddDays(-6), Now.AddDays(-6).AddMinutes(75), Now.AddDays(-5), Stage("Lost", "Auto", 0.8m, loss: "Price", objection: "Price") is var lost
+                ? Closing(lost, "PriceShared", "PhoneCall", "Unknown", true) : null!, 8),
             Item(Manual, "573009990005", null, Centro, "Centro", Ana, "Ana Torres", "Ads", "Open", Now.AddHours(-5), Now.AddHours(-5), Now.AddHours(-5).AddMinutes(1), null, Stage("InFollowUp", "Manual", 0.6m, changedBy: Editor), 6),
         ];
     }
@@ -226,6 +227,17 @@ internal sealed class ConversationsStub
         AdvisorAssignedBy = item.AdvisorId is null ? null : Editor, AdvisorAssignedAt = item.AdvisorId is null ? null : item.StartedAt.AddMinutes(30),
     };
 
+    // The closing point read for a conversation (docs/CLASSIFICATION.md, "Closing point").
+    private static OpportunityResponse Closing(OpportunityResponse opportunity, string? reached, string moved, string closedBy, bool outside)
+    {
+        opportunity.ReachedStage = reached;
+        opportunity.MovedOffChannel = moved;
+        opportunity.OffChannelEvidenceIndex = moved == "None" ? null : 4;
+        opportunity.ClosedBy = closedBy;
+        opportunity.ClosedOutsideSystem = outside;
+        return opportunity;
+    }
+
     private static OpportunityResponse Stage(
         string stage, string source, decimal? confidence = null, string? service = null, string? loss = null, string objection = "None", Guid? changedBy = null)
         => new()
@@ -233,6 +245,7 @@ internal sealed class ConversationsStub
             Stage = stage, StageSource = source, StageChangedAt = changedBy is null ? null : DateTime.UtcNow.AddHours(-4), StageChangedBy = changedBy,
             ServiceInterest = service, Objection = objection, LossReason = loss, ClassificationConfidence = confidence,
             ClassifiedAt = confidence is null ? null : DateTime.UtcNow.AddDays(-1), ClassificationRules = confidence is null ? null : "intent.booking,outcome.confirmed",
+            MovedOffChannel = "None", ClosedBy = "Unknown", ReachedStageSource = "Auto", MovedOffChannelSource = "Auto", ClosedBySource = "Auto", ClosedOutsideSystemSource = "Auto",
         };
 
     private static ConversationListItem Item(

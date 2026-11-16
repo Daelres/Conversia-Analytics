@@ -21,6 +21,10 @@ public class AdvisorRepository : IAdvisorRepository
     public async Task<IReadOnlyList<Advisor>> ListAsync(CancellationToken cancellationToken = default)
         => await _dbContext.Advisors.AsNoTracking().OrderBy(a => a.Name).ThenBy(a => a.Id).ToListAsync(cancellationToken);
 
+    public Task<Advisor?> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
+        => _dbContext.Advisors.AsNoTracking().Where(a => a.UserId == userId)
+            .OrderByDescending(a => a.IsActive).ThenBy(a => a.Id).FirstOrDefaultAsync(cancellationToken);
+
     public async Task AddAsync(Advisor advisor, CancellationToken cancellationToken = default)
     {
         await _dbContext.Advisors.AddAsync(advisor, cancellationToken);

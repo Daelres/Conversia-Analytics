@@ -215,6 +215,35 @@ public sealed record FirstResponseResponse(
     IReadOnlyList<FirstResponseRow> ByAdvisor,
     IReadOnlyList<FirstResponseRow> BySource);
 
+/// <param name="Stage">A <c>ReachedStage</c> name (<c>FirstContact</c> ... <c>PaymentOrDeposit</c>).</param>
+/// <param name="SharePercent">Percent 0 to 100, one decimal, of the stopped conversations whose stage was read; null over an empty set.</param>
+public sealed record ReachedStageShare(string Stage, int Count, double? SharePercent);
+
+/// <param name="Move">An <c>OffChannelMove</c> name (<c>PhoneCall</c>, <c>InPerson</c>, <c>OtherChannel</c>).</param>
+public sealed record OffChannelShare(string Move, int Count, double? SharePercent);
+
+/// <param name="Count">Cohort conversations that moved off the chat.</param>
+/// <param name="SharePercent">Percent 0 to 100, one decimal, of the cohort; null over an empty cohort.</param>
+/// <param name="ByMove">Each kind of move, with its share of <paramref name="Count"/>.</param>
+public sealed record MovedOffChannelSummary(int Count, double? SharePercent, IReadOnlyList<OffChannelShare> ByMove);
+
+/// <summary>
+/// "Hasta dónde llegan las conversaciones" (docs/METRICS.md, "Closing point"): of the cohort conversations that ended without a sale (Lost, or
+/// undecided and gone cold), how far each one got, and the step where most of them stopped; plus the share of the cohort that moved off the chat.
+/// </summary>
+/// <param name="Stopped">Cohort conversations that ended without a sale: Lost, or InFollowUp/New idle for longer than the maturity.</param>
+/// <param name="NotRead">Of <paramref name="Stopped"/>, those with no stage read yet (never classified, or no customer text).</param>
+/// <param name="Stages">Every step, in order, with its count among the stopped ones whose stage was read.</param>
+/// <param name="MainDropOff">The step where most stopped conversations stayed (ties: the earliest); null when none was read.</param>
+public sealed record ClosingPointResponse(
+    MetricsPeriod Period,
+    int Conversations,
+    int Stopped,
+    int NotRead,
+    IReadOnlyList<ReachedStageShare> Stages,
+    string? MainDropOff,
+    MovedOffChannelSummary MovedOffChannel);
+
 /// <param name="TotalLost">Every lost sale of the cohort: <c>statedLost + noResponse.count</c>.</param>
 /// <param name="StatedLost">Lost sales whose reason is not the silence of the customer; the shares of <paramref name="TopReasons"/> are of this number.</param>
 /// <param name="NoResponse">The silent ones, on their own line.</param>

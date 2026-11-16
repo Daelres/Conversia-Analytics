@@ -155,6 +155,40 @@ public class MetricsService : IMetricsService
         return new VolumeResponse(scope.Period, days.Sum(d => d.Conversations), days.Sum(d => d.InboundMessages), days.Sum(d => d.OutboundMessages), days, grid);
     }
 
+    public async Task<ClosingPointResponse> GetClosingPointAsync(MetricsQuery query, CancellationToken cancellationToken = default)
+    {
+        var scope = Resolve(query);
+        // "Stopped" uses the conversion's maturity as the idle cutoff: an undecided conversation idle that long counts against the rate there,
+        // and here it is one that stopped somewhere.
+        var rows = await _queries.ClosingPointAsync(scope.Filter, scope.MatureBeforeUtc(_options.ConversionMaturityDays), cancellationToken);
+
+        var stopped = rows.Where(r => r.Stopped).ToList();
+        var read = stopped.Where(r => r.ReachedStage is not null).Sum(r => r.Count);
+        var stages = Enum.GetValues<ReachedStage>()
+            .Select(stage =>
+            {
+                var count = stopped.Where(r => r.ReachedStage == stage.ToString()).Sum(r => r.Count);
+                return new ReachedStageShare(stage.ToString(), count, Percent(count, read));
+            })
+            .ToList();
+        var main = stages.Where(s => s.Count > 0).OrderByDescending(s => s.Count).FirstOrDefault()?.Stage; // stable: ties keep the earliest
+
+        var cohort = rows.Sum(r => r.Count);
+        var movedRows = rows.Where(r => r.MovedOffChannel != nameof(OffChannelMove.None)).ToList();
+        var moved = movedRows.Sum(r => r.Count);
+        var byMove = Enum.GetValues<OffChannelMove>().Where(m => m != OffChannelMove.None)
+            .Select(m =>
+            {
+                var count = movedRows.Where(r => r.MovedOffChannel == m.ToString()).Sum(r => r.Count);
+                return new OffChannelShare(m.ToString(), count, Percent(count, moved));
+            })
+            .ToList();
+
+        return new ClosingPointResponse(
+            scope.Period, cohort, stopped.Sum(r => r.Count), stopped.Where(r => r.ReachedStage is null).Sum(r => r.Count), stages, main,
+            new MovedOffChannelSummary(moved, Percent(moved, cohort), byMove));
+    }
+
     public async Task<AlertsResponse> GetAlertsAsync(MetricsQuery query, CancellationToken cancellationToken = default)
     {
         var scope = Resolve(query);

@@ -1,4 +1,6 @@
+using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
+using Conversia.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Conversia.Infrastructure.Webhooks;
@@ -253,6 +255,56 @@ public class WebhookProcessingTests : IAsyncLifetime
         var conversation = Assert.Single((await ProcessAsync(f)).Conversations);
 
         Assert.Equal((ConversationSource.Ads, "Depilación láser 2x1"), (conversation.Source, conversation.SourceReference));
+    }
+
+    [Fact]
+    public async Task AnAdReferral_KeepsTheAdsData_ForLaterAnalysis()
+    {
+        using var f = await NewChannelAsync();
+        await DeliverAsync(_client, f, Dialog360Samples.InboundFromAd());
+
+        var conversation = Assert.Single((await ProcessAsync(f)).Conversations);
+
+        Assert.Equal(("ad", "120200000000000", "https://fb.me/ad-123", "Depilación láser 2x1"),
+            (conversation.ReferralSourceType, conversation.ReferralSourceId, conversation.ReferralSourceUrl, conversation.ReferralHeadline));
+    }
+
+    // ---- What is kept for later analysis (docs/decisiones.md): who sent it, media metadata ---------------------------------------
+
+    [Fact]
+    public async Task AnInboundMedia_IsTheCustomers_WithItsMetadata_AndNoFile()
+    {
+        using var f = await NewChannelAsync();
+        await DeliverAsync(_client, f, Dialog360Samples.InboundImage());
+
+        var message = Assert.Single((await ProcessAsync(f)).Messages);
+
+        Assert.Equal((MessageSender.Customer, "9999", "image/jpeg", true, (Guid?)null, (Guid?)null),
+            (message.Sender, message.MediaId, message.MediaMimeType, message.HasCaption, message.SentByUserId, message.SentByAdvisorId));
+    }
+
+    [Fact]
+    public async Task AnEcho_WasSentFromThePhoneApp_WithTheAssignedAdvisorAsContext_NotAsAuthor()
+    {
+        using var f = await NewChannelAsync();
+        await DeliverAsync(_client, f, Dialog360Samples.InboundText());
+        var conversationId = Assert.Single((await ProcessAsync(f)).Conversations).Id;
+        Guid advisorId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var advisor = Advisor.Create(f.TenantId, f.Branch.Id, "Asesora De Prueba");
+            db.Add(advisor);
+            var conversation = await db.Conversations.IgnoreQueryFilters().SingleAsync(c => c.Id == conversationId);
+            conversation.AssignAdvisor(advisor.Id);
+            await db.SaveChangesAsync();
+            advisorId = advisor.Id;
+        }
+
+        await DeliverAsync(_client, f, Dialog360Samples.OutboundEcho("wamid.ECHO-1", T0 + 90));
+        var echo = (await ProcessAsync(f)).Messages.Single(m => m.Direction == MessageDirection.Outbound);
+
+        Assert.Equal((MessageSender.PhoneApp, (Guid?)null, (Guid?)null, (Guid?)advisorId), (echo.Sender, echo.SentByAdvisorId, echo.SentByUserId, echo.AssignedAdvisorIdAtReceipt));
     }
 
     [Fact]

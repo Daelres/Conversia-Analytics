@@ -12,5 +12,6 @@ public interface IMessageSendingService
     /// other-tenant conversation, <see cref="Domain.Exceptions.DomainException"/> for a text that cannot be sent, and
     /// <see cref="Exceptions.MessagingException"/> for everything else that keeps the message from being sent or recorded.
     /// </summary>
-    Task<MessageResponse> SendTextAsync(Guid conversationId, SendMessageRequest request, CancellationToken cancellationToken = default);
+    /// <param name="actingUserId">The user who sends it: recorded on the message with the advisor linked to them (docs/MESSAGING.md, "Who sent it").</param>
+    Task<MessageResponse> SendTextAsync(Guid conversationId, SendMessageRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default);
 }

@@ -252,6 +252,29 @@ public class OpportunityResponse
     /// <summary>Comma-separated codes of the rules behind the last classification (<c>outcome.lost.refusal,objection.price</c>); never customer text.</summary>
     public string? ClassificationRules { get; set; }
 
+    /// <summary>How far the conversation got (a <c>ReachedStage</c> name, <c>FirstContact</c> ... <c>PaymentOrDeposit</c>); null when not read yet.</summary>
+    public string? ReachedStage { get; set; }
+
+    /// <summary><c>None</c>, <c>PhoneCall</c>, <c>InPerson</c> or <c>OtherChannel</c>.</summary>
+    public string MovedOffChannel { get; set; } = string.Empty;
+
+    /// <summary>The 1-based position, among the messages the classifier read, of the message that shows the move; null without a move.</summary>
+    public int? OffChannelEvidenceIndex { get; set; }
+
+    /// <summary><c>Unknown</c>, <c>Advisor</c>, <c>CustomerSelfService</c> (or <c>AiAssistant</c>, reserved).</summary>
+    public string ClosedBy { get; set; } = string.Empty;
+
+    public bool ClosedOutsideSystem { get; set; }
+
+    /// <summary><c>Auto</c> or <c>Manual</c>, per closing-point field.</summary>
+    public string ReachedStageSource { get; set; } = string.Empty;
+
+    public string MovedOffChannelSource { get; set; } = string.Empty;
+
+    public string ClosedBySource { get; set; } = string.Empty;
+
+    public string ClosedOutsideSystemSource { get; set; } = string.Empty;
+
     public static OpportunityResponse From(Opportunity opportunity) => new()
     {
         Stage = opportunity.Stage.ToString(),
@@ -267,6 +290,15 @@ public class OpportunityResponse
         ClassifiedAt = opportunity.ClassifiedAt,
         ClassificationConfidence = opportunity.ClassificationConfidence,
         ClassificationRules = opportunity.ClassificationRules,
+        ReachedStage = opportunity.ReachedStage?.ToString(),
+        MovedOffChannel = opportunity.MovedOffChannel.ToString(),
+        OffChannelEvidenceIndex = opportunity.OffChannelEvidenceIndex,
+        ClosedBy = opportunity.ClosedBy.ToString(),
+        ClosedOutsideSystem = opportunity.ClosedOutsideSystem,
+        ReachedStageSource = opportunity.ReachedStageSource.ToString(),
+        MovedOffChannelSource = opportunity.MovedOffChannelSource.ToString(),
+        ClosedBySource = opportunity.ClosedBySource.ToString(),
+        ClosedOutsideSystemSource = opportunity.ClosedOutsideSystemSource.ToString(),
     };
 }
 
