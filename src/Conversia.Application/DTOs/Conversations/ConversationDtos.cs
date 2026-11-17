@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Conversia.Application.Validation;
+using Conversia.Domain.Common;
 using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
 
@@ -140,6 +141,24 @@ public class ConversationListItem
     /// <summary>The customer wrote and the conversation closed without any reply.</summary>
     public bool ClosedUnanswered => FirstInboundAt is not null && FirstResponseAt is null && Status == nameof(ConversationStatus.Closed);
 
+    /// <summary>The customer's latest message: WhatsApp's 24-hour customer service window runs from it (docs/MESSAGING.md).</summary>
+    public DateTime? LastInboundAt { get; set; }
+
+    /// <summary>The business's latest message, by any way of sending.</summary>
+    public DateTime? LastOutboundAt { get; set; }
+
+    /// <summary>The customer wrote last: nothing from the business at or after the customer's latest message.</summary>
+    public bool AwaitingReply => LastInboundAt is { } inbound && (LastOutboundAt is not { } outbound || outbound < inbound);
+
+    /// <summary>When the customer service window closes (24 hours after <see cref="LastInboundAt"/>); null when the customer never wrote.</summary>
+    public DateTime? WindowClosesAt => CustomerServiceWindow.ClosesAt(LastInboundAt);
+
+    /// <summary>Whether free text can be sent now, as of when the API answered. Outside the window only a template can be sent.</summary>
+    public bool WindowOpen { get; set; }
+
+    /// <summary>The window is open and closes within two hours.</summary>
+    public bool WindowClosingSoon { get; set; }
+
     public int MessageCount { get; set; }
 
     /// <summary>True for a conversation of the internal sandbox (docs/SANDBOX.md): a simulated customer, never a real one.</summary>
@@ -197,6 +216,12 @@ public class MessageResponse
 
     public DateTime SentAt { get; set; }
 
+    /// <summary>The template a send from Conversia used; null for any other message.</summary>
+    public string? TemplateName { get; set; }
+
+    /// <summary><c>Marketing</c>, <c>Utility</c> or <c>Authentication</c> for a template message: Meta charges it by this category.</summary>
+    public string? TemplateCategory { get; set; }
+
     public static MessageResponse From(Message message) => new()
     {
         Id = message.Id,
@@ -204,6 +229,8 @@ public class MessageResponse
         Type = message.Type,
         Text = message.Text,
         SentAt = message.SentAt,
+        TemplateName = message.TemplateName,
+        TemplateCategory = message.TemplateCategory?.ToString(),
     };
 }
 
@@ -218,6 +245,26 @@ public class SendMessageRequest
     [Display(Name = "Texto")]
     [TrimmedText(Message.TextMaxLength)]
     public string? Text { get; set; }
+}
+
+/// <summary>
+/// Body of <c>POST /api/conversations/{id}/template-messages</c>: an approved template of the conversation's channel, by name and language,
+/// with one value per placeholder in the order the template lists them (docs/MESSAGING.md, "Templates").
+/// </summary>
+public class SendTemplateMessageRequest
+{
+    [Display(Name = "Plantilla")]
+    [TrimmedText(MessageTemplate.NameMaxLength)]
+    public string? TemplateName { get; set; }
+
+    [Display(Name = "Idioma")]
+    [TrimmedText(MessageTemplate.LanguageMaxLength)]
+    public string? Language { get; set; }
+
+    /// <summary>The values of the placeholders; each one is checked against the template (count, length, no line breaks).</summary>
+    [Display(Name = "Valores")]
+    [MaxLength(MessageTemplate.MaxParameters, ErrorMessage = ValidationMessages.MaxItems)]
+    public List<string?> Parameters { get; set; } = [];
 }
 
 public class OpportunityResponse

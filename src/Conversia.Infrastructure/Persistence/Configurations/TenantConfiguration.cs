@@ -24,6 +24,7 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
         builder.Property(t => t.StatusChangedBy);
         builder.Property(t => t.StatusReason).HasMaxLength(Tenant.StatusReasonMaxLength);
         builder.Property(t => t.SandboxMode).IsRequired().HasDefaultValue(false);
+        builder.Property(t => t.ReadReceiptsEnabled).IsRequired().HasDefaultValue(false);
         builder.ToTable(t => t.HasCheckConstraint("CK_Tenants_MaxActiveLines", $"\"MaxActiveLines\" BETWEEN 0 AND {Tenant.MaxLinesLimit}"));
 
         // The per-company limits (docs/PLATFORM_ADMIN.md, "Limits"): AI off by default; null quota and rate = the deployment defaults.

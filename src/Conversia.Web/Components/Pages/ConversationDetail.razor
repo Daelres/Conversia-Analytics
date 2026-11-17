@@ -72,7 +72,9 @@ else if (!Redirected)
             <div class="stack">
                 @if (_conversation is not null)
                 {
-                    <Card Title="Chat" Subtitle="@ChatSubtitle" IconName="message" data-testid="chat-card">
+                    <Card Title="Chat" Subtitle="@ChatSubtitle" IconName="message" data-testid="chat-card"
+                          data-version-url="@($"/conversaciones/{Id}/version")" data-version="@ConversationVersion.Of(_conversation.MessageCount, _conversation.Status, _conversation.WindowOpen)"
+                          data-read-url="@(_readReceipts && CanManage && _conversation.AwaitingReply ? $"/conversaciones/{Id}/leido" : null)">
                         <ChatThread Messages="_conversation.Messages" ToLocal="TimeZone.ToLocal" />
                         @if (_conversation.MessageCount > _conversation.Messages.Count)
                         {
@@ -81,7 +83,11 @@ else if (!Redirected)
                     </Card>
                 }
 
-                <MessageComposer State="_composer" SubmissionId="@_submissionId" Error="@_sendError" ApiErrors="_sendErrors" OnSend="SendAsync" OnInvalid="LoadAsync" />
+                <MessageComposer State="_composer" SubmissionId="@_submissionId" Error="@_sendError" ApiErrors="_sendErrors" OnSend="SendAsync" OnInvalid="LoadAsync"
+                                 NowUtc="_nowUtc" TypingUrl="@(_readReceipts && _composer.CanSend ? $"/conversaciones/{Id}/escribiendo" : null)" />
+
+                <TemplateComposer ConversationId="Id" Offered="@(_composer.CanSendTemplate && _composer.WindowClosed)" Templates="_templates" SelectedKey="@Plantilla"
+                                  SubmissionId="@_templateSubmissionId" Error="@_templateError" ApiErrors="_templateErrors" OnSend="SendTemplateAsync" />
 
                 @* The second composer of a sandbox conversation: one person plays both sides. In a scope of its own, so that its form is
                    not the advisor's. Always in the render tree (hidden unless offered): a forged post reaches the API and is refused there. *@
@@ -226,6 +232,15 @@ else if (!Redirected)
     private string _customerSubmissionId = OneTimeSubmissions.NewId();
     private string? _customerError;
     private IReadOnlyDictionary<string, string[]>? _customerErrors;
+    private Conversia.Application.DTOs.Templates.ChannelTemplatesResponse? _templates;
+    private string _templateSubmissionId = OneTimeSubmissions.NewId();
+    private string? _templateError;
+    private IReadOnlyDictionary<string, string[]>? _templateErrors;
+    private bool _readReceipts;
+
+    /// <summary>The template picked in the template composer: <c>name|language</c>.</summary>
+    [SupplyParameterFromQuery(Name = "plantilla")]
+    public string? Plantilla { get; set; }
 
     private AssignAdvisorInput? _assign;
     private OutcomeInput? _outcome;
@@ -323,7 +338,19 @@ else if (!Redirected)
         // The conversation itself says whether its line can send, so a person who may write needs no access to the organization.
         // In sandbox mode (docs/SANDBOX.md) a sandbox conversation needs no provider key, and a real one takes no message; outside it, the reverse.
         var sandboxMode = profileTask.Result.Value!.TenantSandboxMode;
-        _composer = ComposerState.For(CanManage, _conversation!.Status, _conversation.Channel, sandboxMode, _conversation.IsSandbox);
+        _composer = ComposerState.For(CanManage, _conversation!.Status, _conversation.Channel, sandboxMode, _conversation.IsSandbox)
+            .WithWindow(_conversation.WindowOpen, _conversation.WindowClosesAt);
+        _readReceipts = profileTask.Result.Value!.TenantReadReceipts;
+
+        // Outside the window the template composer is what can be sent: its list comes from the conversation's channel.
+        if (_composer.CanSendTemplate && _composer.WindowClosed)
+        {
+            var templates = await Api.GetConversationTemplatesAsync(Token!, Id);
+            _templates = templates.IsSuccess ? templates.Value : null;
+        }
+
+        // The read receipt is not sent by this render (a prefetch or a reload would send it): the page's script posts data-read-url once the
+        // page is visible (docs/MESSAGING.md, "Read receipts and typing"); without JavaScript nothing is marked as read.
         _customerComposer = CustomerComposer.For(CanManage, _conversation.Status, _conversation.Channel, sandboxMode, _conversation.IsSandbox);
 
         // Choosing an advisor needs to see them: without OrganizationView the list is simply empty (the current advisor is still named).
@@ -394,6 +421,61 @@ else if (!Redirected)
                 // the provider all the same, so the person is told what an unavailable provider would tell them. It was already logged and
                 // reported as an upstream failure, and its error code is on the page.
                 _sendError = SendFailure.OutcomeUnknown;
+                SetStatusCode(StatusCodes.Status503ServiceUnavailable);
+                break;
+            default:
+                await TryFailAsync(result);
+                break;
+        }
+
+        if (!Redirected && !_missing && !Denied)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task SendTemplateAsync(SendTemplateInput input)
+    {
+        var sender = HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+        if (!Submissions.TryClaim(sender, $"{Id:N}-template", input.SubmissionId))
+        {
+            _templateError = SendFailure.AlreadySubmitted;
+            await LoadAsync();
+            return;
+        }
+
+        var result = await Api.SendTemplateMessageAsync(Token!, Id, input.ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo(ConversationsNotice.Url(Id, ConversationsNotice.MessageSent));
+            return;
+        }
+
+        switch (result.Status)
+        {
+            case ApiResultStatus.ValidationFailed:
+                _templateErrors = result.ValidationErrors;
+                _templateError = "Revisa los valores de la plantilla: cada uno es obligatorio, sin saltos de línea y de hasta 500 caracteres.";
+                SetStatusCode(StatusCodes.Status400BadRequest);
+                break;
+            case ApiResultStatus.RateLimited when result.ProblemCode is null:
+                _templateError = SendFailure.TooManyMessages(result.RetryAfterSeconds);
+                SetStatusCode(StatusCodes.Status429TooManyRequests);
+                break;
+            case ApiResultStatus.Conflict or ApiResultStatus.Unprocessable or ApiResultStatus.RateLimited or ApiResultStatus.Unavailable
+                when SendFailure.Describe(result.ProblemCode) is { } described:
+                _templateError = described;
+                SetStatusCode(result.Status switch
+                {
+                    ApiResultStatus.Conflict => StatusCodes.Status409Conflict,
+                    ApiResultStatus.Unprocessable => StatusCodes.Status422UnprocessableEntity,
+                    ApiResultStatus.RateLimited => StatusCodes.Status429TooManyRequests,
+                    _ when SendFailure.MessageLeft(result.ProblemCode) => StatusCodes.Status500InternalServerError,
+                    _ => StatusCodes.Status503ServiceUnavailable,
+                });
+                break;
+            case ApiResultStatus.Unavailable:
+                _templateError = SendFailure.OutcomeUnknown;
                 SetStatusCode(StatusCodes.Status503ServiceUnavailable);
                 break;
             default:

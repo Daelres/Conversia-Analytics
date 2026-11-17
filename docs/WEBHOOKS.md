@@ -253,6 +253,18 @@ build their payloads from `tests/Shared/Dialog360Samples.cs`. Also open: newer A
 versions may identify users by a business-scoped id (BSUID) and omit the phone
 number; such messages are skipped and counted in `SkippedMessageCount`, never stored under a fake number. Supporting them needs a decision about the contact key.
 
+### Template status
+
+A change whose `field` is `message_template_status_update` (Meta's reference:
+<https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/message_template_status_update>) is read
+as a template status, not as messages: `message_template_name`, `message_template_language`, `event`, `message_template_category`. The
+worker updates the status of the channel's stored template of that name and language (docs/MESSAGING.md, "Templates"): `APPROVED` and
+`REINSTATED` → approved; `PENDING`, `IN_APPEAL` → pending; `REJECTED`; `PAUSED`; `DISABLED`, `ARCHIVED`, `DELETED`, `PENDING_DELETION` →
+disabled. `FLAGGED`, `LOCKED`, `UNLOCKED`, `UNARCHIVED`, `LIMIT_EXCEEDED` and unknown events change nothing (the next sync settles them).
+A template the channel has not synced yet is left for the sync; an entry without a valid name or language is counted as skipped.
+
+**Unverified:** whether 360dialog delivers this field to a channel's webhook URL at all. The periodic sync does not depend on it.
+
 ## Processing
 
 `WebhookEventProcessingService` (hosted service, `Webhooks:Processing:Enabled`, on by

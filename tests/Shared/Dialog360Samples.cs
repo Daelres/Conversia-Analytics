@@ -106,7 +106,22 @@ public static class Dialog360Samples
         """;
 
     /// <summary>A change this system does not model (e.g. a template status update): valid JSON with nothing to store.</summary>
+    /// <summary>
+    /// A template status notification, after Meta's <c>message_template_status_update</c> webhook reference (the fields <c>event</c>,
+    /// <c>message_template_id</c>, <c>message_template_name</c>, <c>message_template_language</c>, <c>reason</c>,
+    /// <c>message_template_category</c>). UNVERIFIED that 360dialog forwards it to a channel's webhook URL (docs/WEBHOOKS.md).
+    /// </summary>
+    public static string TemplateStatusUpdate(string statusEvent = "APPROVED", string name = "recordatorio_cita", string language = "es", string category = "UTILITY", long time = T0) => $$"""
+        {
+          "object": "whatsapp_business_account",
+          "entry": [ { "id": "102290129340398", "time": {{time}}, "changes": [ { "field": "message_template_status_update", "value": {
+            "event": "{{statusEvent}}", "message_template_id": 594425479261596, "message_template_name": "{{name}}",
+            "message_template_language": "{{language}}", "reason": "NONE", "message_template_category": "{{category}}"
+          } } ] } ]
+        }
+        """;
+
     public static string UnknownEvent() => """
-        { "object": "whatsapp_business_account", "entry": [ { "id": "1", "changes": [ { "field": "message_template_status_update", "value": { "event": "APPROVED", "message_template_id": 1 } } ] } ] }
+        { "object": "whatsapp_business_account", "entry": [ { "id": "1", "changes": [ { "field": "account_update", "value": { "event": "VERIFIED_ACCOUNT", "phone_number": "573005550100" } } ] } ] }
         """;
 }

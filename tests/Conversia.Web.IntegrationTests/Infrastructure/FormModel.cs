@@ -115,7 +115,8 @@ internal sealed class FormModel
 
     private static bool Matches(string name, string field)
     {
+        // A full name matches too: an indexed field ("Input.Values[0]") has no last segment of its own.
         var lastSegment = name[(name.LastIndexOfAny(new[] { '.', ']' }) + 1)..];
-        return string.Equals(lastSegment, field, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(name, field, StringComparison.Ordinal) || string.Equals(lastSegment, field, StringComparison.OrdinalIgnoreCase);
     }
 }

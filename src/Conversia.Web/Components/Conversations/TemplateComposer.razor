@@ -1,0 +1,135 @@
+@* Sends an approved template (docs/MESSAGING.md, "Templates"): what WhatsApp allows once 24 hours passed since the customer's last message.
+   Works without JavaScript in two steps: a GET form picks the template (the page reloads with ?plantilla=name|language), then the template's
+   own fields are filled and posted. The page decides whether it is offered and makes the call. Templates are created in the 360dialog Hub. *@
+@using Conversia.Application.DTOs.Templates
+<Card Title="Enviar una plantilla" Subtitle="Plantillas aprobadas de este número de WhatsApp." IconName="layers" id="plantilla"
+      data-testid="template-composer" hidden="@(!Offered)">
+    <div class="stack">
+        @if (Templates is { Sandbox: true })
+        {
+            <Alert Kind="AlertKind.Info" Title="Modo sandbox" data-testid="template-sandbox-note">
+                Son las plantillas fijas del modo sandbox: el mensaje se registra en esta conversación de prueba y no se envía a ningún teléfono.
+            </Alert>
+        }
+
+        @if (Sendable.Count == 0)
+        {
+            <p class="muted" data-testid="template-none">
+                Este número no tiene plantillas aprobadas que Conversia pueda enviar. Créalas en el Hub de 360dialog y luego sincronízalas desde Organización.
+            </p>
+        }
+        else
+        {
+            <form method="get" action="@($"/conversaciones/{ConversationId}#plantilla")" class="form" data-testid="template-pick-form">
+                <div class="field">
+                    <label class="field__label" for="template-pick">Plantilla</label>
+                    <select id="template-pick" class="input" name="plantilla">
+                        @foreach (var template in Sendable)
+                        {
+                            var key = SendTemplateInput.Key(template.Name, template.Language);
+                            <option value="@key" selected="@(key == SelectedKey)">@template.Name (@template.Language) · @CategoryLabel(template.Category)</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn--secondary" data-testid="template-pick-submit"><Icon Name="check" />Elegir plantilla</button>
+                </div>
+            </form>
+        }
+
+        @if (Error is not null)
+        {
+            <Alert Kind="AlertKind.Danger" data-testid="template-composer-error">@Error</Alert>
+        }
+
+        @* Always rendered (hidden without a choice): a POST can only be dispatched to a form that exists in the render tree. *@
+        <div hidden="@(Selected is null)">
+            <EditForm Model="Input" FormName="@FormName" OnSubmit="SubmitAsync" method="post" class="form" data-testid="template-form" data-submit-once>
+                <input type="hidden" name="@($"{nameof(Input)}.{nameof(SendTemplateInput.SubmissionId)}")" value="@SubmissionId" />
+                <input type="hidden" name="@($"{nameof(Input)}.{nameof(SendTemplateInput.TemplateName)}")" value="@Selected?.Name" />
+                <input type="hidden" name="@($"{nameof(Input)}.{nameof(SendTemplateInput.Language)}")" value="@Selected?.Language" />
+                @if (Selected is { } chosen)
+                {
+                    <p data-testid="template-category"><Chip IconName="tag">@CategoryLabel(chosen.Category)</Chip></p>
+                    <p class="muted" data-testid="template-charge-note">Meta cobra cada mensaje de plantilla según su categoría (Marketing, Utilidad o Autenticación).</p>
+                    @if (chosen.BodyText is { } body)
+                    {
+                        <blockquote class="template__body" data-testid="template-body">@body</blockquote>
+                    }
+
+                    @for (var i = 0; i < chosen.ParameterNames.Count; i++)
+                    {
+                        var index = i;
+                        var id = $"template-value-{index}";
+                        <div class="field">
+                            <label class="field__label" for="@id">Valor de {{@chosen.ParameterNames[index]}}</label>
+                            <input id="@id" class="input" type="text" maxlength="500" required
+                                   name="@($"{nameof(Input)}.{nameof(SendTemplateInput.Values)}[{index}]")" value="@ValueAt(index)" />
+                        </div>
+                    }
+
+                    <ApiFieldErrors Errors="ApiErrors" KnownFields="@([])" />
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn--primary" data-testid="template-submit"><Icon Name="message" />Enviar plantilla</button>
+                    </div>
+                }
+            </EditForm>
+        </div>
+    </div>
+</Card>
+
+@code {
+    public const string FormName = "send-template";
+
+    private SendTemplateInput? _input;
+
+    [SupplyParameterFromForm(FormName = FormName)]
+    private SendTemplateInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    [Parameter, EditorRequired]
+    public Guid ConversationId { get; set; }
+
+    /// <summary>Whether the page offers templates now (the composer is available and the window is closed).</summary>
+    [Parameter]
+    public bool Offered { get; set; }
+
+    [Parameter]
+    public ChannelTemplatesResponse? Templates { get; set; }
+
+    /// <summary>The <c>plantilla</c> of the page's address: <c>name|language</c>.</summary>
+    [Parameter]
+    public string? SelectedKey { get; set; }
+
+    [Parameter, EditorRequired]
+    public string SubmissionId { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Error { get; set; }
+
+    [Parameter]
+    public IReadOnlyDictionary<string, string[]>? ApiErrors { get; set; }
+
+    [Parameter]
+    public EventCallback<SendTemplateInput> OnSend { get; set; }
+
+    private IReadOnlyList<MessageTemplateResponse> Sendable => Templates?.Templates.Where(t => t.CanBeSent).ToList() ?? [];
+
+    private MessageTemplateResponse? Selected
+        => SendTemplateInput.ParseKey(SelectedKey) is { } key ? Sendable.FirstOrDefault(t => t.Name == key.Name && t.Language == key.Language) : null;
+
+    private string? ValueAt(int index) => index < Input.Values.Count ? Input.Values[index] : null;
+
+    private Task SubmitAsync() => OnSend.InvokeAsync(Input);
+
+    public static string CategoryLabel(string category) => category switch
+    {
+        "Marketing" => "Marketing",
+        "Utility" => "Utilidad",
+        "Authentication" => "Autenticación",
+        _ => "Sin categoría",
+    };
+}

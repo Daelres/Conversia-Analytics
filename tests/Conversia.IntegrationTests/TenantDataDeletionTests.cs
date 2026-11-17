@@ -89,6 +89,11 @@ public class TenantDataDeletionTests
             await db.Database.ExecuteSqlAsync($"""
                 INSERT INTO "MessageSendOutcomes" ("TenantId", "Day", "IsSandbox", "Outcome", "Count") VALUES ({f.TenantId}, DATE '2026-10-01', false, 'sent', 3)
                 """);
+            // A synced template of the line (docs/MESSAGING.md, "Templates"): the business's own text, deleted with the company.
+            db.MessageTemplates.Add(MessageTemplate.Create(
+                f.TenantId, f.Channel.Id, "recordatorio_cita", "es", TemplateCategory.Utility, TemplateStatus.Approved, "Hola {{1}}", true, DateTime.UtcNow));
+            await db.SaveChangesAsync();
+
             // The LLM schedule's rows (docs/CLASSIFICATION.md): a window's counts and a batched request of the conversation.
             await db.Database.ExecuteSqlAsync($"""
                 INSERT INTO "AiAnalysisRuns" ("TenantId", "WindowStart", "WindowEnd", "Mode", "StartedAt", "LastActivityAt", "Claimed", "Analysed", "Unchanged",

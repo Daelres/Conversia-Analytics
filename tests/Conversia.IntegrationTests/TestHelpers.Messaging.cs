@@ -23,8 +23,16 @@ internal static partial class TestHelpers
     internal static readonly string TestEncryptionKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
     /// <summary>Stands in for the provider. What it answers is set per channel, so tests that share the host do not disturb each other.</summary>
-    internal sealed class FakeMessageSender : IWhatsAppMessageSender, IWhatsAppMessageSenderResolver
+    internal sealed class FakeMessageSender : IWhatsAppMessageSender, IWhatsAppMessageSenderResolver, IWhatsAppTemplateSource
     {
+        private readonly ConcurrentDictionary<Guid, TemplateListResult> _templateLists = new();
+
+        /// <summary>What the stand-in provider lists as the channel's templates (none by default). No test ever reaches the real 360dialog.</summary>
+        public void ListTemplates(Guid channelId, TemplateListResult result) => _templateLists[channelId] = result;
+
+        public Task<TemplateListResult> ListAsync(WhatsAppChannel channel, CancellationToken cancellationToken = default)
+            => Task.FromResult(_templateLists.TryGetValue(channel.Id, out var result) ? result : new TemplateListResult(WhatsAppSendStatus.Sent, []));
+
         private readonly ConcurrentDictionary<Guid, Func<WhatsAppSendResult>> _answers = new();
         private readonly ConcurrentQueue<(Guid ChannelId, string RecipientWaId, string Text, string? ProviderMessageId)> _sent = new();
 
@@ -43,6 +51,29 @@ internal static partial class TestHelpers
             var result = _answers.TryGetValue(message.Channel.Id, out var answer) ? answer() : WhatsAppSendResult.Sent($"wamid.FAKE-{Guid.NewGuid():N}");
             _sent.Enqueue((message.Channel.Id, message.RecipientWaId, message.Text, result.ProviderMessageId));
             return Task.FromResult(result);
+        }
+
+        private readonly ConcurrentQueue<(Guid ChannelId, WhatsAppTemplateMessage Message)> _templates = new();
+        private readonly ConcurrentQueue<(Guid ChannelId, WhatsAppReadReceipt Receipt)> _receipts = new();
+        private readonly ConcurrentDictionary<Guid, WhatsAppSendStatus> _receiptAnswers = new();
+
+        public IReadOnlyList<WhatsAppTemplateMessage> TemplatesSentBy(Guid channelId) => _templates.Where(s => s.ChannelId == channelId).Select(s => s.Message).ToList();
+
+        public IReadOnlyList<WhatsAppReadReceipt> ReceiptsOf(Guid channelId) => _receipts.Where(s => s.ChannelId == channelId).Select(s => s.Receipt).ToList();
+
+        public void AnswerReceipts(Guid channelId, WhatsAppSendStatus status) => _receiptAnswers[channelId] = status;
+
+        public Task<WhatsAppSendResult> SendTemplateAsync(WhatsAppTemplateMessage message, CancellationToken cancellationToken = default)
+        {
+            var result = _answers.TryGetValue(message.Channel.Id, out var answer) ? answer() : WhatsAppSendResult.Sent($"wamid.FAKE-T-{Guid.NewGuid():N}");
+            _templates.Enqueue((message.Channel.Id, message));
+            return Task.FromResult(result);
+        }
+
+        public Task<WhatsAppSendStatus> MarkReadAsync(WhatsAppReadReceipt receipt, CancellationToken cancellationToken = default)
+        {
+            _receipts.Enqueue((receipt.Channel.Id, receipt));
+            return Task.FromResult(_receiptAnswers.TryGetValue(receipt.Channel.Id, out var status) ? status : WhatsAppSendStatus.Sent);
         }
     }
 
@@ -79,6 +110,8 @@ internal static partial class TestHelpers
                 {
                     services.RemoveAll<IWhatsAppMessageSenderResolver>();
                     services.AddSingleton<IWhatsAppMessageSenderResolver>(sender);
+                    services.RemoveAll<IWhatsAppTemplateSource>();
+                    services.AddSingleton<IWhatsAppTemplateSource>(sender);
                 });
             });
             return new MessagingHost(host, sender);

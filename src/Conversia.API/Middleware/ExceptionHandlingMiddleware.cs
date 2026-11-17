@@ -195,7 +195,8 @@ public class ExceptionHandlingMiddleware
         {
             MessagingProblem.ConversationClosed or MessagingProblem.ChannelInactive or MessagingProblem.CredentialsMissing
                 or MessagingProblem.InvalidCredentials or MessagingProblem.SandboxConversation
-                or MessagingProblem.SandboxModeActive or MessagingProblem.SandboxDataDeleted => StatusCodes.Status409Conflict,
+                or MessagingProblem.SandboxModeActive or MessagingProblem.SandboxDataDeleted or MessagingProblem.WindowClosed
+                or MessagingProblem.TemplateUnavailable => StatusCodes.Status409Conflict,
             MessagingProblem.RecipientNotAllowed or MessagingProblem.Rejected => StatusCodes.Status422UnprocessableEntity,
             MessagingProblem.LimitReached => StatusCodes.Status429TooManyRequests,
             MessagingProblem.ProviderUnavailable => StatusCodes.Status503ServiceUnavailable,

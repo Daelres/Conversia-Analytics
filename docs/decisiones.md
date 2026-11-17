@@ -111,3 +111,22 @@ Formato: fecha, decisión, razón. Las decisiones abiertas se listan al final.
 - Verificar el formato real de los ecos de coexistencia y el manejo de identificadores de usuario sin número de teléfono (BSUID) en un sandbox de 360dialog.
 - Cobro con Wompi: confirmar en el sandbox lo que la documentación no muestra (búsqueda de transacción por referencia, franquicia y últimos dígitos en la fuente de pago de tarjeta, si cada cobro de Nequi pide aprobación, vigencia de los tokens de aceptación); recordatorio por correo al dueño cuando exista un proveedor de correo; precios definitivos de los planes.
 - Ventana de reapertura de conversaciones cerradas y asignación automática de asesor (hoy la asignación es manual: `PUT /api/conversations/{id}/advisor`).
+
+## 2026-11-16 — Etapa 3a: bandeja, ventana de 24 horas y plantillas
+
+- **Actualización casi en tiempo real por consulta periódica (polling), no SignalR.** La bandeja (`/bandeja`) y una conversación abierta
+  consultan cada 5 segundos (`Inbox:PollIntervalSeconds`) un recurso liviano con `ETag`/`304`; sin JavaScript la página funciona con
+  «Actualizar». Motivo: la Web es Blazor estático (SSR) y el volumen del piloto no justifica mantener un circuito por asesor. El paso
+  siguiente, cuando haga falta, es un hub de SignalR que avise «la conversación X cambió» y reutilice los mismos recursos (docs/MESSAGING.md, «Inbox»).
+- **Confirmaciones de lectura y «escribiendo...» apagadas por defecto.** Cambian lo que ve el cliente final, así que las activa la empresa
+  (permiso de administrar la organización; la persona propietaria siempre puede) en `/organizacion/mensajeria`. El indicador se envía a
+  lo sumo cada 20 segundos por conversación y solo si una respuesta es plausible (el cliente escribió último y la ventana está abierta).
+- **Las plantillas se crean en el Hub de 360dialog, no en Conversia.** Conversia solo las sincroniza (a pedido y cada 6 horas) y las envía;
+  no hay editor. Se envían solo las aprobadas con texto en el cuerpo; las de encabezado multimedia, botones con variables o autenticación
+  quedan listadas como «aún no se puede enviar» hasta la etapa de multimedia.
+- **La bandeja no se reconstruye en cada consulta:** primero se lee un testigo de cambios barato (último cambio y conversaciones abiertas de la
+  empresa); si la versión del cliente sigue vigente, la respuesta es `304` sin armar la lista. Las consultas tienen límite por usuario.
+- **Las plantillas no se borran por una lista vacía o incompleta:** una lista vacía nunca elimina nada y una incompleta no puede quitar más de
+  la mitad; los avisos de estado se aplican en el orden en que ocurrieron.
+- **La ventana de 24 horas se valida antes de llamar al proveedor**, con un código propio (`customer_service_window_closed`), y el error
+  131047 de Meta se traduce al mismo código. En modo sandbox rige la misma regla.

@@ -40,6 +40,8 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<Message> Messages => Set<Message>();
 
+    public DbSet<MessageTemplate> MessageTemplates => Set<MessageTemplate>();
+
     public DbSet<Opportunity> Opportunities => Set<Opportunity>();
 
     public DbSet<WebhookEvent> WebhookEvents => Set<WebhookEvent>();
@@ -120,6 +122,7 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Contact>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<Conversation>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<Message>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<MessageTemplate>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<Opportunity>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<WebhookEvent>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<AiUsageMonth>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
@@ -154,6 +157,14 @@ public class ApplicationDbContext : DbContext
                 case EntityState.Added:
                     entry.Entity.CreatedAt = now;
                     entry.Entity.CreatedBy = currentUserId;
+
+                    // A conversation's last change is what the inbox's change token and delta read (docs/MESSAGING.md, "Inbox"): a new one has
+                    // changed now, so the column is never null and its index serves those queries without COALESCE.
+                    if (entry.Entity is Conversation)
+                    {
+                        entry.Entity.UpdatedAt = now;
+                    }
+
                     break;
                 case EntityState.Modified:
                     entry.Entity.UpdatedAt = now;

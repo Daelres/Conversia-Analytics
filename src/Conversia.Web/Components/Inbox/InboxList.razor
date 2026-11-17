@@ -1,0 +1,64 @@
+@* The rows of the inbox (docs/MESSAGING.md, "Inbox"). Drawn by the /bandeja page and, alone, by /bandeja/lista, which the page's script
+   asks for every few seconds to replace the list without reloading the page. No message text: who, where, how long waiting, the window. *@
+@using Conversia.Application.DTOs.Inbox
+@using Conversia.Web.Services
+<div class="inbox" data-testid="inbox-rows" data-count="@Response.Items.Count">
+    @if (Response.NoAdvisorLinked)
+    {
+        <p class="muted" data-testid="inbox-no-advisor">Tu usuario no está vinculado a un asesor, así que no tienes conversaciones propias. Pide que te vinculen en Organización.</p>
+    }
+    else if (Response.Items.Count == 0)
+    {
+        <p class="muted" data-testid="inbox-empty">No hay conversaciones abiertas con estos filtros.</p>
+    }
+    else
+    {
+        <ul class="inbox__list" aria-label="Conversaciones abiertas, las que esperan respuesta primero">
+            @foreach (var item in Response.Items)
+            {
+                <li class="inbox__item@(item.AwaitingReply ? " inbox__item--waiting" : "")" data-testid="inbox-item" data-id="@item.Id"
+                    data-awaiting="@(item.AwaitingReply ? "true" : "false")">
+                    <a class="inbox__link" href="@ConversationLinks.Detail(item.Id)">
+                        <strong>@(string.IsNullOrWhiteSpace(item.ContactName) ? $"Cliente {ConversationFormat.MaskedPhone(item.ContactWaId)}" : item.ContactName.Trim())</strong>
+                    </a>
+                    <ul class="cluster inbox__badges">
+                        @if (item.AwaitingReply && item.LastInboundAt is { } waiting)
+                        {
+                            <li><Chip Tone="ChipTone.Warning" IconName="clock" data-testid="badge-waiting">Sin responder · @ConversationFormat.Age(waiting, NowUtc)</Chip></li>
+                        }
+                        @if (!item.WindowOpen)
+                        {
+                            <li><Chip Tone="ChipTone.Danger" IconName="lock" data-testid="badge-window" data-window="closed">Ventana cerrada: solo plantilla</Chip></li>
+                        }
+                        else if (item.WindowClosingSoon)
+                        {
+                            <li><Chip Tone="ChipTone.Warning" IconName="alert-triangle" data-testid="badge-window" data-window="closing">Ventana cierra pronto</Chip></li>
+                        }
+                        else
+                        {
+                            <li><Chip Tone="ChipTone.Success" IconName="message" data-testid="badge-window" data-window="open">Ventana abierta</Chip></li>
+                        }
+                        @if (item.IsSandbox)
+                        {
+                            <li><Chip Tone="ChipTone.Warning" IconName="zap" data-testid="badge-sandbox">Sandbox</Chip></li>
+                        }
+                        <li><Chip IconName="building">@(item.BranchName ?? "Sin sucursal")</Chip></li>
+                        <li><Chip IconName="user">@(item.AdvisorName ?? "Sin asignar")</Chip></li>
+                    </ul>
+                </li>
+            }
+        </ul>
+        @if (Response.Truncated)
+        {
+            <p class="muted" data-testid="inbox-truncated">Se muestran las @InboxResponse.MaxItems conversaciones más urgentes. Usa los filtros para ver el resto.</p>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public InboxResponse Response { get; set; } = new();
+
+    [Parameter]
+    public DateTime NowUtc { get; set; }
+}

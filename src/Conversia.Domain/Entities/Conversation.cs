@@ -59,6 +59,34 @@ public class Conversation : BaseEntity
 
     public DateTime? FirstResponseAt { get; private set; }
 
+    /// <summary>The customer's latest message: WhatsApp's customer service window runs 24 hours from it (docs/MESSAGING.md).</summary>
+    public DateTime? LastInboundAt { get; private set; }
+
+    /// <summary>The business's latest message, by any way of sending.</summary>
+    public DateTime? LastOutboundAt { get; private set; }
+
+    /// <summary>
+    /// The time of the latest customer message this conversation marked as read on WhatsApp (read receipts, docs/MESSAGING.md); null when
+    /// none was. Marking one marks the earlier ones too.
+    /// </summary>
+    public DateTime? CustomerReadMarkedAt { get; private set; }
+
+    /// <summary>The customer wrote last: nothing from the business at or after the customer's latest message.</summary>
+    public bool AwaitingReply => LastInboundAt is { } inbound && (LastOutboundAt is not { } outbound || outbound < inbound);
+
+    /// <summary>A customer message newer than the last one marked as read exists.</summary>
+    public bool NeedsReadReceipt => LastInboundAt is { } inbound && (CustomerReadMarkedAt is not { } marked || marked < inbound);
+
+    /// <summary>Records that the customer's messages up to <paramref name="lastInboundAt"/> were marked as read on WhatsApp.</summary>
+    public void MarkCustomerMessagesRead(DateTime lastInboundAt)
+    {
+        var at = UtcTime.Normalize(lastInboundAt);
+        if (CustomerReadMarkedAt is null || CustomerReadMarkedAt < at)
+        {
+            CustomerReadMarkedAt = at;
+        }
+    }
+
     public ConversationStatus Status { get; private set; } = ConversationStatus.Open;
 
     /// <summary>When the conversation was closed; null exactly while it is open.</summary>
@@ -428,6 +456,8 @@ public class Conversation : BaseEntity
         LastMessageAt = UtcTime.Normalize(timeline.LastMessageAt);
         FirstInboundAt = UtcTime.Normalize(timeline.FirstInboundAt);
         FirstResponseAt = UtcTime.Normalize(timeline.FirstResponseAt);
+        LastInboundAt = UtcTime.Normalize(timeline.LastInboundAt);
+        LastOutboundAt = UtcTime.Normalize(timeline.LastOutboundAt);
     }
 }
 

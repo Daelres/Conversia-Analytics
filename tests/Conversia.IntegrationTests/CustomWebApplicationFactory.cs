@@ -93,6 +93,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         builder.UseSetting("Webhooks:Retention:Enabled", "false");
         // Background jobs of the conversations are driven by hand in the tests that need them (their runners are called directly).
         builder.UseSetting("Conversations:AutoCloseEnabled", "false");
+        builder.UseSetting("Templates:SyncEnabled", "false"); // the periodic template sync would call 360dialog; tests run it by hand
         builder.UseSetting("Classification:Enabled", "false");
         builder.UseSetting("Usage:Retention:Enabled", "false");
         builder.UseSetting("Tenants:Deletion:Enabled", "false"); // the tests run the deleter directly

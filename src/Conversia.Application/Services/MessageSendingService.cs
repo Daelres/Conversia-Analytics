@@ -2,9 +2,11 @@ using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.Exceptions;
 using Conversia.Application.Interfaces;
 using Conversia.Application.Messaging;
+using Conversia.Application.Sandbox;
 using Conversia.Domain.Common;
 using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
+using Conversia.Domain.Exceptions;
 using Conversia.Domain.Interfaces;
 using Microsoft.Extensions.Logging;
 
@@ -18,6 +20,9 @@ public class MessageSendingService : IMessageSendingService
 {
     /// <summary>Type of a plain-text message, as the provider names it.</summary>
     public const string TextType = "text";
+
+    /// <summary>Type of a template message, as the provider names it.</summary>
+    public const string TemplateType = "template";
 
     /// <summary>
     /// Prefix of the id given to a sent message whose provider answer carried no id. Such a message cannot be matched with its echo,
@@ -35,13 +40,15 @@ public class MessageSendingService : IMessageSendingService
     private readonly ILogger<MessageSendingService> _logger;
     private readonly IMessageSendOutcomeRecorder? _outcomes;
     private readonly IAdvisorRepository? _advisors;
+    private readonly IMessageTemplateRepository? _templates;
 
     /// <param name="outcomes">Counts how each send ended, for the platform's monitoring (docs/PLATFORM_ADMIN.md, "Monitoring").</param>
     public MessageSendingService(
         IConversationRepository conversations, IWhatsAppChannelRepository channels, IContactRepository contacts, IMessageRepository messages,
         ITenantRepository tenants, IWhatsAppMessageSenderResolver senders, TimeProvider timeProvider, ILogger<MessageSendingService> logger,
-        IMessageSendOutcomeRecorder? outcomes = null, IAdvisorRepository? advisors = null)
+        IMessageSendOutcomeRecorder? outcomes = null, IAdvisorRepository? advisors = null, IMessageTemplateRepository? templates = null)
     {
+        _templates = templates;
         _advisors = advisors;
         _logger = logger;
         _outcomes = outcomes;
@@ -57,19 +64,43 @@ public class MessageSendingService : IMessageSendingService
     public async Task<MessageResponse> SendTextAsync(Guid conversationId, SendMessageRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default)
     {
         var text = TextRules.Required(request.Text, Message.TextMaxLength, SendMessageRequest.TextRuleMessage);
+        return await CountedAsync(conversationId, actingUserId, new TextPayload(text), cancellationToken);
+    }
 
+    public async Task<MessageResponse> SendTemplateAsync(
+        Guid conversationId, SendTemplateMessageRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default)
+    {
+        var name = request.TemplateName?.Trim() ?? string.Empty;
+        var language = request.Language?.Trim() ?? string.Empty;
+        return await CountedAsync(conversationId, actingUserId, new TemplatePayload(name, language, request.Parameters ?? []), cancellationToken);
+    }
+
+    /// <summary>What a send carries: a free-form text, or a template with its values. Everything around it is the same path.</summary>
+    private abstract record Payload;
+
+    private sealed record TextPayload(string Text) : Payload;
+
+    private sealed record TemplatePayload(string Name, string Language, IReadOnlyList<string?> Values) : Payload;
+
+    private async Task<MessageResponse> CountedAsync(Guid conversationId, Guid? actingUserId, Payload payload, CancellationToken cancellationToken)
+    {
         // Untracked reads: nothing is locked, and no transaction is open, while the provider is being called.
         var conversation = await _conversations.GetByIdAsync(conversationId, cancellationToken) ?? throw new ConversationNotFoundException();
         string? outcome = MessageSendOutcome.Unexpected;
         try
         {
-            var response = await SendAsync(conversation, text, actingUserId, cancellationToken);
+            var response = await SendAsync(conversation, payload, actingUserId, cancellationToken);
             outcome = MessageSendOutcome.Sent;
             return response;
         }
         catch (MessagingException ex)
         {
             outcome = ex.Code;
+            throw;
+        }
+        catch (DomainException)
+        {
+            outcome = null; // values that do not fit the template: a request that was not valid, not a send
             throw;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -99,7 +130,7 @@ public class MessageSendingService : IMessageSendingService
         }
     }
 
-    private async Task<MessageResponse> SendAsync(Conversation conversation, string text, Guid? actingUserId, CancellationToken cancellationToken)
+    private async Task<MessageResponse> SendAsync(Conversation conversation, Payload payload, Guid? actingUserId, CancellationToken cancellationToken)
     {
         if (conversation.Status == ConversationStatus.Closed)
         {
@@ -112,6 +143,15 @@ public class MessageSendingService : IMessageSendingService
         if (conversation.IsSandbox != sandboxMode)
         {
             throw new MessagingException(conversation.IsSandbox ? MessagingProblem.SandboxConversation : MessagingProblem.SandboxModeActive);
+        }
+
+        // WhatsApp delivers free-form text only within 24 hours of the customer's last message (docs/MESSAGING.md, "Customer service
+        // window"); outside it the provider refuses it anyway (and a sandbox key counts the refusal), so it is refused here first. The same
+        // rule in sandbox mode, so that what a person practices there is what happens for real. A template is what the window allows.
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        if (payload is TextPayload && !CustomerServiceWindow.IsOpen(conversation.LastInboundAt, now))
+        {
+            throw new MessagingException(MessagingProblem.WindowClosed);
         }
 
         // A conversation always has its channel and its contact (foreign keys, same tenant); a missing one would be a defect, not a 404.
@@ -137,7 +177,33 @@ public class MessageSendingService : IMessageSendingService
             ? (await _advisors.GetByUserIdAsync(userId, cancellationToken))?.Id
             : null;
 
-        var result = await _senders.Resolve(channel, sandboxMode).SendTextAsync(new WhatsAppTextMessage(channel, contact.WaId, text), cancellationToken);
+        var sender = _senders.Resolve(channel, sandboxMode);
+        WhatsAppSendResult result;
+        string text;
+        string type;
+        MessageTemplateUse? templateUse = null;
+        switch (payload)
+        {
+            case TextPayload plain:
+                text = plain.Text;
+                type = TextType;
+                result = await sender.SendTextAsync(new WhatsAppTextMessage(channel, contact.WaId, text), cancellationToken);
+                break;
+            case TemplatePayload templated:
+                var template = await FindTemplateAsync(channel, templated.Name, templated.Language, sandboxMode, now, cancellationToken);
+                var values = template.ValidateParameters(templated.Values);
+                text = template.Render(values);
+                type = TemplateType;
+                templateUse = new MessageTemplateUse(template.Name, template.Category);
+                var parameters = template.ParameterNames
+                    .Select((placeholder, i) => new WhatsAppTemplateParameter(template.NamedParameters ? placeholder : null, values[i]))
+                    .ToList();
+                result = await sender.SendTemplateAsync(new WhatsAppTemplateMessage(channel, contact.WaId, template.Name, template.Language, parameters), cancellationToken);
+                break;
+            default:
+                throw new InvalidOperationException($"Unexpected payload {payload.GetType().Name}.");
+        }
+
         if (result.Status != WhatsAppSendStatus.Sent)
         {
             throw new MessagingException(ProblemOf(result.Status));
@@ -149,7 +215,7 @@ public class MessageSendingService : IMessageSendingService
         try
         {
             // The customer already has the message: the record must not be abandoned because the caller went away.
-            return await RecordAsync(conversation, providerMessageId, text, sentAt, actingUserId, advisorId);
+            return await RecordAsync(conversation, providerMessageId, type, text, sentAt, actingUserId, advisorId, templateUse);
         }
         catch (Exception ex) when (ex is not MessagingException)
         {
@@ -183,7 +249,8 @@ public class MessageSendingService : IMessageSendingService
 
     // The same writes ingestion makes for a message it stores (WebhookEventProcessor), under the same lock, so the two never interleave:
     // if the provider echoes this message to the webhook, whichever comes second finds it stored and adds nothing.
-    private async Task<MessageResponse> RecordAsync(Conversation read, string providerMessageId, string text, DateTime sentAt, Guid? userId, Guid? advisorId)
+    private async Task<MessageResponse> RecordAsync(
+        Conversation read, string providerMessageId, string type, string text, DateTime sentAt, Guid? userId, Guid? advisorId, MessageTemplateUse? template)
     {
         Message? recorded = null;
         var found = await _conversations.ChangeSerializedWithIngestionAsync(
@@ -196,8 +263,8 @@ public class MessageSendingService : IMessageSendingService
                 if (recorded is null)
                 {
                     recorded = Message.Create(
-                        conversation.TenantId, conversation.Id, conversation.ChannelId, providerMessageId, MessageDirection.Outbound, TextType, text, sentAt,
-                        MessageSender.Conversia, userId, advisorId);
+                        conversation.TenantId, conversation.Id, conversation.ChannelId, providerMessageId, MessageDirection.Outbound, type, text, sentAt,
+                        MessageSender.Conversia, userId, advisorId, template: template);
                     await _messages.AddAsync(recorded, CancellationToken.None);
                 }
                 else if (recorded.Direction == MessageDirection.Outbound && recorded.Sender != MessageSender.Conversia)
@@ -236,6 +303,20 @@ public class MessageSendingService : IMessageSendingService
         }
     }
 
+    // In sandbox mode only the fixed sandbox list exists (docs/SANDBOX.md); otherwise the channel's synced copy. Either way the template
+    // must be approved and something Conversia can send.
+    private async Task<MessageTemplate> FindTemplateAsync(
+        WhatsAppChannel channel, string name, string language, bool sandboxMode, DateTime now, CancellationToken cancellationToken)
+    {
+        var template = sandboxMode
+            ? SandboxTemplates.Find(channel, name, language, now)
+            : _templates is null || !MessageTemplate.IsValidName(name) || !MessageTemplate.IsValidLanguage(language)
+                ? null
+                : await _templates.FindAsync(channel.Id, name, language, cancellationToken);
+
+        return template is { CanBeSent: true } ? template : throw new MessagingException(MessagingProblem.TemplateUnavailable);
+    }
+
     private static MessagingProblem ProblemOf(WhatsAppSendStatus status) => status switch
     {
         WhatsAppSendStatus.InvalidCredentials => MessagingProblem.InvalidCredentials,
@@ -243,6 +324,7 @@ public class MessageSendingService : IMessageSendingService
         WhatsAppSendStatus.LimitReached => MessagingProblem.LimitReached,
         WhatsAppSendStatus.Rejected => MessagingProblem.Rejected,
         WhatsAppSendStatus.TransientFailure => MessagingProblem.ProviderUnavailable,
+        WhatsAppSendStatus.WindowClosed => MessagingProblem.WindowClosed,
         _ => throw new InvalidOperationException($"Unexpected send status {status}."),
     };
 }

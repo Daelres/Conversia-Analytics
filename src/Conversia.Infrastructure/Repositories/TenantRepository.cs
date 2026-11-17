@@ -24,6 +24,9 @@ public class TenantRepository : ITenantRepository
     public Task<bool?> GetSandboxModeAsync(Guid id, CancellationToken cancellationToken = default)
         => _dbContext.Tenants.AsNoTracking().Where(t => t.Id == id).Select(t => (bool?)t.SandboxMode).FirstOrDefaultAsync(cancellationToken);
 
+    public Task<bool> GetReadReceiptsEnabledAsync(Guid id, CancellationToken cancellationToken = default)
+        => _dbContext.Tenants.AsNoTracking().Where(t => t.Id == id).Select(t => t.ReadReceiptsEnabled).FirstOrDefaultAsync(cancellationToken);
+
     public async Task AddAsync(Tenant tenant, CancellationToken cancellationToken = default)
     {
         // Not saved here: UserRepository.AddAsync commits this same scoped

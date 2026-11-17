@@ -31,6 +31,7 @@ internal static class TenantDataDeletionPlan
         ByTenant("BillingPaymentAttempts"), // -> BillingCharges; ids, amounts and statuses (the audit trail keeps the money history)
         ByTenant("BillingCharges"), // -> BillingSubscriptions
         ByTenant("BillingSubscriptions"), // -> Tenants, BillingPlans
+        ByTenant("MessageTemplates"), // -> WhatsAppChannels; the business's own template texts (no customer data)
         ByTenant("WhatsAppChannels"), // the lines, with their encrypted provider key -> Branches
         ByTenant("Advisors"), // -> Branches, Users
         ByTenant("Branches"),

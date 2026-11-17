@@ -44,19 +44,22 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
             return null;
         }
 
-        var messages = await db.Messages.AsNoTracking()
+        var rows = await db.Messages.AsNoTracking()
             .Where(m => m.ConversationId == id)
             .OrderBy(m => m.SentAt).ThenBy(m => m.CreatedAt).ThenBy(m => m.Id)
             .Take(ConversationDetailResponse.MaxMessages)
-            .Select(m => new MessageResponse
-            {
-                Id = m.Id,
-                Direction = m.Direction.ToString(),
-                Type = m.Type,
-                Text = m.Text,
-                SentAt = m.SentAt,
-            })
+            .Select(m => new { m.Id, m.Direction, m.Type, m.Text, m.SentAt, m.TemplateName, m.TemplateCategory })
             .ToListAsync(cancellationToken);
+        var messages = rows.Select(m => new MessageResponse
+        {
+            Id = m.Id,
+            Direction = m.Direction.ToString(),
+            Type = m.Type,
+            Text = m.Text,
+            SentAt = m.SentAt,
+            TemplateName = m.TemplateName,
+            TemplateCategory = m.TemplateCategory?.ToString(),
+        }).ToList();
 
         // Only what tells whether a message can leave through the channel: the key is reduced to "there is one" in the query itself, so
         // neither it nor anything that identifies the channel is ever loaded for this answer.
@@ -88,6 +91,8 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
             LastMessageAt = item.LastMessageAt,
             FirstInboundAt = item.FirstInboundAt,
             FirstResponseAt = item.FirstResponseAt,
+            LastInboundAt = item.LastInboundAt,
+            LastOutboundAt = item.LastOutboundAt,
             ClosedAt = item.ClosedAt,
             MessageCount = item.MessageCount,
             IsSandbox = item.IsSandbox,
@@ -213,6 +218,8 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
         LastMessageAt = row.Conversation.LastMessageAt,
         FirstInboundAt = row.Conversation.FirstInboundAt,
         FirstResponseAt = row.Conversation.FirstResponseAt,
+        LastInboundAt = row.Conversation.LastInboundAt,
+        LastOutboundAt = row.Conversation.LastOutboundAt,
         ClosedAt = row.Conversation.ClosedAt,
         MessageCount = row.MessageCount,
         IsSandbox = row.Conversation.IsSandbox,

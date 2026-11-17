@@ -171,6 +171,12 @@ public partial class SandboxModeTests
             await scope.ServiceProvider.GetRequiredService<ISandboxDataStore>().DeleteAllAsync(message.Channel.TenantId, CancellationToken.None);
             return await _sandbox.SendTextAsync(message, cancellationToken);
         }
+
+        public Task<WhatsAppSendResult> SendTemplateAsync(WhatsAppTemplateMessage message, CancellationToken cancellationToken = default)
+            => _sandbox.SendTemplateAsync(message, cancellationToken);
+
+        public Task<WhatsAppSendStatus> MarkReadAsync(WhatsAppReadReceipt receipt, CancellationToken cancellationToken = default)
+            => _sandbox.MarkReadAsync(receipt, cancellationToken);
     }
 
     [Fact]

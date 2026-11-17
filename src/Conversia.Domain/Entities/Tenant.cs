@@ -478,6 +478,24 @@ public class Tenant : BaseEntity
         MaxActiveLines = maxActiveLines;
     }
 
+    /// <summary>
+    /// Whether opening a conversation marks the customer's messages as read on WhatsApp and typing shows the typing indicator
+    /// (docs/MESSAGING.md, "Read receipts and typing"). Off by default: it changes what the customer sees.
+    /// </summary>
+    public bool ReadReceiptsEnabled { get; private set; }
+
+    /// <summary>Switches read receipts and the typing indicator. Returns false, and changes nothing, when it already was that way.</summary>
+    public bool SetReadReceipts(bool enabled)
+    {
+        if (ReadReceiptsEnabled == enabled)
+        {
+            return false;
+        }
+
+        ReadReceiptsEnabled = enabled;
+        return true;
+    }
+
     /// <summary>Switches the internal sandbox on or off. Returns false, and changes nothing, when it already was that way.</summary>
     public bool SetSandboxMode(bool enabled)
     {

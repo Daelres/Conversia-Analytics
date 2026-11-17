@@ -1,8 +1,11 @@
+using Conversia.API.RateLimiting;
 using Conversia.Application.DTOs.Organization;
+using Conversia.Application.DTOs.Templates;
 using Conversia.Application.Interfaces;
 using Conversia.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Conversia.API.Controllers;
 
@@ -13,12 +16,31 @@ public class ChannelsController : ControllerBase
 {
     private readonly IOrganizationService _organization;
     private readonly IAuthorizationService _authorization;
+    private readonly ITemplateService _templates;
 
-    public ChannelsController(IOrganizationService organization, IAuthorizationService authorization)
+    public ChannelsController(IOrganizationService organization, IAuthorizationService authorization, ITemplateService templates)
     {
         _organization = organization;
         _authorization = authorization;
+        _templates = templates;
     }
+
+    /// <summary>The channel's templates as last synced (docs/MESSAGING.md, "Templates"); in sandbox mode, the fixed sandbox list.</summary>
+    [HttpGet("{id:guid}/templates")]
+    [Authorize(Policy = nameof(Permission.OrganizationView))]
+    [EnableRateLimiting(PollingRateLimitingExtensions.PolicyName)]
+    public async Task<ActionResult<ChannelTemplatesResponse>> GetTemplates(Guid id, CancellationToken cancellationToken)
+        => Ok(await _templates.ListForChannelAsync(id, cancellationToken));
+
+    /// <summary>
+    /// Reads the channel's templates from 360dialog with its key and replaces the stored copy. Each call is one or more requests to
+    /// 360dialog: a sandbox key allows 25 in total. Rate-limited like a send.
+    /// </summary>
+    [HttpPost("{id:guid}/templates/sync")]
+    [Authorize(Policy = nameof(Permission.OrganizationManage))]
+    [EnableRateLimiting(MessageSendRateLimitingExtensions.PolicyName)]
+    public async Task<ActionResult<TemplateSyncResponse>> SyncTemplates(Guid id, CancellationToken cancellationToken)
+        => Ok(await _templates.SyncAsync(id, cancellationToken));
 
     /// <summary>Whoever can view the channels sees them, but the key of the webhook URL is for those who can manage them.</summary>
     [HttpGet]

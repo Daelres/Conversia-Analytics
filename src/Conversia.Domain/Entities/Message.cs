@@ -67,6 +67,12 @@ public class Message : BaseEntity
     /// <summary>The media came with a caption (the caption itself is <see cref="Text"/>).</summary>
     public bool HasCaption { get; private set; }
 
+    /// <summary>The template a Conversia send used (docs/MESSAGING.md, "Templates"); null for any other message.</summary>
+    public string? TemplateName { get; private set; }
+
+    /// <summary>The category of <see cref="TemplateName"/> when it was sent: Meta charges a template message by it.</summary>
+    public TemplateCategory? TemplateCategory { get; private set; }
+
     // Required by EF Core for materialization.
     private Message()
     {
@@ -76,7 +82,7 @@ public class Message : BaseEntity
         Guid tenantId, Guid conversationId, Guid channelId, string providerMessageId,
         MessageDirection direction, string type, string? text, DateTime sentAt,
         MessageSender? sender = null, Guid? sentByUserId = null, Guid? sentByAdvisorId = null, MessageMedia? media = null,
-        Guid? assignedAdvisorIdAtReceipt = null)
+        Guid? assignedAdvisorIdAtReceipt = null, MessageTemplateUse? template = null)
     {
         if (!Enum.IsDefined(direction))
         {
@@ -106,6 +112,12 @@ public class Message : BaseEntity
             throw new DomainException(SenderRuleMessage);
         }
 
+        // A template is only ever sent from Conversia; nothing that arrives through the webhook says which template it was.
+        if (template is not null && (who != MessageSender.Conversia || !MessageTemplate.IsValidName(template.Name) || !Enum.IsDefined(template.Category)))
+        {
+            throw new DomainException(SenderRuleMessage);
+        }
+
         if (media is not null && !media.IsValid)
         {
             throw new DomainException(MediaRuleMessage);
@@ -129,6 +141,8 @@ public class Message : BaseEntity
             MediaId = media?.ProviderMediaId,
             MediaMimeType = media?.MimeType,
             HasCaption = media?.HasCaption ?? false,
+            TemplateName = template?.Name,
+            TemplateCategory = template?.Category,
         };
     }
 

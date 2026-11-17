@@ -294,6 +294,36 @@ public sealed class ApiClient : IApiClient
     public Task<ApiResult<Unit>> ReviewAdminAttemptAsync(string token, Guid tenantId, Guid attemptId, ReviewAttemptRequest request, CancellationToken cancellationToken = default)
         => SendAsync<Unit>(HttpMethod.Post, $"api/admin/tenants/{tenantId}/billing/attempts/{attemptId}/review", token, request, isUsable: null, cancellationToken, BillingCodes);
 
+    public Task<ApiResult<Application.DTOs.Inbox.InboxResponse>> GetInboxAsync(string token, Application.DTOs.Inbox.InboxQuery query, CancellationToken cancellationToken = default)
+        => SendAsync<Application.DTOs.Inbox.InboxResponse>(HttpMethod.Get, "api/inbox" + InboxQueryString.Build(query), token, body: null, response => response.Items is not null, cancellationToken);
+
+    public Task<ApiResult<Application.DTOs.Inbox.ConversationVersionResponse>> GetConversationVersionAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<Application.DTOs.Inbox.ConversationVersionResponse>(HttpMethod.Get, $"api/conversations/{id}/version", token, body: null, response => !string.IsNullOrEmpty(response.Version), cancellationToken);
+
+    public Task<ApiResult<Application.DTOs.Templates.ChannelTemplatesResponse>> GetConversationTemplatesAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<Application.DTOs.Templates.ChannelTemplatesResponse>(HttpMethod.Get, $"api/conversations/{id}/templates", token, body: null, response => response.Templates is not null, cancellationToken);
+
+    public Task<ApiResult<MessageResponse>> SendTemplateMessageAsync(string token, Guid id, SendTemplateMessageRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<MessageResponse>(HttpMethod.Post, $"api/conversations/{id}/template-messages", token, request, isUsable: null, cancellationToken, SendFailure.SendCodes, _sendTimeout);
+
+    public Task<ApiResult<PresenceResponse>> MarkConversationReadAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<PresenceResponse>(HttpMethod.Post, $"api/conversations/{id}/read", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<PresenceResponse>> SendTypingAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<PresenceResponse>(HttpMethod.Post, $"api/conversations/{id}/typing", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<Application.DTOs.Templates.ChannelTemplatesResponse>> GetChannelTemplatesAsync(string token, Guid channelId, CancellationToken cancellationToken = default)
+        => SendAsync<Application.DTOs.Templates.ChannelTemplatesResponse>(HttpMethod.Get, $"api/channels/{channelId}/templates", token, body: null, response => response.Templates is not null, cancellationToken);
+
+    public Task<ApiResult<Application.DTOs.Templates.TemplateSyncResponse>> SyncChannelTemplatesAsync(string token, Guid channelId, CancellationToken cancellationToken = default)
+        => SendAsync<Application.DTOs.Templates.TemplateSyncResponse>(HttpMethod.Post, $"api/channels/{channelId}/templates/sync", token, body: null, isUsable: null, cancellationToken, SendFailure.TemplateSyncCodes, _sendTimeout);
+
+    public Task<ApiResult<MessagingSettingsResponse>> GetMessagingSettingsAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<MessagingSettingsResponse>(HttpMethod.Get, "api/tenant/messaging-settings", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<MessagingSettingsResponse>> SetMessagingSettingsAsync(string token, SetMessagingSettingsRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<MessagingSettingsResponse>(HttpMethod.Put, "api/tenant/messaging-settings", token, request, isUsable: null, cancellationToken);
+
     private static bool HasToken(AuthResponse response) => !string.IsNullOrWhiteSpace(response.Token);
 
     /// <param name="expectedCodes">The refusals this call knows how to word (see <see cref="ApiResponseReader"/>); none by default.</param>
@@ -333,6 +363,44 @@ public sealed class ApiClient : IApiClient
         catch (Exception exception)
         {
             return Carry(ApiResult<T>.Unavailable(await ReportAsync(method, path, exception)), method, path);
+        }
+    }
+
+    public async Task<InboxPage> GetInboxPageAsync(string token, Application.DTOs.Inbox.InboxQuery query, string? ifNoneMatch, CancellationToken cancellationToken = default)
+    {
+        var path = "api/inbox" + InboxQueryString.Build(query);
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (_timeout is { } allowed)
+        {
+            limit.CancelAfter(allowed);
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            if (!string.IsNullOrEmpty(ifNoneMatch))
+            {
+                request.Headers.TryAddWithoutValidation("If-None-Match", ifNoneMatch);
+            }
+
+            using var response = await _http.SendAsync(request, limit.Token);
+            var etag = response.Headers.ETag?.ToString();
+            if (response.StatusCode == System.Net.HttpStatusCode.NotModified)
+            {
+                return new InboxPage(ApiResult<Application.DTOs.Inbox.InboxResponse>.Success(null!), etag, NotModified: true);
+            }
+
+            var result = Carry(await ApiResponseReader.ReadAsync<Application.DTOs.Inbox.InboxResponse>(response, JsonOptions, r => r.Items is not null, limit.Token, null), HttpMethod.Get, path);
+            return new InboxPage(result, etag, NotModified: false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return new InboxPage(Carry(ApiResult<Application.DTOs.Inbox.InboxResponse>.Unavailable(await ReportAsync(HttpMethod.Get, path, exception)), HttpMethod.Get, path), null, false);
         }
     }
 

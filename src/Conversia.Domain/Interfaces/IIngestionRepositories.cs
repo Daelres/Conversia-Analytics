@@ -81,4 +81,7 @@ public interface IMessageRepository
 
     /// <summary>Direction and time of every message of a conversation, for <see cref="ConversationTimeline"/>.</summary>
     Task<IReadOnlyList<(MessageDirection Direction, DateTime SentAt)>> ListTimesAsync(Guid conversationId, CancellationToken cancellationToken = default);
+
+    /// <summary>The provider id and time of the customer's latest message in the conversation (the one a read receipt names); null when none.</summary>
+    Task<(string ProviderMessageId, DateTime SentAt)?> GetLastInboundAsync(Guid conversationId, CancellationToken cancellationToken = default);
 }

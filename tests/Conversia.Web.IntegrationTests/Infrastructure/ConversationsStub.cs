@@ -84,6 +84,25 @@ internal sealed class ConversationsStub
     /// <summary>The caller may not look at the organization: the line answers 403, as the real API does without OrganizationView.</summary>
     public bool ChannelForbidden { get; set; }
 
+    /// <summary>Whether the customer service window of the conversations is open (the API stamps it on the detail).</summary>
+    public bool WindowOpen { get; set; } = true;
+
+    /// <summary>The company has read receipts on (the profile says so).</summary>
+    public bool ReadReceipts { get; set; }
+
+    /// <summary>The templates of the line, as <c>GET /api/conversations/{id}/templates</c> answers them.</summary>
+    public Conversia.Application.DTOs.Templates.ChannelTemplatesResponse Templates { get; set; } = new()
+    {
+        Templates =
+        [
+            new() { Name = "recordatorio_cita", Language = "es", Category = "Utility", Status = "Approved", BodyText = "Hola {{1}}, tu cita es el {{2}}.", ParameterNames = ["1", "2"], IsSupported = true, CanBeSent = true },
+            new() { Name = "en_revision", Language = "es", Category = "Marketing", Status = "Pending", BodyText = "Pronto", ParameterNames = [], IsSupported = true, CanBeSent = false },
+        ],
+    };
+
+    /// <summary>The template sends the page made, as the API received them.</summary>
+    public List<SendTemplateMessageRequest> SentTemplates { get; } = [];
+
     /// <summary>The messages the page sent through <c>POST /api/conversations/{id}/messages</c>, as the stub stored them.</summary>
     public List<MessageResponse> Sent { get; } = [];
 
@@ -104,7 +123,16 @@ internal sealed class ConversationsStub
 
         HttpResponseMessage? answer = (request.Method.Method, path) switch
         {
-            ("GET", "/api/users/me") when MemberPermissions is not null => FakeBackend.Answer(HttpStatusCode.OK, Member(request)),
+            ("GET", "/api/users/me") when MemberPermissions is not null || ReadReceipts => FakeBackend.Answer(HttpStatusCode.OK, Member(request)),
+            ("GET", _) when IdOf(path, "/templates") is { } => FakeBackend.Answer(HttpStatusCode.OK, Templates),
+            ("POST", _) when IdOf(path, "/template-messages") is { } id => SendTemplate(id, request),
+            ("POST", _) when IdOf(path, "/read") is { } => FakeBackend.Answer(HttpStatusCode.OK, new PresenceResponse { Outcome = PresenceOutcome.Sent }),
+            ("POST", _) when IdOf(path, "/typing") is { } => FakeBackend.Answer(HttpStatusCode.OK, new PresenceResponse { Outcome = PresenceOutcome.Sent }),
+            ("GET", _) when IdOf(path, "/version") is { } id => FakeBackend.Answer(HttpStatusCode.OK, new Conversia.Application.DTOs.Inbox.ConversationVersionResponse
+            {
+                MessageCount = Math.Max(All.First(c => c.Id == id).MessageCount, (Messages ?? DefaultMessages(All.First(c => c.Id == id))).Concat(Sent).Count()),
+                Status = All.First(c => c.Id == id).Status, Version = $"v{Sent.Count}", WindowOpen = WindowOpen,
+            }),
             ("GET", "/api/branches") => FakeBackend.Answer(HttpStatusCode.OK, Branches),
             ("GET", "/api/advisors") => FakeBackend.Answer(HttpStatusCode.OK, Advisors),
             ("GET", "/api/conversations") => List(request),
@@ -155,8 +183,21 @@ internal sealed class ConversationsStub
         var messages = (Messages ?? DefaultMessages(item)).Concat(Sent).ToList();
         var detail = ToDetail(item, messages);
         detail.AiAnalyzedAt = AiAnalyzedAt;
+
+        // The window as the API stamps it (docs/MESSAGING.md): open unless a test closes it.
+        detail.LastInboundAt = DateTime.UtcNow.AddHours(WindowOpen ? -1 : -30);
+        detail.WindowOpen = WindowOpen;
         detail.Channel = new ConversationChannelState { IsActive = Channel.IsActive, HasProviderApiKey = Channel.HasProviderApiKey, ProviderEnvironment = Channel.ProviderEnvironment };
         return FakeBackend.Answer(HttpStatusCode.OK, detail);
+    }
+
+    private HttpResponseMessage SendTemplate(Guid id, BackendRequest request)
+    {
+        var body = System.Text.Json.JsonSerializer.Deserialize<SendTemplateMessageRequest>(request.Body!, FakeBackend.Json)!;
+        SentTemplates.Add(body);
+        var message = new MessageResponse { Id = Guid.NewGuid(), Direction = "Outbound", Type = "template", Text = "Plantilla", SentAt = DateTime.UtcNow, TemplateName = body.TemplateName, TemplateCategory = "Utility" };
+        Sent.Add(message);
+        return FakeBackend.Answer(HttpStatusCode.Created, message);
     }
 
     private HttpResponseMessage Send(Guid id, BackendRequest request)
@@ -187,7 +228,9 @@ internal sealed class ConversationsStub
     private UserProfileResponse Member(BackendRequest request)
     {
         var (user, tenant) = FakeJwt.IdentityOf(request.Header("Authorization")?["Bearer ".Length..]);
-        return new UserProfileResponse { UserId = user, TenantId = tenant, IsOwner = false, Permissions = MemberPermissions! };
+        return MemberPermissions is null
+            ? new UserProfileResponse { UserId = user, TenantId = tenant, IsOwner = true, Permissions = Enum.GetValues<Permission>(), TenantReadReceipts = ReadReceipts }
+            : new UserProfileResponse { UserId = user, TenantId = tenant, IsOwner = false, Permissions = MemberPermissions, TenantReadReceipts = ReadReceipts };
     }
 
     private static Guid? IdOf(string path, string suffix)

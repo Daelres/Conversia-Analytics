@@ -186,4 +186,33 @@ public class ConversationServiceTests
     public async Task SetOutcome_OnAMissingConversation_IsNotFound()
         => await Assert.ThrowsAsync<ConversationNotFoundException>(
             () => CreateSut().SetOutcomeAsync(Guid.NewGuid(), new SetOpportunityOutcomeRequest { Stage = "Won" }));
+
+    // ---- The customer service window (docs/MESSAGING.md) ----------------------------------------------
+
+    [Theory]
+    [InlineData(-1, true, false)]
+    [InlineData(-23, true, true)]
+    [InlineData(-24, false, false)]
+    public async Task Detail_SaysWhetherTheWindowIsOpenAsOfTheAnswer(int hoursSinceCustomer, bool open, bool closingSoon)
+    {
+        var id = Guid.NewGuid();
+        _queries.Setup(q => q.GetDetailAsync(id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConversationDetailResponse { Id = id, LastInboundAt = Now.AddHours(hoursSinceCustomer) });
+
+        var detail = await CreateSut().GetAsync(id);
+
+        Assert.Equal((open, closingSoon), (detail.WindowOpen, detail.WindowClosingSoon));
+        Assert.Equal(Now.AddHours(hoursSinceCustomer + 24), detail.WindowClosesAt);
+    }
+
+    [Fact]
+    public async Task List_SaysWhetherEachWindowIsOpen()
+    {
+        _queries.Setup(q => q.ListAsync(It.IsAny<ConversationFilter>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(([new ConversationListItem { LastInboundAt = Now.AddHours(-1) }, new ConversationListItem { LastInboundAt = null }], 2));
+
+        var page = await CreateSut().ListAsync(new ConversationQuery());
+
+        Assert.Equal([true, false], page.Items.Select(i => i.WindowOpen));
+    }
 }

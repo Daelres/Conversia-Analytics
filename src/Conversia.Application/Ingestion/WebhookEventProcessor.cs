@@ -16,13 +16,15 @@ public class WebhookEventProcessor : IWebhookEventProcessor
     private readonly WebhookIngestionLimits _limits;
     private readonly ILogger<WebhookEventProcessor> _logger;
     private readonly IContactSuppressionRepository? _suppressions;
+    private readonly IMessageTemplateRepository? _templates;
 
     /// <param name="suppressions">The marks of suppressed contacts: their old messages are dropped (docs/USERS_TENANTS_PERMISSIONS.md, "Contact suppression").</param>
     public WebhookEventProcessor(
         IWhatsAppChannelRepository channels, IContactRepository contacts, IConversationRepository conversations,
         IMessageRepository messages, TimeProvider timeProvider, WebhookIngestionLimits limits, ILogger<WebhookEventProcessor> logger,
-        IContactSuppressionRepository? suppressions = null)
+        IContactSuppressionRepository? suppressions = null, IMessageTemplateRepository? templates = null)
     {
+        _templates = templates;
         _suppressions = suppressions;
         _logger = logger;
         _limits = limits;
@@ -114,7 +116,37 @@ public class WebhookEventProcessor : IWebhookEventProcessor
                 webhookEvent.Id, webhookEvent.TenantId, suppressed);
         }
 
-        return new WebhookProcessingResult(stored, alreadyStored, skipped, parsed.IgnoredCount, parsed.StatusCount, suppressed);
+        var templateStatuses = await ApplyTemplateStatusesAsync(webhookEvent, channel, parsed.TemplateStatuses, cancellationToken);
+
+        return new WebhookProcessingResult(stored, alreadyStored, skipped, parsed.IgnoredCount, parsed.StatusCount, suppressed, templateStatuses);
+    }
+
+    // A template's status changed at Meta (docs/WEBHOOKS.md, "Template status"): the channel's copy follows, so a paused or disabled template
+    // stops being offered before the next sync. Only the status: the next sync brings the rest. A template the channel has not synced yet
+    // is left for that sync.
+    private async Task<int> ApplyTemplateStatusesAsync(
+        WebhookEvent webhookEvent, WhatsAppChannel channel, IReadOnlyList<ParsedTemplateStatus> updates, CancellationToken cancellationToken)
+    {
+        if (_templates is null || updates.Count == 0)
+        {
+            return 0;
+        }
+
+        var applied = 0;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        foreach (var update in updates)
+        {
+            if (Messaging.TemplateNames.StatusOfEvent(update.Event) is { } status
+                && await _templates.ChangeStatusAsync(channel.Id, update.Name, update.Language, status, update.OccurredAt ?? now, cancellationToken))
+            {
+                applied++;
+            }
+        }
+
+        _logger.LogInformation(
+            "Webhook event {EventId} of channel {ChannelId} carried {Count} template status notifications; {Applied} changed a stored template.",
+            webhookEvent.Id, channel.Id, updates.Count, applied);
+        return applied;
     }
 
     private async Task<bool> IsSuppressedAsync(Guid tenantId, ParsedMessage message, Dictionary<string, DateTime?> cache, CancellationToken cancellationToken)

@@ -44,9 +44,18 @@ public sealed class Dialog360MessageSender : IWhatsAppMessageSender
         _logger = logger;
     }
 
-    public async Task<WhatsAppSendResult> SendTextAsync(WhatsAppTextMessage message, CancellationToken cancellationToken = default)
+    public Task<WhatsAppSendResult> SendTextAsync(WhatsAppTextMessage message, CancellationToken cancellationToken = default)
+        => PostAsync(message.Channel, TextBody(message), readMessageId: true, cancellationToken);
+
+    public Task<WhatsAppSendResult> SendTemplateAsync(WhatsAppTemplateMessage message, CancellationToken cancellationToken = default)
+        => PostAsync(message.Channel, TemplateBody(message), readMessageId: true, cancellationToken);
+
+    public async Task<WhatsAppSendStatus> MarkReadAsync(WhatsAppReadReceipt receipt, CancellationToken cancellationToken = default)
+        => (await PostAsync(receipt.Channel, ReadBody(receipt), readMessageId: false, cancellationToken)).Status;
+
+    // The one call every request of this adapter makes: POST {base}/v1/messages with the channel's key.
+    private async Task<WhatsAppSendResult> PostAsync(WhatsAppChannel channel, byte[] body, bool readMessageId, CancellationToken cancellationToken)
     {
-        var channel = message.Channel;
         if (channel.ProviderApiKeyCiphertext is not { } ciphertext)
         {
             throw new MessagingException(MessagingProblem.CredentialsMissing);
@@ -57,7 +66,7 @@ public sealed class Dialog360MessageSender : IWhatsAppMessageSender
 
         using var request = new HttpRequestMessage(HttpMethod.Post, MessagesUrl(_options.BaseUrlOf(channel.ProviderEnvironment)))
         {
-            Content = new ByteArrayContent(TextBody(message)) { Headers = { ContentType = JsonMediaType } },
+            Content = new ByteArrayContent(body) { Headers = { ContentType = JsonMediaType } },
         };
         request.Headers.TryAddWithoutValidation(ApiKeyHeader, apiKey);
 
@@ -85,11 +94,28 @@ public sealed class Dialog360MessageSender : IWhatsAppMessageSender
             var status = StatusOf(response.StatusCode);
             if (status != WhatsAppSendStatus.Sent)
             {
-                // The body is deliberately not read: it can repeat the request, and nothing in it changes what the caller is told.
+                // A generic refusal may be WhatsApp's "outside the 24-hour window" (Meta's error code 131047): only the numeric code of
+                // the body is read, for a short time and a bounded size. The rest of the body is never read into a log: it can repeat the
+                // request (the number, the text).
+                int? metaCode = null;
+                if (status == WhatsAppSendStatus.Rejected)
+                {
+                    metaCode = await ReadErrorCodeAsync(response);
+                    if (metaCode == WindowClosedErrorCode)
+                    {
+                        status = WhatsAppSendStatus.WindowClosed;
+                    }
+                }
+
                 _logger.LogWarning(
-                    "360dialog refused a message of channel {ChannelId} ({Environment}) with HTTP {StatusCode}: {Outcome}.",
-                    channel.Id, channel.ProviderEnvironment, (int)response.StatusCode, status);
+                    "360dialog refused a message of channel {ChannelId} ({Environment}) with HTTP {StatusCode} (error code {MetaCode}): {Outcome}.",
+                    channel.Id, channel.ProviderEnvironment, (int)response.StatusCode, metaCode?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none", status);
                 return WhatsAppSendResult.Failed(status);
+            }
+
+            if (!readMessageId)
+            {
+                return WhatsAppSendResult.Sent(null);
             }
 
             // From here on the message has left. Whatever happens to the body (slow, broken, the caller gone), the answer is Sent, so
@@ -106,8 +132,115 @@ public sealed class Dialog360MessageSender : IWhatsAppMessageSender
         }
     }
 
+    /// <summary>Meta's error code for a free-form message outside the customer service window (docs/MESSAGING.md, "Verified provider facts").</summary>
+    public const int WindowClosedErrorCode = 131047;
+
+    /// <summary>What is read of a refusal to find its error code.</summary>
+    private const int MaxErrorBytes = 16 * 1024;
+
+    // error.code of the Cloud API's error body; null when there is none or it cannot be read in time.
+    private async Task<int?> ReadErrorCodeAsync(HttpResponseMessage response)
+    {
+        using var limit = new CancellationTokenSource(BodyReadTimeout);
+        try
+        {
+            var bytes = await ReadAtMostAsync(response.Content, MaxErrorBytes, limit.Token);
+            if (bytes is null || bytes.Length == 0)
+            {
+                return null;
+            }
+
+            using var document = JsonDocument.Parse(bytes);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                   && document.RootElement.TryGetProperty("error", out var error)
+                   && error.ValueKind == JsonValueKind.Object
+                   && error.TryGetProperty("code", out var code)
+                   && code.ValueKind == JsonValueKind.Number
+                   && code.TryGetInt32(out var value)
+                ? value
+                : null;
+        }
+        catch (Exception ex) when (ex is JsonException or HttpRequestException or IOException or DecoderFallbackException
+                                       or OperationCanceledException or ObjectDisposedException)
+        {
+            return null;
+        }
+    }
+
     private static Uri MessagesUrl(Uri baseUrl)
         => new(baseUrl.AbsoluteUri.TrimEnd('/') + "/v1/messages", UriKind.Absolute);
+
+    // The Cloud API template message (docs/MESSAGING.md, "Verified provider facts"): name, language and the body's values in order; a
+    // named placeholder carries its name. The language policy "deterministic" is the one 360dialog's reference lists.
+    private static byte[] TemplateBody(WhatsAppTemplateMessage message)
+    {
+        using var buffer = new MemoryStream();
+        using (var json = new Utf8JsonWriter(buffer))
+        {
+            json.WriteStartObject();
+            json.WriteString("messaging_product", "whatsapp");
+            json.WriteString("recipient_type", "individual");
+            json.WriteString("to", message.RecipientWaId);
+            json.WriteString("type", "template");
+            json.WriteStartObject("template");
+            json.WriteString("name", message.Name);
+            json.WriteStartObject("language");
+            json.WriteString("policy", "deterministic");
+            json.WriteString("code", message.Language);
+            json.WriteEndObject();
+            if (message.Parameters.Count > 0)
+            {
+                json.WriteStartArray("components");
+                json.WriteStartObject();
+                json.WriteString("type", "body");
+                json.WriteStartArray("parameters");
+                foreach (var parameter in message.Parameters)
+                {
+                    json.WriteStartObject();
+                    json.WriteString("type", "text");
+                    if (parameter.Name is { } name)
+                    {
+                        json.WriteString("parameter_name", name);
+                    }
+
+                    json.WriteString("text", parameter.Value);
+                    json.WriteEndObject();
+                }
+
+                json.WriteEndArray();
+                json.WriteEndObject();
+                json.WriteEndArray();
+            }
+
+            json.WriteEndObject();
+            json.WriteEndObject();
+        }
+
+        return buffer.ToArray();
+    }
+
+    // Mark as read, and the typing indicator (which marks as read too): 360dialog's "Typing Indicators" page and Meta's "Mark messages as read".
+    private static byte[] ReadBody(WhatsAppReadReceipt receipt)
+    {
+        using var buffer = new MemoryStream();
+        using (var json = new Utf8JsonWriter(buffer))
+        {
+            json.WriteStartObject();
+            json.WriteString("messaging_product", "whatsapp");
+            json.WriteString("status", "read");
+            json.WriteString("message_id", receipt.ProviderMessageId);
+            if (receipt.Typing)
+            {
+                json.WriteStartObject("typing_indicator");
+                json.WriteString("type", "text");
+                json.WriteEndObject();
+            }
+
+            json.WriteEndObject();
+        }
+
+        return buffer.ToArray();
+    }
 
     private static byte[] TextBody(WhatsAppTextMessage message)
     {
@@ -175,7 +308,7 @@ public sealed class Dialog360MessageSender : IWhatsAppMessageSender
         }
     }
 
-    private static async Task<byte[]?> ReadAtMostAsync(HttpContent content, int maxBytes, CancellationToken cancellationToken)
+    internal static async Task<byte[]?> ReadAtMostAsync(HttpContent content, int maxBytes, CancellationToken cancellationToken)
     {
         await using var stream = await content.ReadAsStreamAsync(cancellationToken);
         using var buffer = new MemoryStream();

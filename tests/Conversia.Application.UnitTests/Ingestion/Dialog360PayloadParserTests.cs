@@ -445,4 +445,30 @@ public class Dialog360PayloadParserTests
             }
         }
     }
+
+    // ---- Template status notifications (docs/WEBHOOKS.md, "Template status") ----------------------------------------------
+
+    [Fact]
+    public void TemplateStatusUpdate_IsReadAsATemplateStatus_NotAsAMessage()
+    {
+        var parsed = Dialog360PayloadParser.Parse(Dialog360Samples.TemplateStatusUpdate("PAUSED", "recordatorio_cita", "es_CO", "MARKETING"));
+
+        Assert.Empty(parsed.Messages);
+        var update = Assert.Single(parsed.TemplateStatuses);
+        Assert.Equal(("recordatorio_cita", "es_CO", "PAUSED", "MARKETING"), (update.Name, update.Language, update.Event, update.Category));
+        Assert.Equal(T0, update.OccurredAt); // entry.time: what orders notifications that arrive out of order
+    }
+
+    [Fact]
+    public void TemplateStatusUpdate_WithoutNameOrLanguage_IsSkipped()
+    {
+        var parsed = Dialog360PayloadParser.Parse(Dialog360Samples.TemplateStatusUpdate("APPROVED", name: "", language: ""));
+
+        Assert.Empty(parsed.TemplateStatuses);
+        Assert.Equal(1, parsed.SkippedCount);
+    }
+
+    [Fact]
+    public void AMessagesDelivery_HasNoTemplateStatus()
+        => Assert.Empty(Dialog360PayloadParser.Parse(Dialog360Samples.InboundText()).TemplateStatuses);
 }

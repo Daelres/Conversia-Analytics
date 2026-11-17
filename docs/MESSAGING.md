@@ -25,6 +25,11 @@ POST /api/conversations/{id}/messages
 | [Recording and echoes](#recording-and-echoes) | Locks, idempotency, what is not verified |
 | [Configuration](#configuration) | Settings and the master key |
 | [Internal sandbox mode](#internal-sandbox-mode) | When nothing goes to 360dialog at all |
+| [Customer service window](#customer-service-window) | When free text is allowed, and the refusal outside it |
+| [Templates](#templates) | Sync, status webhook, sending one, what is not supported |
+| [Inbox](#inbox) | `/bandeja`, priority, the polled delta, moving to SignalR later |
+| [Read receipts and typing](#read-receipts-and-typing) | The company setting, what is sent, the 20-second debounce |
+| [Verified provider facts](#verified-provider-facts) | What was checked in the official docs, with links, and what was not |
 
 ## Endpoints
 
@@ -115,9 +120,11 @@ ever returned or logged.
 | `409` | `provider_credentials_invalid` | 360dialog answered `401`: it does not recognize the key |
 | `409` | `sandbox_conversation` | The conversation is sandbox data and the company is not in sandbox mode: nothing real is ever sent into it ([SANDBOX.md](SANDBOX.md)) |
 | `409` | `sandbox_mode_active` | The company is in sandbox mode and the conversation is real: nothing is sent, and nothing made up is stored in it |
+| `409` | `customer_service_window_closed` | More than 24 hours passed since the customer last wrote: free text is refused **before** 360dialog is called, and Meta's own refusal (error `131047`) maps to the same code. Only a template can be sent |
+| `409` | `template_unavailable` | The template does not exist for the channel in that language, is not approved, or Conversia cannot send it (media header, variable buttons, authentication) |
 | `409` | `sandbox_data_deleted` | In sandbox mode, the company deleted its sandbox data while the message was being recorded. Nothing was stored and nothing left the server |
 | `422` | `recipient_not_allowed` | 360dialog answered `403`: this key may not write to this number |
-| `422` | `provider_rejected` | Any other `4xx` of 360dialog (for example a free-form text outside WhatsApp's 24-hour window) |
+| `422` | `provider_rejected` | Any other `4xx` of 360dialog (only the numeric `error.code` of the body is read, to tell `131047` apart) |
 | `429` | `provider_limit_reached` | 360dialog answered `429`: the quota of the key is used up. No `Retry-After` |
 | `429` | | Conversia's own limit per user or per company (has `Retry-After`, no `code`) |
 | `503` | `provider_unavailable` | 360dialog could not be reached, timed out, or answered `408`/`5xx`. **The outcome is unknown and nothing is retried**: see below |
@@ -140,7 +147,8 @@ With a channel in the `Sandbox` environment (`https://waba-sandbox.360dialog.io`
 - A sandbox key allows **25 requests in total**, and **rejected ones count**. Do not script against it.
 - It can write only to **your own number**, the phone that sent `START` to the sandbox; any other recipient is a `403`
   (`recipient_not_allowed`).
-- Only plain text and the sandbox's three predefined templates. Conversia sends text only.
+- Only plain text and the sandbox's three predefined templates. Conversia sends text and approved templates; with a 360dialog sandbox key, only
+  those three templates can be tried.
 - Sending `START` again issues a new key and revokes the old one: `PUT` the new key afterwards.
 
 The step-by-step sandbox procedure is [`PRUEBAS_SANDBOX.md`](PRUEBAS_SANDBOX.md) (Spanish).
@@ -177,8 +185,9 @@ A sent message is stored through the same domain paths as an ingested one (`Mess
   - **Known gap:** a send whose record step failed (`message_sent_not_recorded`, see below) and whose echo arrives later is stored from
     the echo as `PhoneApp`, without its user: nothing is left to claim it. The error line of the failed record has the conversation id.
   The response latency between the two sides is not stored: it is derived from `SentAt` and `Direction` when a read model needs it
-  (docs/decisiones.md). Templates are not recorded: the send path only sends text, and neither the echo nor the message webhook
-  documents a template name or category.
+  (docs/decisiones.md). A template sent from Conversia is recorded with `Type = template`, the rendered text, `TemplateName` and
+  `TemplateCategory` (what Meta charges by). A template sent from the phone app arrives as an echo without those columns: the echo does
+  not document them.
 - **Not handled:** a failure of the record step after the provider accepted (`message_sent_not_recorded`) leaves the message
   out of the conversation unless an echo brings it. It is logged as an error.
 
@@ -235,3 +244,161 @@ While a company is in the internal sandbox mode ([SANDBOX.md](SANDBOX.md)), this
 
 With the mode off, none of this is in the path: the checks and the 360dialog call are what they were before the mode existed.
 In the Web, the composer of a sandbox conversation is offered without a key and without the 360dialog sandbox note.
+
+## Customer service window
+
+WhatsApp delivers free-form messages only within **24 hours of the customer's last message**; each customer message starts the 24 hours
+over, and nothing the business sends opens or extends it. Outside it only an approved template can be sent.
+
+- `Conversations.LastInboundAt` and `LastOutboundAt` are kept by the same timeline recomputation as the other markers (ingestion and the
+  send path, under the ingestion lock); the migration filled them from the stored messages.
+- The window is open while `now < LastInboundAt + 24 h` (the closing instant itself is outside); a conversation where the customer never
+  wrote has no window. `CustomerServiceWindow` (Domain) is the one definition.
+- `GET /api/conversations` and `/{id}` carry `lastInboundAt`, `lastOutboundAt`, `awaitingReply`, `windowClosesAt`, `windowOpen` and
+  `windowClosingSoon` (last two hours), the last three as of the answer.
+- `POST /api/conversations/{id}/messages` outside the window is `409 customer_service_window_closed` before the provider is called (a
+  360dialog sandbox key would count the refused request). If 360dialog refuses with Meta's `131047` anyway (clock skew, a message that
+  was not stored), the answer is the same code. Sandbox mode applies the same rule.
+
+## Templates
+
+Templates are **created in the 360dialog Hub** (Channels › the number › Templates; Meta reviews them in 24 to 48 hours). Conversia does not
+edit them: it keeps a copy per channel (`MessageTemplates`: name, language, category, status, body text, the placeholder names, whether it
+can send it) to offer and send them. The copy holds the business's own text, never customer data; the values typed for a send live only
+on the message sent.
+
+| Method | Route | Permission | |
+|---|---|---|---|
+| `GET` | `/api/channels/{id}/templates` | `OrganizationView` | The copy, with `lastSyncedAt`; in sandbox mode the fixed sandbox list (`sandbox: true`) |
+| `POST` | `/api/channels/{id}/templates/sync` | `OrganizationManage` | Reads the list from 360dialog with the channel's key and replaces the copy (added, refreshed, removed). Rate-limited like a send. Errors: `provider_credentials_missing`, `provider_credentials_invalid`, `provider_limit_reached`, `provider_unavailable`, `provider_rejected`, `provider_credentials_unavailable` |
+| `GET` | `/api/conversations/{id}/templates` | `ConversationsView` | The templates of the conversation's channel |
+| `POST` | `/api/conversations/{id}/template-messages` | `ConversationsManage` | `{"templateName", "language", "parameters": [...]}` → `201` the stored message |
+
+- **Sync.** On demand (`/organizacion/canales/{id}/plantillas`, "Sincronizar ahora") and every `Templates:SyncIntervalMinutes` (360) by
+  `TemplateSyncService`, for every active channel with a key of an Active company not in sandbox mode, one channel at a time in its own
+  company. The job's first run waits one interval, so a restart sends no burst to 360dialog. `Templates:SyncEnabled=false` turns it off.
+  Pages are read with `limit`/`offset` until `total`; a failed page fails the whole sync and keeps the stored copy, and so does a page
+  that comes empty before the announced `total` (a broken read is never taken for a shorter list).
+- **Guards against losing templates.** The list is *complete* only when every page was read, nothing was skipped and the count reached
+  the provider's `total`. An **empty** list never removes anything (even "complete": an account cannot be told apart from a broken read),
+  and a list that is not complete may remove **at most half** of the stored templates; above that, the removals are held, logged and
+  reported (`removalsHeld`). Additions and refreshes are applied either way.
+- **Status webhook.** A `message_template_status_update` change in a delivery (docs/WEBHOOKS.md, "Template status") updates the status
+  of the stored template by name and language, so a paused or disabled template stops being offered before the next sync.
+- **Order of status changes.** A notification carries its time (`entry.time`); one older than the last applied (`StatusChangedAt`) is
+  ignored, so an `APPROVED` delivered after a later `PAUSED` changes nothing. A sync keeps the status of a notification newer than the
+  moment it read the list. Sync and notification both take the channel row's lock (`SELECT ... FOR UPDATE`), so they never interleave.
+- **Statuses.** Only `Approved` (Meta's `APPROVED`, any "Active - … quality") is sent; `Pending` (in review or appeal), `Rejected`,
+  `Paused`, `Disabled` (disabled, archived, deleted) and anything unknown are not.
+- **Supported.** A body with text placeholders (`{{1}}` or `{{name}}`, at most 20), an optional text header without placeholders, a
+  footer, and quick-reply, phone or fixed-URL buttons. Media headers, header placeholders, buttons with variables or codes, carousels and
+  authentication templates are listed as "Conversia aún no puede enviarla" (media is the next unit).
+- **Sending.** Same checks, locks, attribution, rate limits and monitoring as a text, except the window. The values are checked against
+  the template: one per placeholder, trimmed, 1 to 500 characters, no line breaks, tabs or more than four spaces in a row (a `400`
+  otherwise). The payload is the Cloud API template message: `type: template`, `template.name`, `template.language` (`policy:
+  deterministic`, `code`), and one `body` component whose `text` parameters follow the placeholder order (`parameter_name` for named
+  placeholders). The stored message is the body with the values in it.
+- **Charges.** Meta charges each template message by its category (Marketing, Utility, Authentication); the composer shows the category
+  and says so, without amounts.
+- **Sandbox mode.** Three fixed templates (`conversia_retomar_conversacion`, `conversia_recordatorio_cita`, `conversia_promocion`) for
+  every channel, never stored; the internal sender accepts them and nothing else.
+- **In the Web.** With the window open the composer shows how long free text is still allowed; once closed, the text area is replaced by
+  the template composer: pick a template (a GET form, so it works without JavaScript), fill one field per placeholder, send. Every
+  refusal has its Spanish wording (`SendFailure`); the values stay on a refusal; one-time submission like a text.
+
+## Inbox
+
+`/bandeja` is the advisors' page: the **open** conversations of the company (permission `ConversationsView`, like `/conversaciones`),
+the ones awaiting a reply first (the customer wrote last), the longest waiting first, then the rest by their last message. Badges:
+waiting time, window open / closing soon / closed (template only), sandbox. Filters: all, awaiting reply, mine (the advisor linked to
+the user), unassigned, branch. While the company is in sandbox mode it shows the sandbox conversations only, otherwise only real ones.
+
+- **The full list.** `GET /api/inbox?mine=&branchId=&unassigned=&awaitingReply=` answers at most 200 rows (`truncated` beyond) and an
+  `ETag` that is the inbox's **version**: a hash of the filters, the caller's advisor, the mode, the company's last conversation change,
+  its open count and the minute (waiting times move with the clock). A request whose `If-None-Match` is still current gets a bodiless
+  `304` after **one** indexed query (the change token): the list is not built. Renaming a contact, branch or advisor does not change the
+  version; it shows at the next change of the company's conversations or within a minute.
+- **Bounded reads, on their own indexes:** the change token reads `max(UpdatedAt)` on `IX_Conversations_Inbox_Changes` and the open count
+  on `IX_Conversations_Inbox_Open`; the list is two reads with a limit, those awaiting a reply by the customer's last message
+  (`IX_Conversations_Inbox_Waiting`, partial on open) and then the rest by their last message, so no request sorts every open conversation.
+  Every conversation has an `UpdatedAt` (set when it is created; the migration filled the old ones), so the delta filters on it without
+  `COALESCE`. An integration test reads the plans (`EXPLAIN` of the recorded commands, with sequential scans discouraged because the test
+  tables are tiny): index scans on those indexes, no sequential scan of `Conversations`, at most an incremental sort bounded by the limit.
+- **The delta.** `GET /api/inbox?since={cursor}` answers the conversations of the company and mode changed after the cursor, **open or not
+  and whatever their advisor, branch or reply state**: `inFilter` says whether each still matches the filters, and `status` whether it is
+  open, so a client removes the closed ones and those reassigned out of its filters. `fullReloadRequired: true` (more than 200 changes)
+  means the delta is not the whole change: load the full list again. **Deleted** conversations (a suppressed contact, deleted sandbox data)
+  never appear in a delta: a client that uses deltas must also reload the full list from time to time (the Web polls the full list with its
+  `ETag`). The cursor is the **database's** time, 10 seconds back on purpose: a row stamped before a poll but committed after it still comes;
+  a row can come twice and is replaced by id.
+- **Budgets.** Every polled read (`GET /api/inbox`, `/api/conversations/{id}/version`, the template lists) is limited per user and endpoint
+  (`Inbox:PollRateLimitPerMinute`, 60, sliding window); the Web's own polled endpoints (`/bandeja/lista`, `/conversaciones/{id}/version`,
+  `/escribiendo`, `/leido`) have the same budget (the Web's `Inbox:PollRateLimitPerMinute`). A `429` makes the script back off.
+- `GET /api/conversations/{id}/version` is the conversation's fingerprint (message count, last change, status **and whether the window is
+  open**, which flips with the clock) with `ETag`/`304`.
+- **The Web polls.** `wwwroot/js/inbox.js` asks `/bandeja/lista` every `Inbox:PollIntervalSeconds` (5) with the last `ETag`; the Web
+  passes it to the API, so an unchanged inbox is a `304` end to end and nothing is rendered. An open conversation asks
+  `/conversaciones/{id}/version`; when it changed (a message, the status, the window) the script refetches the page and replaces the chat
+  **and both composers**, keeping what was typed. Each element is bound once per page generation (an enhanced navigation never starts a
+  second loop or listener), a navigation aborts the requests in flight, errors back off up to 60 seconds, a `401`/`403` stops the loop
+  with a "sign in again" note, and a hidden tab does not poll. Without JavaScript the pages are as drawn, with an "Actualizar" link.
+- **Manual checklist of the script** (no JavaScript test runner in the repository; `InboxScriptContractTests` guards the contract):
+  1. Open `/bandeja`, write from the customer's phone: the row moves within the poll interval; the network shows `304`s in between.
+  2. Navigate to `/conversaciones` and back with the menu (enhanced navigation): one request per interval, not two.
+  3. Hide the tab for a minute: no requests; show it again: polling resumes.
+  4. Stop the API: requests back off (5, 10, 20, 40, 60 s); start it: the next answer resets the pace.
+  5. Sign out in another tab: the list shows the "sign in again" note and stops.
+  6. In a conversation, type a draft and receive a message: the chat updates and the draft stays. Wait until the window closes: the
+     composer switches to the template picker without a reload.
+  7. With read receipts on, open a conversation awaiting a reply: one `POST /conversaciones/{id}/leido`; type: one `/escribiendo` per 20 s.
+- **Later: Blazor interactive / SignalR.** The polling contract is the seam: a hub that pushes "conversation X changed" (raised where the
+  timeline is applied) can replace the timer, and the same `/bandeja/lista` and version endpoints can be fetched on push instead of on a
+  timer. Interactive render mode would need a circuit per advisor; the pilot's volume does not justify it yet (docs/decisiones.md).
+
+## Read receipts and typing
+
+A company setting, **off by default** because it changes what the customer sees: `GET`/`PUT /api/tenant/messaging-settings`
+(`{"readReceiptsEnabled": true}`); reading needs `ConversationsView`, changing it `OrganizationManage` (the owner always has it). The
+profile (`GET /api/users/me`) carries `tenantReadReceipts`. In the Web: `/organizacion/mensajeria`.
+
+- `POST /api/conversations/{id}/read` (`ConversationsManage`): marks the customer's latest message as read (WhatsApp marks the earlier ones
+  too). Sent once per new customer message (`Conversations.CustomerReadMarkedAt`). After a failure the conversation's read receipts wait
+  5 minutes (`throttled`), so reopening the page does not retry each time. **The page render never sends it**: the conversation page
+  draws `data-read-url` (only when the company has it on, the person may write and the customer wrote last) and its script posts
+  `/conversaciones/{id}/leido` once the page is visible; a prefetch, a reload or a page without JavaScript marks nothing.
+- `POST /api/conversations/{id}/typing` (`ConversationsManage`): the typing indicator (it marks as read too; WhatsApp shows it up to 25
+  seconds or until the reply). Only when a reply is plausible: open conversation, the customer wrote last, window open. At most once per
+  conversation every 20 seconds (`TypingIndicatorThrottle`, per API instance; the page's script also waits 20 seconds between posts). The
+  slot is taken when the indicator is attempted, **sent or not**: a failure does not make the next keystroke retry at once.
+- Both endpoints are limited per user (`Messaging:PresenceRateLimitPerMinute`, 30): each one is a request to the provider.
+- **Trail of the setting.** There is no tenant-side audit table (as for a contact suppression): switching it writes the structured log
+  line event 4301 `ReadReceiptsChanged` with the company id, the user id and the new value.
+- Both go through the same sender resolver as a message; in sandbox mode the internal sender accepts them (a log line, nothing reaches a
+  phone). Both answer `200` with an `outcome` (`disabled`, `not_needed`, `throttled`, `sent`, `sandbox`, `failed`): a failure is logged with
+  ids only and never blocks the advisor.
+
+## Verified provider facts
+
+Checked on 2026-11-16 in the official documentation:
+
+| Fact | Source |
+|---|---|
+| The customer service window is 24 hours from the user's last message, refreshed by each one; outside it only templates | [360dialog, Messaging overview](https://docs.360dialog.com/docs/messaging/overview) |
+| Template list: `GET https://waba-v2.360dialog.io/v1/configs/templates`, header `D360-API-KEY`, query `limit` (default 1000), `offset`, `sort`, `filters`; answer `count`, `limit`, `offset`, `total`, `waba_templates[]` with `name`, `language`, `category`, `status`, `components`, `rejected_reason` | [360dialog, Templates](https://docs.360dialog.com/docs/resources/templates) |
+| Only Active (approved) templates can be sent; statuses In review, Rejected, Active (quality …), Paused, Disabled | [360dialog, Templates](https://docs.360dialog.com/docs/resources/templates), [Sending template messages](https://docs.360dialog.com/docs/resources/templates/sending-template-messages) |
+| Template message: `type: template`, `template.name`, `template.language.code` (360dialog lists `policy` as required), body parameters `type: text`, `parameter_name` for named placeholders; values in placeholder order | [360dialog, Sending template messages](https://docs.360dialog.com/docs/resources/templates/sending-template-messages), [Meta, Template fundamentals](https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/overview) |
+| Error `131047`: more than 24 hours since the recipient last replied; send a template | [Meta, Error codes](https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes) |
+| Typing indicator through 360dialog: `POST /messages` with `{"messaging_product":"whatsapp","status":"read","message_id":"wamid…","typing_indicator":{"type":"text"}}`, answer `{"success":true}`; dismissed after 25 s or on reply; marks the message as read | [360dialog, Typing indicators](https://docs.360dialog.com/docs/messaging/overview/typing-indicators) |
+| Mark as read: the same body without `typing_indicator`; marks earlier messages too; within 30 days | [Meta, Mark messages as read](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/mark-message-as-read) |
+| Template status notification: field `message_template_status_update`, value `event`, `message_template_id`, `message_template_name`, `message_template_language`, `reason`, `message_template_category`; events APPROVED, REJECTED, DISABLED, FLAGGED, PAUSED, LOCKED, PENDING, REINSTATED, IN_APPEAL, ARCHIVED, UNARCHIVED, DELETED, PENDING_DELETION, LIMIT_EXCEEDED | [Meta, message_template_status_update](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/message_template_status_update) |
+
+**Not verified** (isolated in `Dialog360MessageSender`, `Dialog360TemplateSource` and the parser; to try with the 360dialog sandbox):
+
+- Mark-as-read **without** the typing indicator through 360dialog (documented by Meta only; 360dialog documents the typing variant).
+- The path: 360dialog's pages say `POST {base}/messages`; this adapter has always used `{base}/v1/messages` (text sends), and the read
+  receipt and template sends use the same path. If the sandbox refuses it, the change is one line (`MessagesUrl`).
+- Whether 360dialog forwards `message_template_status_update` to a channel's webhook URL (its pages name `template_message_update` and
+  `message_template_status_change` too). Until verified, the periodic sync is what keeps the statuses right.
+- Whether `/v1/configs/templates` exists on `waba-sandbox.360dialog.io`, and the exact status words of the list (`approved` vs `APPROVED`;
+  both are read, case-insensitively).
+- The error body shape of a `131047` refusal through 360dialog (read as `error.code`).

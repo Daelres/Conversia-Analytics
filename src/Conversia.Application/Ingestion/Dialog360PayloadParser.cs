@@ -34,10 +34,21 @@ public sealed record ParsedReferral(string? Reference, AdReferral? Ad = null);
 /// a business-scoped user id), an implausible timestamp, a group message, or an echo whose customer cannot be told.
 /// </param>
 /// <param name="IgnoredCount">Messages of a kind that says nothing about the conversation (<c>reaction</c>, <c>system</c>).</param>
-public sealed record ParsedWebhook(IReadOnlyList<ParsedMessage> Messages, int StatusCount, int SkippedCount, int IgnoredCount)
+/// <param name="TemplateStatuses">Template status notifications (<c>message_template_status_update</c>, docs/WEBHOOKS.md).</param>
+public sealed record ParsedWebhook(
+    IReadOnlyList<ParsedMessage> Messages, int StatusCount, int SkippedCount, int IgnoredCount, IReadOnlyList<ParsedTemplateStatus>? TemplateStatuses = null)
 {
     public static ParsedWebhook Empty { get; } = new([], 0, 0, 0);
+
+    public IReadOnlyList<ParsedTemplateStatus> TemplateStatuses { get; init; } = TemplateStatuses ?? [];
 }
+
+/// <summary>
+/// A template status notification, in Meta's words (<c>event</c> as given: <c>APPROVED</c>, <c>PAUSED</c>, ...). The template is named by
+/// name and language, which is how the channel's copy is keyed.
+/// </summary>
+/// <param name="OccurredAt">The <c>entry.time</c> of the notification; null when absent (the time of processing is used then).</param>
+public sealed record ParsedTemplateStatus(string Name, string Language, string Event, string? Category, DateTime? OccurredAt = null);
 
 /// <summary>
 /// The only place that knows the shape of a 360dialog webhook delivery. It reads the WhatsApp Cloud API format
@@ -80,24 +91,54 @@ public static class Dialog360PayloadParser
             }
 
             var messages = new List<ParsedMessage>();
+            var templates = new List<ParsedTemplateStatus>();
             var counts = new Counts();
 
-            foreach (var value in Values(document.RootElement))
+            foreach (var (field, value, time) in Values(document.RootElement))
             {
+                if (field == TemplateStatusField)
+                {
+                    ParseTemplateStatus(value, time, templates, counts);
+                    continue;
+                }
+
                 ParseValue(value, latest, messages, counts);
             }
 
-            return new ParsedWebhook(messages, counts.Statuses, counts.Skipped, counts.Ignored);
+            return new ParsedWebhook(messages, counts.Statuses, counts.Skipped, counts.Ignored, templates);
         }
     }
 
-    // The "value" objects of the delivery: one per entry/change in the Cloud API envelope, or the root itself in the older shape.
-    private static IEnumerable<JsonElement> Values(JsonElement root)
+    /// <summary>The <c>field</c> of a template status notification in Meta's webhook envelope.</summary>
+    public const string TemplateStatusField = "message_template_status_update";
+
+    private static void ParseTemplateStatus(JsonElement value, DateTime? occurredAt, List<ParsedTemplateStatus> templates, Counts counts)
+    {
+        var name = String(value, "message_template_name");
+        var language = String(value, "message_template_language");
+        var statusEvent = String(value, "event");
+        if (!MessageTemplate.IsValidName(name) || !MessageTemplate.IsValidLanguage(language) || string.IsNullOrWhiteSpace(statusEvent) || statusEvent.Length > 50)
+        {
+            counts.Skipped++;
+            return;
+        }
+
+        var category = String(value, "message_template_category");
+        templates.Add(new ParsedTemplateStatus(name!, language!, statusEvent, category is { Length: <= 50 } ? category : null, occurredAt));
+    }
+
+    // The "value" objects of the delivery with the field of their change: one per entry/change in the Cloud API envelope, or the root
+    // itself (no field) in the older shape.
+    private static IEnumerable<(string? Field, JsonElement Value, DateTime? Time)> Values(JsonElement root)
     {
         if (root.TryGetProperty("entry", out var entries) && entries.ValueKind == JsonValueKind.Array)
         {
             foreach (var entry in entries.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.Object))
             {
+                DateTime? time = entry.TryGetProperty("time", out var t) && t.ValueKind == JsonValueKind.Number && t.TryGetInt64(out var seconds)
+                                 && seconds is > 0 and < 253402300799
+                    ? DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime
+                    : null;
                 if (!entry.TryGetProperty("changes", out var changes) || changes.ValueKind != JsonValueKind.Array)
                 {
                     continue;
@@ -107,7 +148,7 @@ public static class Dialog360PayloadParser
                 {
                     if (change.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Object)
                     {
-                        yield return value;
+                        yield return (String(change, "field"), value, time);
                     }
                 }
             }
@@ -115,7 +156,7 @@ public static class Dialog360PayloadParser
             yield break;
         }
 
-        yield return root;
+        yield return (null, root, null);
     }
 
     private sealed class Counts

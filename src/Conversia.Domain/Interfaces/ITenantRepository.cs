@@ -16,6 +16,9 @@ public interface ITenantRepository
     /// <summary>Whether the company is in sandbox mode (docs/SANDBOX.md), or null when it does not exist. Untracked projection of one column.</summary>
     Task<bool?> GetSandboxModeAsync(Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>Whether the company has read receipts and the typing indicator on (docs/MESSAGING.md); false when it does not exist.</summary>
+    Task<bool> GetReadReceiptsEnabledAsync(Guid id, CancellationToken cancellationToken = default);
+
     Task AddAsync(Tenant tenant, CancellationToken cancellationToken = default);
 }
 

@@ -3,6 +3,7 @@ using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.Exceptions;
 using Conversia.Application.Interfaces;
 using Conversia.Application.Time;
+using Conversia.Domain.Common;
 using Conversia.Domain.Enums;
 using Conversia.Domain.Exceptions;
 using Conversia.Domain.Interfaces;
@@ -48,6 +49,7 @@ public class ConversationService : IConversationService
             query.ClosedUnanswered == true);
 
         var (items, totalCount) = await _queries.ListAsync(filter, cancellationToken);
+        StampWindow(items);
         return new PagedResponse<ConversationListItem>
         {
             Items = items,
@@ -58,7 +60,22 @@ public class ConversationService : IConversationService
     }
 
     public async Task<ConversationDetailResponse> GetAsync(Guid id, CancellationToken cancellationToken = default)
-        => await _queries.GetDetailAsync(id, cancellationToken) ?? throw new ConversationNotFoundException();
+    {
+        var detail = await _queries.GetDetailAsync(id, cancellationToken) ?? throw new ConversationNotFoundException();
+        StampWindow([detail]);
+        return detail;
+    }
+
+    // The window depends on the time of the answer, not only on the stored rows (docs/MESSAGING.md, "Customer service window").
+    private void StampWindow(IEnumerable<ConversationListItem> items)
+    {
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        foreach (var item in items)
+        {
+            item.WindowOpen = CustomerServiceWindow.IsOpen(item.LastInboundAt, now);
+            item.WindowClosingSoon = CustomerServiceWindow.IsClosingSoon(item.LastInboundAt, now);
+        }
+    }
 
     public async Task<ConversationListItem> AssignAdvisorAsync(Guid id, AssignAdvisorRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default)
     {

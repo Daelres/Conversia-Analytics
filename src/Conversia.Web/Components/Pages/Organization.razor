@@ -26,7 +26,9 @@ else if (!Redirected)
 {
     <div class="page" data-page="organization">
         <PageHeader Eyebrow="Tu negocio" EyebrowIcon="building" Title="Organización"
-                    Description="Las sucursales, los asesores que atienden y los números de WhatsApp que Conversia lee." />
+                    Description="Las sucursales, los asesores que atienden y los números de WhatsApp que Conversia lee.">
+            <a class="btn btn--secondary" href="/organizacion/mensajeria" data-testid="to-messaging-settings"><Icon Name="message" />Confirmaciones de lectura</a>
+        </PageHeader>
 
         @if (OrganizationNotice.Describe(Notice) is { } notice)
         {
@@ -229,6 +231,7 @@ else if (!Redirected)
                                                         }
                                                         <a href="/organizacion/canales/@channel.Id/rotar-secreto" id="cr-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="cr-@channel.Id ch-@channel.Id"><Icon Name="key" Class="icon--sm" />Rotar secreto</a>
                                                         <a href="/organizacion/canales/@channel.Id/clave-api" id="ck-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="ck-@channel.Id ch-@channel.Id"><Icon Name="lock" Class="icon--sm" />Clave de API</a>
+                                                        <a href="/organizacion/canales/@channel.Id/plantillas" id="ct-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="ct-@channel.Id ch-@channel.Id" data-testid="channel-templates-link"><Icon Name="layers" Class="icon--sm" />Plantillas</a>
                                                     </div>
                                                 </td>
                                             }

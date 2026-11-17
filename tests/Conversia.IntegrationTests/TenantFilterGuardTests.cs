@@ -21,6 +21,7 @@ public class TenantFilterGuardTests
         "Conversia.Infrastructure/Classification/Usage/AiUsageMeter.cs", // the deployment USD cap sums every company; the recorder has no company set
         "Conversia.Infrastructure/Conversations/ConversationAutoCloser.cs", // the worker claims across companies
         "Conversia.Infrastructure/Messaging/MessageSendOutcomeRecorder.cs", // retention of the send counters across companies
+        "Conversia.Infrastructure/Messaging/TemplateSyncService.cs", // the periodic template sync lists the channels of every company, then syncs each in its own company
         "Conversia.Infrastructure/Monitoring/PlatformMonitoringQueries.cs", // the platform administrator's monitoring counts
         "Conversia.Infrastructure/Repositories/BillingRepositories.cs", // the billing lock and lookups name the company explicitly; the job and events run without one
         "Conversia.Infrastructure/Repositories/PlatformAdminQueries.cs", // the platform administrator's scalar projections

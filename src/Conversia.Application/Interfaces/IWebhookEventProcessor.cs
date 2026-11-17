@@ -9,7 +9,8 @@ namespace Conversia.Application.Interfaces;
 /// <param name="Statuses">Delivery receipts, which carry nothing to store.</param>
 /// <param name="Suppressed">Messages of suppressed contacts that were dropped (they are also in <paramref name="Skipped"/>): the raw delivery
 /// carries a suppressed customer's messages, so the caller deletes it once processed.</param>
-public sealed record WebhookProcessingResult(int MessagesStored, int MessagesAlreadyStored, int Skipped, int Ignored, int Statuses, int Suppressed = 0);
+/// <param name="TemplateStatuses">Template status notifications that changed a stored template (docs/WEBHOOKS.md, "Template status").</param>
+public sealed record WebhookProcessingResult(int MessagesStored, int MessagesAlreadyStored, int Skipped, int Ignored, int Statuses, int Suppressed = 0, int TemplateStatuses = 0);
 
 /// <summary>
 /// Turns one stored webhook delivery into contacts, conversations, messages and opportunities. Idempotent: processing the same

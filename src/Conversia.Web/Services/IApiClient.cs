@@ -228,4 +228,37 @@ public interface IApiClient
     Task<ApiResult<Unit>> CloseAdminReviewItemAsync(string token, Guid itemId, ReviewItemRequest request, CancellationToken cancellationToken = default);
 
     Task<ApiResult<Unit>> ReviewAdminAttemptAsync(string token, Guid tenantId, Guid attemptId, ReviewAttemptRequest request, CancellationToken cancellationToken = default);
+
+    // ---- inbox, templates, read receipts (docs/MESSAGING.md) ----
+
+    Task<ApiResult<Application.DTOs.Inbox.InboxResponse>> GetInboxAsync(string token, Application.DTOs.Inbox.InboxQuery query, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Application.DTOs.Inbox.ConversationVersionResponse>> GetConversationVersionAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Application.DTOs.Templates.ChannelTemplatesResponse>> GetConversationTemplatesAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>Carries the codes of <see cref="SendFailure.SendCodes"/>, like a text send.</summary>
+    Task<ApiResult<MessageResponse>> SendTemplateMessageAsync(string token, Guid id, SendTemplateMessageRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PresenceResponse>> MarkConversationReadAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PresenceResponse>> SendTypingAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Application.DTOs.Templates.ChannelTemplatesResponse>> GetChannelTemplatesAsync(string token, Guid channelId, CancellationToken cancellationToken = default);
+
+    /// <summary>Carries the codes of <see cref="SendFailure.TemplateSyncCodes"/>.</summary>
+    Task<ApiResult<Application.DTOs.Templates.TemplateSyncResponse>> SyncChannelTemplatesAsync(string token, Guid channelId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<MessagingSettingsResponse>> GetMessagingSettingsAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<MessagingSettingsResponse>> SetMessagingSettingsAsync(string token, SetMessagingSettingsRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The inbox for a page that polls: <paramref name="ifNoneMatch"/> is passed to the API, whose <c>304</c> comes back as
+    /// <see cref="InboxPage.NotModified"/> (the API then built no list).
+    /// </summary>
+    Task<InboxPage> GetInboxPageAsync(string token, Application.DTOs.Inbox.InboxQuery query, string? ifNoneMatch, CancellationToken cancellationToken = default);
 }
+
+/// <summary>An inbox answer with the API's <c>ETag</c>; <see cref="NotModified"/> means the caller's version is still current.</summary>
+public sealed record InboxPage(ApiResult<Application.DTOs.Inbox.InboxResponse> Result, string? ETag, bool NotModified);

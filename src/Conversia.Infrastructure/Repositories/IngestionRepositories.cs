@@ -174,4 +174,15 @@ public class MessageRepository(ApplicationDbContext dbContext) : IMessageReposit
 
         return rows.Select(r => (r.Direction, r.SentAt)).ToList();
     }
+
+    public async Task<(string ProviderMessageId, DateTime SentAt)?> GetLastInboundAsync(Guid conversationId, CancellationToken cancellationToken = default)
+    {
+        var row = await dbContext.Messages.AsNoTracking()
+            .Where(m => m.ConversationId == conversationId && m.Direction == MessageDirection.Inbound)
+            .OrderByDescending(m => m.SentAt).ThenByDescending(m => m.CreatedAt)
+            .Select(m => new { m.ProviderMessageId, m.SentAt })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return row is null ? null : (row.ProviderMessageId, row.SentAt);
+    }
 }

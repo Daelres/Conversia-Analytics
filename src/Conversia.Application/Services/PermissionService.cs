@@ -34,6 +34,7 @@ public class PermissionService : IPermissionService
             IsOwner = user.IsOwner,
             Permissions = permissions,
             TenantSandboxMode = await _tenantRepository.GetSandboxModeAsync(user.TenantId, cancellationToken) ?? false,
+            TenantReadReceipts = await _tenantRepository.GetReadReceiptsEnabledAsync(user.TenantId, cancellationToken),
         };
     }
 

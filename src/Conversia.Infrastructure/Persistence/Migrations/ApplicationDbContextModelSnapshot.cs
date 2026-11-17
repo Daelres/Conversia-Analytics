@@ -1058,6 +1058,9 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("CustomerReadMarkedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime?>("FirstInboundAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1069,12 +1072,18 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<DateTime?>("LastInboundAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("LastLlmSnapshotHash")
                         .HasMaxLength(64)
                         .HasColumnType("character(64)")
                         .IsFixedLength();
 
                     b.Property<DateTime>("LastMessageAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastOutboundAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("LlmAnalyzedAt")
@@ -1170,6 +1179,14 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "StartedAt");
 
                     b.HasIndex("TenantId", "Status", "LastMessageAt");
+
+                    b.HasIndex(new[] { "TenantId", "IsSandbox", "UpdatedAt" }, "IX_Conversations_Inbox_Changes");
+
+                    b.HasIndex(new[] { "TenantId", "IsSandbox", "LastMessageAt" }, "IX_Conversations_Inbox_Open")
+                        .HasFilter("\"Status\" = 'Open'");
+
+                    b.HasIndex(new[] { "TenantId", "IsSandbox", "LastInboundAt" }, "IX_Conversations_Inbox_Waiting")
+                        .HasFilter("\"Status\" = 'Open'");
 
                     b.HasIndex(new[] { "LastMessageAt" }, "IX_Conversations_LastMessageAt_ClassificationDirty")
                         .HasFilter("\"ClassificationDirty\"");
@@ -1619,6 +1636,14 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("SentByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("TemplateCategory")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("TemplateName")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 
@@ -1672,6 +1697,77 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.HasIndex("Day");
 
                     b.ToTable("MessageSendOutcomes", (string)null);
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.MessageTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BodyText")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsSupported")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(15)
+                        .HasColumnType("character varying(15)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.PrimitiveCollection<string[]>("ParameterNames")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("StatusChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("SyncedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("ChannelId", "Name", "Language")
+                        .IsUnique();
+
+                    b.ToTable("MessageTemplates", (string)null);
                 });
 
             modelBuilder.Entity("Conversia.Domain.Entities.Opportunity", b =>
@@ -2018,6 +2114,11 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("ReadReceiptsEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<bool>("SandboxMode")
                         .ValueGeneratedOnAdd()
@@ -2564,6 +2665,21 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.MessageTemplate", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.WhatsAppChannel", null)
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Conversia.Domain.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

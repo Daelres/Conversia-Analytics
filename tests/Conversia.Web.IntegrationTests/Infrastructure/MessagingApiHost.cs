@@ -37,6 +37,25 @@ internal sealed class FakeMessageSender : IWhatsAppMessageSender, IWhatsAppMessa
         _sent.Enqueue((message.Channel.Id, message.RecipientWaId, message.Text));
         return Task.FromResult(_answers.TryGetValue(message.Channel.Id, out var answer) ? answer() : WhatsAppSendResult.Sent($"wamid.FAKE-{Guid.NewGuid():N}"));
     }
+
+    private readonly ConcurrentQueue<(Guid ChannelId, WhatsAppTemplateMessage Message)> _templates = new();
+    private readonly ConcurrentQueue<(Guid ChannelId, WhatsAppReadReceipt Receipt)> _receipts = new();
+
+    public IReadOnlyList<WhatsAppTemplateMessage> TemplatesSentBy(Guid channelId) => _templates.Where(s => s.ChannelId == channelId).Select(s => s.Message).ToList();
+
+    public IReadOnlyList<WhatsAppReadReceipt> ReceiptsOf(Guid channelId) => _receipts.Where(s => s.ChannelId == channelId).Select(s => s.Receipt).ToList();
+
+    public Task<WhatsAppSendResult> SendTemplateAsync(WhatsAppTemplateMessage message, CancellationToken cancellationToken = default)
+    {
+        _templates.Enqueue((message.Channel.Id, message));
+        return Task.FromResult(_answers.TryGetValue(message.Channel.Id, out var answer) ? answer() : WhatsAppSendResult.Sent($"wamid.FAKE-T-{Guid.NewGuid():N}"));
+    }
+
+    public Task<WhatsAppSendStatus> MarkReadAsync(WhatsAppReadReceipt receipt, CancellationToken cancellationToken = default)
+    {
+        _receipts.Enqueue((receipt.Channel.Id, receipt));
+        return Task.FromResult(WhatsAppSendStatus.Sent);
+    }
 }
 
 /// <summary>The real API with a master key and a stand-in provider, plus what a test needs to put a conversation in its database.</summary>

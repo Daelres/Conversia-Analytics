@@ -14,4 +14,12 @@ public interface IMessageSendingService
     /// </summary>
     /// <param name="actingUserId">The user who sends it: recorded on the message with the advisor linked to them (docs/MESSAGING.md, "Who sent it").</param>
     Task<MessageResponse> SendTextAsync(Guid conversationId, SendMessageRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sends an approved template of the conversation's channel (docs/MESSAGING.md, "Templates"): the same checks, attribution and record
+    /// as a text, except that the customer service window does not apply. Throws <see cref="Domain.Exceptions.DomainException"/> for values
+    /// that do not fit the template, and <see cref="Exceptions.MessagingException"/> (<c>template_unavailable</c>) for a template that
+    /// cannot be sent.
+    /// </summary>
+    Task<MessageResponse> SendTemplateAsync(Guid conversationId, SendTemplateMessageRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default);
 }

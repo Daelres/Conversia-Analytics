@@ -40,6 +40,15 @@ public enum MessagingProblem
     SandboxModeActive,
 
     /// <summary>
+    /// More than 24 hours passed since the customer last wrote (WhatsApp's customer service window, docs/MESSAGING.md): only an approved
+    /// template can be sent. Refused before the provider is called, and also the answer when the provider refuses for this reason.
+    /// </summary>
+    WindowClosed,
+
+    /// <summary>The template does not exist for the channel (in that language), is not approved, or cannot be sent from Conversia.</summary>
+    TemplateUnavailable,
+
+    /// <summary>
     /// The sandbox conversation was deleted (the company removed its sandbox data) while the message was being sent. Nothing left the
     /// server in sandbox mode, so there is nothing to verify and nothing to keep.
     /// </summary>
@@ -77,6 +86,8 @@ public class MessagingException : Exception
         MessagingProblem.SandboxConversation => "sandbox_conversation",
         MessagingProblem.SandboxModeActive => "sandbox_mode_active",
         MessagingProblem.SandboxDataDeleted => "sandbox_data_deleted",
+        MessagingProblem.WindowClosed => "customer_service_window_closed",
+        MessagingProblem.TemplateUnavailable => "template_unavailable",
         _ => throw new ArgumentOutOfRangeException(nameof(problem)),
     };
 
@@ -93,6 +104,8 @@ public class MessagingException : Exception
         MessagingProblem.SentNotRecorded => "El mensaje se envió, pero no se pudo registrar en la conversación. No lo envíes de nuevo.",
         MessagingProblem.SandboxConversation => "Esta conversación es de prueba (modo sandbox) y solo admite mensajes mientras el modo sandbox está activo.",
         MessagingProblem.SandboxDataDeleted => "Esta conversación de prueba se eliminó mientras se enviaba el mensaje. El mensaje no se guardó ni se envió a ningún teléfono.",
+        MessagingProblem.WindowClosed => "Pasaron más de 24 horas desde el último mensaje del cliente: WhatsApp solo permite enviarle una plantilla aprobada.",
+        MessagingProblem.TemplateUnavailable => "La plantilla no existe para este número, no está aprobada o no se puede enviar desde Conversia.",
         MessagingProblem.SandboxModeActive => "El modo sandbox está activo y no se envían mensajes reales. Esta conversación es real: no admite mensajes hasta que se desactive el modo sandbox.",
         _ => throw new ArgumentOutOfRangeException(nameof(problem)),
     };

@@ -228,3 +228,15 @@ has nothing to do with this mode.
 
 **AI usage rows.** Deleting the sandbox data also deletes the AI distinct-conversation rows (`AiUsageConversations`) of the sandbox
 conversations (design D24); the sandbox monthly totals (`AiUsageMonths` with `IsSandbox`) hold counts only and stay.
+
+## Window, templates, inbox and read receipts (stage 3a)
+
+- **The 24-hour window applies in sandbox mode too** (docs/MESSAGING.md, "Customer service window"): free text to a simulated customer
+  who last wrote more than 24 hours ago is refused with `customer_service_window_closed`, so what a person practices is what happens
+  for real.
+- **Templates:** every channel has the same three fixed templates (`conversia_retomar_conversacion`, `conversia_recordatorio_cita`,
+  `conversia_promocion`, Spanish, approved). They are never stored and never synced; no 360dialog key is needed. The internal sender
+  accepts any of them, records the message like a real template send and injects nothing else (no simulated reply).
+- **Inbox:** `/bandeja` shows only the sandbox conversations while the mode is on, and only real ones otherwise.
+- **Read receipts and typing:** with the company setting on, the internal sender accepts them and the API logs a line; nothing reaches a
+  phone.

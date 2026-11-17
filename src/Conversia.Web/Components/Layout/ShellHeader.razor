@@ -21,6 +21,7 @@
                     @* A company that cannot operate yet: the pages that need it are shown as locked, not hidden, so it is clear what is coming. *@
                     <NavItem Href="/cuenta-pendiente" Label="Estado de la empresa" IconName="building" />
                     <NavItem Label="Panel" IconName="bar-chart" Locked="true" />
+                    <NavItem Label="Bandeja" IconName="mail" Locked="true" />
                     <NavItem Label="Conversaciones" IconName="message" Locked="true" />
                     <NavItem Label="Mensajes" IconName="activity" Locked="true" />
                     <NavItem Label="Organización" IconName="building" Locked="true" />
@@ -29,6 +30,7 @@
                 else if (SignedIn)
                 {
                     <NavItem Href="/panel" Label="Panel" IconName="bar-chart" />
+                    <NavItem Href="/bandeja" Label="Bandeja" IconName="mail" />
                     <NavItem Href="/conversaciones" Label="Conversaciones" IconName="message" />
                     <NavItem Href="/mensajes" Label="Mensajes" IconName="activity" />
                     <NavItem Href="/organizacion" Label="Organización" IconName="building" />

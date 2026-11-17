@@ -18,7 +18,7 @@ namespace Conversia.Application.UnitTests.Services;
 /// What <see cref="MessageSendingService"/> refuses before calling the provider, what it hands to the sender, and what it stores once the
 /// provider accepted the message. Tenant isolation and the locks are the repositories' job (integration tests).
 /// </summary>
-public class MessageSendingServiceTests
+public partial class MessageSendingServiceTests
 {
     private const string CustomerWaId = "573005550101";
     private static readonly DateTime Start = new(2026, 11, 9, 15, 0, 0, DateTimeKind.Utc);
@@ -59,6 +59,17 @@ public class MessageSendingServiceTests
             Sent.Add(message);
             return Task.FromResult(Result);
         }
+
+        public List<WhatsAppTemplateMessage> SentTemplates { get; } = [];
+
+        public Task<WhatsAppSendResult> SendTemplateAsync(WhatsAppTemplateMessage message, CancellationToken cancellationToken = default)
+        {
+            SentTemplates.Add(message);
+            return Task.FromResult(Result);
+        }
+
+        public Task<WhatsAppSendStatus> MarkReadAsync(WhatsAppReadReceipt receipt, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("A send never marks messages as read.");
     }
 
     private readonly RecordingLogger _logger = new();
@@ -92,10 +103,12 @@ public class MessageSendingServiceTests
     private readonly Mock<IAdvisorRepository> _advisors = new();
 
     private MessageSendingService CreateSut()
-        => new(_conversations.Object, _channels.Object, _contacts.Object, _messages.Object, _tenants.Object, _sender, new FixedTimeProvider(Now), _logger, _outcomes, _advisors.Object);
+        => new(_conversations.Object, _channels.Object, _contacts.Object, _messages.Object, _tenants.Object, _sender, new FixedTimeProvider(Now), _logger, _outcomes, _advisors.Object, _templates.Object);
 
     /// <summary>An open conversation with one customer message, on an active channel that has credentials.</summary>
-    private void Arrange(bool active = true, bool credentials = true, bool closed = false, bool sandboxConversation = false, bool sandboxMode = false)
+    /// <param name="lastCustomerMessageAt">When the customer last wrote (the start of the 24-hour window); <see cref="Start"/> by default.</param>
+    private void Arrange(
+        bool active = true, bool credentials = true, bool closed = false, bool sandboxConversation = false, bool sandboxMode = false, DateTime? lastCustomerMessageAt = null)
     {
         _tenants.Setup(r => r.GetSandboxModeAsync(_tenant, It.IsAny<CancellationToken>())).ReturnsAsync(sandboxMode);
         (_channel, _) = WhatsAppChannel.Create(_tenant, Guid.NewGuid(), "+57 300 555 0100");
@@ -111,6 +124,7 @@ public class MessageSendingServiceTests
 
         var contact = Contact.Create(_tenant, CustomerWaId, "Laura", Start);
         _conversation = Conversation.Start(_tenant, contact.Id, _channel.Id, _channel.BranchId, Start, ConversationSource.Organic, isSandbox: sandboxConversation);
+        _conversation.ApplyTimeline(ConversationTimeline.From([(MessageDirection.Inbound, lastCustomerMessageAt ?? Start)])!);
         _locked = _conversation; // the row the repository hands over once it is locked
         if (closed)
         {

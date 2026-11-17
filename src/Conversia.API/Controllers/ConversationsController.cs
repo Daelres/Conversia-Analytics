@@ -1,3 +1,4 @@
+using Conversia.API.Http;
 using Conversia.API.RateLimiting;
 using Conversia.Application.DTOs;
 using Conversia.Application.DTOs.Conversations;
@@ -16,11 +17,18 @@ public class ConversationsController : ControllerBase
 {
     private readonly IConversationService _conversations;
     private readonly IMessageSendingService _messages;
+    private readonly ITemplateService _templates;
+    private readonly IConversationPresenceService _presence;
+    private readonly IInboxService _inbox;
 
-    public ConversationsController(IConversationService conversations, IMessageSendingService messages)
+    public ConversationsController(
+        IConversationService conversations, IMessageSendingService messages, ITemplateService templates, IConversationPresenceService presence, IInboxService inbox)
     {
         _conversations = conversations;
         _messages = messages;
+        _templates = templates;
+        _presence = presence;
+        _inbox = inbox;
     }
 
     /// <summary>The caller's conversations, newest first, filtered by branch, advisor, stage, source, status, start date and whether they are unanswered.</summary>
@@ -57,4 +65,45 @@ public class ConversationsController : ControllerBase
     [EnableRateLimiting(MessageSendRateLimitingExtensions.PolicyName)]
     public async Task<ActionResult<MessageResponse>> SendMessage(Guid id, SendMessageRequest request, CancellationToken cancellationToken)
         => StatusCode(StatusCodes.Status201Created, await _messages.SendTextAsync(id, request, User.GetUserId(), cancellationToken));
+
+    /// <summary>
+    /// A person sends an approved template of the conversation's channel (docs/MESSAGING.md, "Templates"): the only message WhatsApp allows
+    /// more than 24 hours after the customer's last one. Meta charges each template message by its category.
+    /// </summary>
+    [HttpPost("{id:guid}/template-messages")]
+    [Authorize(Policy = nameof(Permission.ConversationsManage))]
+    [EnableRateLimiting(MessageSendRateLimitingExtensions.PolicyName)]
+    public async Task<ActionResult<MessageResponse>> SendTemplate(Guid id, SendTemplateMessageRequest request, CancellationToken cancellationToken)
+        => StatusCode(StatusCodes.Status201Created, await _messages.SendTemplateAsync(id, request, User.GetUserId(), cancellationToken));
+
+    /// <summary>The templates that can be offered in the conversation: those of its channel.</summary>
+    [HttpGet("{id:guid}/templates")]
+    [Authorize(Policy = nameof(Permission.ConversationsView))]
+    [EnableRateLimiting(PollingRateLimitingExtensions.PolicyName)]
+    public async Task<ActionResult<Application.DTOs.Templates.ChannelTemplatesResponse>> GetTemplates(Guid id, CancellationToken cancellationToken)
+        => Ok(await _templates.ListForConversationAsync(id, cancellationToken));
+
+    /// <summary>Marks the customer's latest message as read on WhatsApp when the company has read receipts on. Never fails for the provider.</summary>
+    [HttpPost("{id:guid}/read")]
+    [Authorize(Policy = nameof(Permission.ConversationsManage))]
+    [EnableRateLimiting(PollingRateLimitingExtensions.PresencePolicyName)]
+    public async Task<ActionResult<PresenceResponse>> MarkRead(Guid id, CancellationToken cancellationToken)
+        => Ok(await _presence.MarkReadAsync(id, cancellationToken));
+
+    /// <summary>Shows "escribiendo..." to the customer (at most once every 20 seconds) when the company has it on. Never fails for the provider.</summary>
+    [HttpPost("{id:guid}/typing")]
+    [Authorize(Policy = nameof(Permission.ConversationsManage))]
+    [EnableRateLimiting(PollingRateLimitingExtensions.PresencePolicyName)]
+    public async Task<ActionResult<PresenceResponse>> Typing(Guid id, CancellationToken cancellationToken)
+        => Ok(await _presence.SendTypingAsync(id, cancellationToken));
+
+    /// <summary>A cheap fingerprint of the conversation, for a page that polls for new messages; <c>ETag</c> and <c>304</c> supported.</summary>
+    [HttpGet("{id:guid}/version")]
+    [Authorize(Policy = nameof(Permission.ConversationsView))]
+    [EnableRateLimiting(PollingRateLimitingExtensions.PolicyName)]
+    public async Task<IActionResult> GetVersion(Guid id, CancellationToken cancellationToken)
+    {
+        var version = await _inbox.GetConversationVersionAsync(id, cancellationToken);
+        return EntityTags.Answer(this, EntityTags.Of(version.Version), version);
+    }
 }

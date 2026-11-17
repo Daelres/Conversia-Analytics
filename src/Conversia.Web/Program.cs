@@ -25,6 +25,7 @@ builder.Services.AddScoped<DashboardLoader>();
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<OneTimeSubmissions>();
 builder.Services.AddHealthChecks();
+builder.Services.AddInboxPolling(builder.Configuration);
 
 var app = builder.Build();
 
@@ -52,6 +53,7 @@ app.UseSecurityHeaders();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
+app.UseRateLimiter();
 app.UseRejectedFormPage();
 
 app.MapStaticAssets();
@@ -61,6 +63,7 @@ app.MapHealthChecks("/health");
 
 app.MapLogout();
 app.MapPermissionEndpoints();
+app.MapInboxEndpoints();
 app.MapRazorComponents<App>();
 
 app.Run();

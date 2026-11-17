@@ -1,0 +1,120 @@
+@page "/bandeja"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Inbox
+@using Conversia.Application.DTOs.Organization
+@using Conversia.Domain.Enums
+@using Conversia.Web.Components.Inbox
+@using Conversia.Web.Endpoints
+@inherits AuthenticatedPageBase
+@inject TimeProvider Clock
+@inject Microsoft.Extensions.Options.IOptions<InboxOptions> Options
+
+<PageTitle>Bandeja - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <StatusView DataPage="forbidden" Code="403" Title="Sin acceso a las conversaciones" Art="locked"
+                Hint="Pide acceso a la persona propietaria de tu empresa.">
+        <ChildContent>Tu cuenta no tiene el permiso «@PermissionLabels.For(Permission.ConversationsView)». Con él podrás ver y atender los chats de WhatsApp.</ChildContent>
+        <Actions>
+            <a class="btn btn--primary" href="/"><Icon Name="home" />Ir al inicio</a>
+        </Actions>
+    </StatusView>
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="inbox">
+        <PageHeader Eyebrow="Atención" EyebrowIcon="message" Title="Bandeja"
+                    Description="Las conversaciones abiertas que hay que atender: primero las que esperan respuesta, la que más lleva esperando arriba.">
+            <a class="btn btn--secondary" href="@($"/bandeja{PageQuery}")" data-testid="inbox-refresh"><Icon Name="refresh" />Actualizar</a>
+        </PageHeader>
+
+        @if (_response is { SandboxMode: true })
+        {
+            <Alert Kind="AlertKind.Info" Title="Modo sandbox" data-testid="inbox-sandbox-note">La bandeja muestra solo las conversaciones de prueba mientras el modo sandbox está activo.</Alert>
+        }
+
+        <nav class="cluster" aria-label="Filtros de la bandeja" data-testid="inbox-filters">
+            <a class="@FilterClass(null)" href="@($"/bandeja{InboxQueryString.PageQuery(null, BranchId)}")">Todas</a>
+            <a class="@FilterClass(InboxQueryString.Awaiting)" href="@($"/bandeja{InboxQueryString.PageQuery(InboxQueryString.Awaiting, BranchId)}")">Esperando respuesta</a>
+            <a class="@FilterClass(InboxQueryString.Mine)" href="@($"/bandeja{InboxQueryString.PageQuery(InboxQueryString.Mine, BranchId)}")">Mías</a>
+            <a class="@FilterClass(InboxQueryString.Unassigned)" href="@($"/bandeja{InboxQueryString.PageQuery(InboxQueryString.Unassigned, BranchId)}")">Sin asesor</a>
+        </nav>
+
+        @if (_branches is { Count: > 1 })
+        {
+            <form method="get" action="/bandeja" class="cluster" data-testid="inbox-branch-form">
+                @if (Filter is InboxQueryString.Mine or InboxQueryString.Unassigned or InboxQueryString.Awaiting)
+                {
+                    <input type="hidden" name="filtro" value="@Filter" />
+                }
+                <label class="field__label" for="inbox-branch">Sucursal</label>
+                <select id="inbox-branch" class="input" name="sucursal">
+                    <option value="">Todas</option>
+                    @foreach (var branch in _branches)
+                    {
+                        <option value="@branch.Id" selected="@(branch.Id == BranchId)">@branch.Name</option>
+                    }
+                </select>
+                <button type="submit" class="btn btn--secondary btn--sm"><Icon Name="filter" Class="icon--sm" />Filtrar</button>
+            </form>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_response is not null)
+        {
+            @* The script replaces this block with /bandeja/lista every few seconds (nothing new: a bodiless 304). Without JavaScript the
+               page stays as drawn; "Actualizar" reloads it. *@
+            <div id="inbox-list" data-testid="inbox-list" aria-live="polite"
+                 data-poll-url="@($"/bandeja/lista{PageQuery}")" data-poll-seconds="@Options.Value.PollIntervalSeconds">
+                <InboxList Response="_response" NowUtc="_nowUtc" />
+            </div>
+            <noscript><p class="muted" data-testid="inbox-noscript">Sin JavaScript la bandeja no se actualiza sola: usa «Actualizar».</p></noscript>
+        }
+    </div>
+}
+
+@code {
+    private InboxResponse? _response;
+    private IReadOnlyList<BranchResponse>? _branches;
+    private DateTime _nowUtc;
+
+    [SupplyParameterFromQuery(Name = "filtro")] public string? Filter { get; set; }
+
+    [SupplyParameterFromQuery(Name = "sucursal")] public string? BranchText { get; set; }
+
+    private Guid? BranchId => Guid.TryParse(BranchText, out var id) ? id : null;
+
+    private string PageQuery => InboxQueryString.PageQuery(Filter, BranchId);
+
+    private string FilterClass(string? filter)
+        => (Filter is InboxQueryString.Mine or InboxQueryString.Unassigned or InboxQueryString.Awaiting ? Filter : null) == filter
+            ? "btn btn--primary btn--sm"
+            : "btn btn--secondary btn--sm";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        _nowUtc = Clock.GetUtcNow().UtcDateTime;
+        var inboxTask = Api.GetInboxAsync(Token!, InboxQueryString.FromPage(Filter, BranchText));
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        var branchesTask = Api.GetBranchesAsync(Token!);
+        await Task.WhenAll(inboxTask, profileTask, branchesTask);
+
+        if (await TryFailAsync(inboxTask.Result, profileTask.Result))
+        {
+            return;
+        }
+
+        Shell.Remember(profileTask.Result.Value!);
+        _response = inboxTask.Result.Value;
+
+        // Without OrganizationView the branch filter is simply absent.
+        _branches = branchesTask.Result.IsSuccess ? branchesTask.Result.Value : null;
+    }
+}

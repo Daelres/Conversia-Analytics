@@ -12,4 +12,12 @@ public sealed class SandboxMessageSender : IWhatsAppMessageSender
 {
     public Task<WhatsAppSendResult> SendTextAsync(WhatsAppTextMessage message, CancellationToken cancellationToken = default)
         => Task.FromResult(WhatsAppSendResult.Sent(SandboxIds.NewOutboundMessageId()));
+
+    /// <summary>Accepts the template: the use case only hands over one of the fixed sandbox templates (<c>SandboxTemplates</c>).</summary>
+    public Task<WhatsAppSendResult> SendTemplateAsync(WhatsAppTemplateMessage message, CancellationToken cancellationToken = default)
+        => Task.FromResult(WhatsAppSendResult.Sent(SandboxIds.NewOutboundMessageId()));
+
+    /// <summary>A read receipt or typing indicator that reaches nobody; the use case logs it.</summary>
+    public Task<WhatsAppSendStatus> MarkReadAsync(WhatsAppReadReceipt receipt, CancellationToken cancellationToken = default)
+        => Task.FromResult(WhatsAppSendStatus.Sent);
 }

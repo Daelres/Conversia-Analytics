@@ -82,6 +82,9 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.LlmLeaseUntil);
         builder.Property(c => c.LlmAttemptedAt);
         builder.Property(c => c.LlmAnalyzedAt);
+        builder.Property(c => c.LastInboundAt);
+        builder.Property(c => c.LastOutboundAt);
+        builder.Property(c => c.CustomerReadMarkedAt);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.UpdatedAt);
 
@@ -117,6 +120,18 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
             .HasFilter("\"ClassificationDirty\"");
 
         // The sandbox rows of a tenant (docs/SANDBOX.md): few or none, so only they are indexed. Serves the clean-up and the sandbox-mode metrics.
+        // The inbox (docs/MESSAGING.md, "Inbox"): its change token and its delta read the conversations of a tenant (real or sandbox) by
+        // their last change; every conversation has one (set when it is created too).
+        builder.HasIndex(c => new { c.TenantId, c.IsSandbox, c.UpdatedAt }, "IX_Conversations_Inbox_Changes");
+
+        // The inbox's "awaiting a reply" part: the open conversations by the customer's last message, oldest first, read with a limit.
+        builder.HasIndex(c => new { c.TenantId, c.IsSandbox, c.LastInboundAt }, "IX_Conversations_Inbox_Waiting")
+            .HasFilter("\"Status\" = 'Open'");
+
+        // The inbox's other part: the open conversations by their last message, newest first, read with a limit.
+        builder.HasIndex(c => new { c.TenantId, c.IsSandbox, c.LastMessageAt }, "IX_Conversations_Inbox_Open")
+            .HasFilter("\"Status\" = 'Open'");
+
         builder.HasIndex(c => c.TenantId, "IX_Conversations_TenantId_Sandbox")
             .HasFilter("\"IsSandbox\"");
 
@@ -150,6 +165,8 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.Property(m => m.MediaId).HasMaxLength(MessageMedia.MaxIdLength);
         builder.Property(m => m.MediaMimeType).HasMaxLength(MessageMedia.MaxMimeTypeLength);
         builder.Property(m => m.HasCaption).IsRequired().HasDefaultValue(false);
+        builder.Property(m => m.TemplateName).HasMaxLength(MessageTemplate.NameMaxLength);
+        builder.Property(m => m.TemplateCategory).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(m => m.CreatedAt).IsRequired();
         builder.Property(m => m.UpdatedAt);
 
@@ -289,5 +306,39 @@ public class ContactSuppressionConfiguration : IEntityTypeConfiguration<ContactS
         builder.Property(s => s.CreatedAt).IsRequired();
         builder.HasIndex(s => new { s.TenantId, s.WaIdHash }).IsUnique();
         builder.HasOne<Tenant>().WithMany().HasForeignKey(s => s.TenantId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+/// <summary>The copies of the channels' templates (docs/MESSAGING.md, "Templates"): one row per name and language of a channel.</summary>
+public class MessageTemplateConfiguration : IEntityTypeConfiguration<MessageTemplate>
+{
+    public void Configure(EntityTypeBuilder<MessageTemplate> builder)
+    {
+        builder.ToTable("MessageTemplates");
+        builder.HasKey(t => t.Id);
+
+        builder.Property(t => t.TenantId).IsRequired();
+        builder.Property(t => t.ChannelId).IsRequired();
+        builder.Property(t => t.Name).IsRequired().HasMaxLength(MessageTemplate.NameMaxLength);
+        builder.Property(t => t.Language).IsRequired().HasMaxLength(MessageTemplate.LanguageMaxLength);
+        builder.Property(t => t.Category).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(t => t.Status).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(t => t.BodyText).HasMaxLength(MessageTemplate.BodyMaxLength);
+        builder.Property(t => t.ParameterNames).IsRequired();
+        builder.Property(t => t.IsSupported).IsRequired();
+        builder.Property(t => t.SyncedAt).IsRequired();
+        builder.Property(t => t.StatusChangedAt);
+        builder.Property(t => t.CreatedAt).IsRequired();
+        builder.Property(t => t.UpdatedAt);
+
+        builder.Ignore(t => t.ParameterCount);
+        builder.Ignore(t => t.NamedParameters);
+        builder.Ignore(t => t.CanBeSent);
+
+        builder.HasIndex(t => new { t.ChannelId, t.Name, t.Language }).IsUnique();
+        builder.HasIndex(t => t.TenantId);
+
+        builder.HasOne<Tenant>().WithMany().HasForeignKey(t => t.TenantId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<WhatsAppChannel>().WithMany().HasForeignKey(t => t.ChannelId).OnDelete(DeleteBehavior.Restrict);
     }
 }
