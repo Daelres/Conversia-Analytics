@@ -171,4 +171,18 @@ public class ClosingPointProvenanceTests
         Assert.Throws<DomainException>(() => o.ApplyClassification(Reading(Rules with { OffChannelEvidenceIndex = 4 }), T0));
         Assert.Null(o.ClassifiedAt);
     }
+
+    // The AI sales assistant (docs/ASSISTANT.md, "Metrics"): a classifier may say the assistant closed a deal it won in the chat, from the stored
+    // authors of the messages; never on an open or lost one, and a person still cannot type it.
+    [Fact]
+    public void TheAiCloser_IsAcceptedOnAWonReading()
+    {
+        var o = NewOpportunity();
+        var won = new ClassificationUpdate(null, null, ObjectionType.None, OpportunityStage.Won, null, 0.9m, null, ClassifierProvider.Rules, false,
+            new ClosingPointReading(ReachedStage.AppointmentBooked, OffChannelMove.None, null, ClosedBy.AiAssistant, false));
+
+        o.ApplyClassification(won, T0);
+
+        Assert.Equal(ClosedBy.AiAssistant, o.ClosedBy);
+    }
 }

@@ -1,3 +1,4 @@
+using Conversia.Application.Assistant;
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.Exceptions;
 using Conversia.Application.Interfaces;
@@ -44,14 +45,17 @@ public class MessageSendingService : IMessageSendingService
     private readonly IMessageTemplateRepository? _templates;
     private readonly IMediaStore? _mediaStore;
     private readonly IWhatsAppMediaClientResolver? _mediaClients;
+    private readonly IAssistantSignals? _assistant;
 
     /// <param name="outcomes">Counts how each send ended, for the platform's monitoring (docs/PLATFORM_ADMIN.md, "Monitoring").</param>
     public MessageSendingService(
         IConversationRepository conversations, IWhatsAppChannelRepository channels, IContactRepository contacts, IMessageRepository messages,
         ITenantRepository tenants, IWhatsAppMessageSenderResolver senders, TimeProvider timeProvider, ILogger<MessageSendingService> logger,
         IMessageSendOutcomeRecorder? outcomes = null, IAdvisorRepository? advisors = null, IMessageTemplateRepository? templates = null,
-        IMediaStore? mediaStore = null, IWhatsAppMediaClientResolver? mediaClients = null, MediaSettings? mediaSettings = null)
+        IMediaStore? mediaStore = null, IWhatsAppMediaClientResolver? mediaClients = null, MediaSettings? mediaSettings = null,
+        IAssistantSignals? assistant = null)
     {
+        _assistant = assistant;
         _mediaStore = mediaSettings is { Enabled: true } ? mediaStore : null;
         _mediaClients = mediaClients;
         _templates = templates;
@@ -110,6 +114,13 @@ public class MessageSendingService : IMessageSendingService
         return await CountedAsync(conversationId, actingUserId, new MediaPayload(content, upload.Kind, upload.ContentType!, caption), cancellationToken);
     }
 
+    public async Task<MessageResponse> SendAsAssistantAsync(
+        Guid conversationId, string text, Func<Conversation, Task>? whileRecording = null, CancellationToken cancellationToken = default)
+    {
+        var checkedText = TextRules.Required(text, Message.TextMaxLength, SendMessageRequest.TextRuleMessage);
+        return await CountedAsync(conversationId, actingUserId: null, new AssistantPayload(checkedText, whileRecording), cancellationToken);
+    }
+
     /// <summary>What a send carries: a free-form text, a template with its values, or an attachment. Everything around it is the same path.</summary>
     private abstract record Payload;
 
@@ -119,6 +130,12 @@ public class MessageSendingService : IMessageSendingService
     }
 
     private sealed record TextPayload(string Text) : Payload;
+
+    /// <summary>A text of the AI sales assistant, and what to change with it under the lock of the record step (its state).</summary>
+    private sealed record AssistantPayload(string Text, Func<Conversation, Task>? WhileRecording) : Payload
+    {
+        public override string ToString() => $"AssistantPayload {{ Length = {Text.Length} }}";
+    }
 
     private sealed record TemplatePayload(string Name, string Language, IReadOnlyList<string?> Values) : Payload;
 
@@ -189,7 +206,7 @@ public class MessageSendingService : IMessageSendingService
         // window"); outside it the provider refuses it anyway (and a sandbox key counts the refusal), so it is refused here first. The same
         // rule in sandbox mode, so that what a person practices there is what happens for real. A template is what the window allows.
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        if (payload is TextPayload or MediaPayload && !CustomerServiceWindow.IsOpen(conversation.LastInboundAt, now))
+        if (payload is TextPayload or MediaPayload or AssistantPayload && !CustomerServiceWindow.IsOpen(conversation.LastInboundAt, now))
         {
             throw new MessagingException(MessagingProblem.WindowClosed);
         }
@@ -231,6 +248,11 @@ public class MessageSendingService : IMessageSendingService
                 type = TextType;
                 result = await sender.SendTextAsync(new WhatsAppTextMessage(channel, contact.WaId, text), cancellationToken);
                 break;
+            case AssistantPayload assistant:
+                text = assistant.Text;
+                type = TextType;
+                result = await sender.SendTextAsync(new WhatsAppTextMessage(channel, contact.WaId, text), cancellationToken);
+                break;
             case TemplatePayload templated:
                 var template = await FindTemplateAsync(channel, templated.Name, templated.Language, sandboxMode, now, cancellationToken);
                 var values = template.ValidateParameters(templated.Values);
@@ -264,7 +286,7 @@ public class MessageSendingService : IMessageSendingService
         {
             // The customer already has the message: the record must not be abandoned because the caller went away.
             var response = await RecordAsync(conversation, providerMessageId, type, text, sentAt, actingUserId, advisorId, templateUse, media, storedMedia,
-                adopted => kept = adopted);
+                adopted => kept = adopted, payload as AssistantPayload);
             return response;
         }
         catch (Exception ex) when (ex is not MessagingException)
@@ -322,8 +344,9 @@ public class MessageSendingService : IMessageSendingService
     // if the provider echoes this message to the webhook, whichever comes second finds it stored and adds nothing.
     private async Task<MessageResponse> RecordAsync(
         Conversation read, string providerMessageId, string type, string? text, DateTime sentAt, Guid? userId, Guid? advisorId, MessageTemplateUse? template,
-        MessageMedia? media = null, StoredMediaObject? storedMedia = null, Action<bool>? copyKept = null)
+        MessageMedia? media = null, StoredMediaObject? storedMedia = null, Action<bool>? copyKept = null, AssistantPayload? assistant = null)
     {
+        var sender = assistant is null ? MessageSender.Conversia : MessageSender.AiAssistant;
         Message? recorded = null;
         var kept = false;
         var found = await _conversations.ChangeSerializedWithIngestionAsync(
@@ -337,11 +360,17 @@ public class MessageSendingService : IMessageSendingService
                 {
                     recorded = Message.Create(
                         conversation.TenantId, conversation.Id, conversation.ChannelId, providerMessageId, MessageDirection.Outbound, type, text, sentAt,
-                        MessageSender.Conversia, userId, advisorId, media: media, template: template, storedMedia: storedMedia);
+                        sender, userId, advisorId, media: media, template: template, storedMedia: storedMedia);
                     await _messages.AddAsync(recorded, CancellationToken.None);
                     kept = storedMedia is not null;
                 }
-                else if (recorded.Direction == MessageDirection.Outbound && recorded.Sender != MessageSender.Conversia)
+                else if (assistant is not null && recorded.Direction == MessageDirection.Outbound && recorded.Sender != MessageSender.AiAssistant)
+                {
+                    // The assistant's message came back as an echo first: it is the assistant's.
+                    recorded.AttributeToAssistant();
+                    await _messages.UpdateAsync(recorded, CancellationToken.None);
+                }
+                else if (assistant is null && recorded.Direction == MessageDirection.Outbound && recorded.Sender != MessageSender.Conversia)
                 {
                     // Its echo arrived first and was stored as sent from the phone app: it was sent from here, and it takes the copy the send
                     // stored unless it already has one (then ours is deleted, never left behind).
@@ -353,6 +382,16 @@ public class MessageSendingService : IMessageSendingService
                 var times = await _messages.ListTimesAsync(conversation.Id, CancellationToken.None);
                 conversation.ApplyTimeline(ConversationTimeline.From(times)!);
                 conversation.RequestClassification(sentAt);
+
+                // The AI sales assistant (docs/ASSISTANT.md): a person's message cancels its timer; its own message updates its state.
+                if (assistant?.WhileRecording is { } change)
+                {
+                    await change(conversation);
+                }
+                else if (assistant is null && _assistant is not null)
+                {
+                    await _assistant.HumanWroteAsync(conversation, sentAt, cancellationToken: CancellationToken.None);
+                }
             },
             CancellationToken.None);
 

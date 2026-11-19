@@ -1,0 +1,348 @@
+@page "/organizacion/asistente"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Assistant
+@using Conversia.Domain.Enums
+@inherits AuthenticatedPageBase
+
+<PageTitle>Asistente de IA - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="assistant-settings">
+        <PageHeader Eyebrow="Organización" EyebrowIcon="building" Title="Asistente de IA"
+                    Description="Si nadie de tu equipo responde a tiempo, el asistente atiende al cliente para que no se pierda la venta. Tu equipo puede tomar la conversación en cualquier momento.">
+            <a class="btn btn--secondary" href="/organizacion"><Icon Name="arrow-left" />Volver a organización</a>
+            <a class="btn btn--secondary" href="/organizacion/asistente/conocimiento" data-testid="assistant-knowledge-link"><Icon Name="layers" />Base de conocimiento</a>
+        </PageHeader>
+
+        @if (Notice == SavedNotice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">Cambios guardados.</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_settings is not null)
+        {
+            <Card Title="Estado" IconName="power" data-testid="assistant-state-card">
+                <div class="stack">
+                    <p data-testid="assistant-state">Ahora: <strong>@(_settings.Enabled ? "activado" : "desactivado")</strong>.</p>
+                    @if (_settings.BlockedByPlatform || !_settings.GloballyEnabled)
+                    {
+                        <Alert Kind="AlertKind.Warning" data-testid="assistant-blocked">El administrador de Conversia detuvo el asistente. No responderá hasta que lo reactive.</Alert>
+                    }
+                    @if (!_settings.AiEnabled)
+                    {
+                        <Alert Kind="AlertKind.Warning" data-testid="assistant-ai-off">La inteligencia artificial de tu empresa está desactivada. Pide al administrador de Conversia que la active.</Alert>
+                    }
+                    @if (_settings.Generator == "Null")
+                    {
+                        <p class="muted" data-testid="assistant-generator-note">
+                            Por ahora el asistente todavía no redacta respuestas: cuando nadie responde a tiempo, deja la conversación como «Pendiente de revisión»
+                            para que tu equipo la atienda. En el modo sandbox responde con un texto de prueba.
+                        </p>
+                    }
+                    <p class="muted">
+                        El asistente nunca dice ser una persona. Si el cliente pide hablar con alguien, se queja o la conversación se complica, la deja
+                        pendiente de revisión con una frase natural. Nunca envía plantillas por su cuenta.
+                    </p>
+                    <div hidden="@(!_canManage)">
+                        <EditForm Model="Switch" FormName="assistant-switch" OnSubmit="SwitchAsync" method="post" class="form" data-testid="assistant-switch-form">
+                            <input type="hidden" name="@($"{nameof(Switch)}.{nameof(SwitchInput.Enable)}")" value="@(_settings.Enabled ? "false" : "true")" />
+                            @if (!_settings.Enabled)
+                            {
+                                <p class="muted">Versión de los términos: <strong>@_settings.CurrentTermsVersion</strong>. Solo la persona propietaria de la empresa puede activarlo.</p>
+                                <label class="checkbox">
+                                    <InputCheckbox @bind-Value="Switch.AcceptTerms" data-testid="assistant-accept-terms" />
+                                    Acepto los términos del asistente de IA.
+                                </label>
+                                <label class="checkbox">
+                                    <InputCheckbox @bind-Value="Switch.AcknowledgeLegalBasis" data-testid="assistant-legal-basis" />
+                                    Confirmo que la empresa tiene la base legal para que un asistente de IA atienda a sus clientes (Ley 1581 de 2012) y que
+                                    revisará con su asesor legal cómo informarles que hablan con un asistente virtual.
+                                </label>
+                            }
+                            <div class="form-actions">
+                                <button type="submit" class="@(_settings.Enabled ? "btn btn--danger" : "btn btn--primary")" data-testid="assistant-switch">
+                                    <Icon Name="power" />@(_settings.Enabled ? "Desactivar el asistente" : "Activar el asistente")
+                                </button>
+                            </div>
+                        </EditForm>
+                    </div>
+                    @if (_settings.TermsAcceptedAt is { } accepted)
+                    {
+                        <p class="muted" data-testid="assistant-consent">Términos @_settings.TermsVersion aceptados el @accepted.ToString("yyyy-MM-dd HH:mm") (UTC).</p>
+                    }
+                </div>
+            </Card>
+
+            <Card Title="Líneas" IconName="phone" data-testid="assistant-lines-card">
+                @if (_settings.Channels.Count == 0)
+                {
+                    <p class="muted">Tu empresa no tiene líneas registradas.</p>
+                }
+                else
+                {
+                    <EditForm Model="Lines" FormName="assistant-lines" OnSubmit="SaveLinesAsync" method="post" class="form" data-testid="assistant-lines-form">
+                        @for (var i = 0; i < _settings.Channels.Count; i++)
+                        {
+                            var channel = _settings.Channels[i];
+                            <input type="hidden" name="@($"{nameof(Lines)}.{nameof(LinesInput.Ids)}[{i}]")" value="@channel.ChannelId" />
+                            <label class="checkbox" data-testid="assistant-line">
+                                <input type="checkbox" name="@($"{nameof(Lines)}.{nameof(LinesInput.Enabled)}")" value="@channel.ChannelId" checked="@channel.AssistantEnabled" disabled="@(!_canManage)" />
+                                @channel.DisplayPhoneNumber @(channel.IsActive ? "" : "(línea inactiva)")
+                            </label>
+                        }
+                        @if (_canManage)
+                        {
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn--secondary" data-testid="assistant-lines-save"><Icon Name="check" />Guardar líneas</button>
+                            </div>
+                        }
+                    </EditForm>
+                }
+            </Card>
+
+            <Card Title="Comportamiento" IconName="sparkles" data-testid="assistant-behaviour-card">
+                <EditForm Model="Form" FormName="assistant-settings" OnSubmit="SaveSettingsAsync" method="post" class="form" data-testid="assistant-settings-form">
+                    <label class="field">
+                        <span>Espera antes de responder (segundos, de 30 a 900)</span>
+                        <InputNumber @bind-Value="Form.ReplyDelaySeconds" data-testid="assistant-delay" />
+                    </label>
+                    <label class="field">
+                        <span>Cuándo responde</span>
+                        <InputSelect @bind-Value="Form.ActiveHours" data-testid="assistant-hours">
+                            <option value="Always">Siempre</option>
+                            <option value="OutsideBusinessHours">Solo fuera del horario de atención</option>
+                            <option value="Custom">En un horario personalizado</option>
+                        </InputSelect>
+                    </label>
+                    <div class="cluster">
+                        <label class="field"><span>Desde (HH:mm)</span><InputText @bind-Value="Form.CustomStart" data-testid="assistant-start" /></label>
+                        <label class="field"><span>Hasta (HH:mm)</span><InputText @bind-Value="Form.CustomEnd" data-testid="assistant-end" /></label>
+                    </div>
+                    <label class="field">
+                        <span>Respuestas seguidas antes de pasar la conversación a una persona</span>
+                        <InputNumber @bind-Value="Form.MaxAssistantTurns" data-testid="assistant-turns" />
+                    </label>
+                    <label class="field">
+                        <span>Minutos que el asistente espera después de que escribe una persona</span>
+                        <InputNumber @bind-Value="Form.HumanCooldownMinutes" data-testid="assistant-cooldown" />
+                    </label>
+                    <label class="field">
+                        <span>Aviso de asistente virtual</span>
+                        <InputSelect @bind-Value="Form.DisclosureMode" data-testid="assistant-disclosure">
+                            <option value="OnRequest">Cuando el cliente pregunta si habla con una persona (recomendado)</option>
+                            <option value="FirstMessage">En el primer mensaje del asistente</option>
+                            <option value="None">Sin aviso (pendiente de revisión legal)</option>
+                        </InputSelect>
+                    </label>
+                    <label class="field"><span>Texto del aviso</span><InputTextArea @bind-Value="Form.DisclosureText" rows="2" data-testid="assistant-disclosure-text" /></label>
+                    <label class="field"><span>Frase al pasar la conversación a una persona</span><InputTextArea @bind-Value="Form.HandoffLine" rows="2" data-testid="assistant-handoff-line" /></label>
+                    <label class="field">
+                        <span>Palabras que pasan la conversación a una persona (una por línea; un patrón empieza con «re:»)</span>
+                        <InputTextArea @bind-Value="Form.Keywords" rows="5" data-testid="assistant-keywords" />
+                    </label>
+                    <label class="field"><span>Notas de tono (opcional, sin enlaces)</span><InputTextArea @bind-Value="Form.ToneNotes" rows="3" data-testid="assistant-tone" /></label>
+                    @if (_canManage)
+                    {
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn--primary" data-testid="assistant-settings-save"><Icon Name="check" />Guardar</button>
+                        </div>
+                    }
+                </EditForm>
+            </Card>
+        }
+    </div>
+}
+
+@code {
+    public const string SavedNotice = "guardado";
+
+    private AssistantSettingsResponse? _settings;
+    private bool _canManage;
+    private SwitchInput? _switch;
+    private LinesInput? _lines;
+    private SettingsInput? _form;
+
+    public sealed class SwitchInput
+    {
+        public string? Enable { get; set; }
+
+        public bool AcceptTerms { get; set; }
+
+        public bool AcknowledgeLegalBasis { get; set; }
+    }
+
+    public sealed class LinesInput
+    {
+        public List<Guid> Ids { get; set; } = [];
+
+        public List<Guid> Enabled { get; set; } = [];
+    }
+
+    public sealed class SettingsInput
+    {
+        public int? ReplyDelaySeconds { get; set; }
+
+        public string? ActiveHours { get; set; }
+
+        public string? CustomStart { get; set; }
+
+        public string? CustomEnd { get; set; }
+
+        public int? MaxAssistantTurns { get; set; }
+
+        public int? HumanCooldownMinutes { get; set; }
+
+        public string? DisclosureMode { get; set; }
+
+        public string? DisclosureText { get; set; }
+
+        public string? HandoffLine { get; set; }
+
+        public string? Keywords { get; set; }
+
+        public string? ToneNotes { get; set; }
+    }
+
+    [SupplyParameterFromForm(FormName = "assistant-switch")]
+    private SwitchInput Switch { get => _switch ??= new(); set => _switch = value; }
+
+    [SupplyParameterFromForm(FormName = "assistant-lines")]
+    private LinesInput Lines { get => _lines ??= new(); set => _lines = value; }
+
+    [SupplyParameterFromForm(FormName = "assistant-settings")]
+    private SettingsInput Form { get => _form ??= new(); set => _form = value; }
+
+    [SupplyParameterFromQuery(Name = "aviso")]
+    public string? Notice { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        // On a post too: a POST is dispatched only to a form that exists in the render tree; the posted values stay.
+        await LoadAsync(fillForm: !IsPost);
+    }
+
+    private async Task LoadAsync(bool fillForm)
+    {
+        var settingsTask = Api.GetAssistantSettingsAsync(Token!);
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        await Task.WhenAll(settingsTask, profileTask);
+        if (await TryFailAsync(settingsTask.Result, profileTask.Result))
+        {
+            return;
+        }
+
+        Shell.Remember(profileTask.Result.Value!);
+        _settings = settingsTask.Result.Value!;
+        _canManage = profileTask.Result.Value!.Can(Permission.AssistantManage);
+        if (fillForm)
+        {
+            _form = new SettingsInput
+            {
+                ReplyDelaySeconds = _settings.ReplyDelaySeconds,
+                ActiveHours = _settings.ActiveHours,
+                CustomStart = _settings.CustomStart,
+                CustomEnd = _settings.CustomEnd,
+                MaxAssistantTurns = _settings.MaxAssistantTurns,
+                HumanCooldownMinutes = _settings.HumanCooldownMinutes,
+                DisclosureMode = _settings.DisclosureMode,
+                DisclosureText = _settings.DisclosureText,
+                HandoffLine = _settings.HandoffLine,
+                Keywords = string.Join('\n', _settings.HandoffKeywords),
+                ToneNotes = _settings.ToneNotes,
+            };
+        }
+    }
+
+    private async Task SwitchAsync()
+    {
+        if (Switch.Enable == "true")
+        {
+            var settings = await Api.GetAssistantSettingsAsync(Token!);
+            if (await TryFailAsync(settings))
+            {
+                return;
+            }
+
+            await AfterAsync(await Api.EnableAssistantAsync(Token!, new EnableAssistantRequest
+            {
+                TermsVersion = settings.Value!.CurrentTermsVersion,
+                AcceptTerms = Switch.AcceptTerms,
+                AcknowledgeLegalBasis = Switch.AcknowledgeLegalBasis,
+            }));
+            return;
+        }
+
+        await AfterAsync(await Api.DisableAssistantAsync(Token!));
+    }
+
+    private async Task SaveLinesAsync()
+    {
+        foreach (var id in Lines.Ids.Distinct())
+        {
+            var result = await Api.SetChannelAssistantAsync(Token!, id, Lines.Enabled.Contains(id));
+            if (!result.IsSuccess)
+            {
+                await AfterAsync(result);
+                return;
+            }
+        }
+
+        RedirectTo($"/organizacion/asistente?aviso={SavedNotice}");
+    }
+
+    private async Task SaveSettingsAsync()
+        => await AfterAsync(await Api.UpdateAssistantSettingsAsync(Token!, new UpdateAssistantSettingsRequest
+        {
+            ReplyDelaySeconds = Form.ReplyDelaySeconds,
+            ActiveHours = Form.ActiveHours,
+            CustomStart = Form.CustomStart,
+            CustomEnd = Form.CustomEnd,
+            MaxAssistantTurns = Form.MaxAssistantTurns,
+            HumanCooldownMinutes = Form.HumanCooldownMinutes,
+            DisclosureMode = Form.DisclosureMode,
+            DisclosureText = Form.DisclosureText,
+            HandoffLine = Form.HandoffLine,
+            HandoffKeywords = (Form.Keywords ?? string.Empty).Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList(),
+            ToneNotes = Form.ToneNotes,
+            Language = "es-CO",
+        }), keepForm: true);
+
+    private async Task AfterAsync<T>(ApiResult<T> result, bool keepForm = false)
+    {
+        if (result.IsSuccess)
+        {
+            RedirectTo($"/organizacion/asistente?aviso={SavedNotice}");
+            return;
+        }
+
+        // The API words its refusals in Spanish (a value out of range, terms that changed, the owner only): they are shown as they come.
+        if (result.Status is ApiResultStatus.ValidationFailed or ApiResultStatus.Conflict or ApiResultStatus.Forbidden)
+        {
+            SetStatusCode(result.Status == ApiResultStatus.Forbidden ? StatusCodes.Status403Forbidden : StatusCodes.Status400BadRequest);
+            Message = result.ValidationErrors.Count > 0
+                ? string.Join(" ", result.ValidationErrors.SelectMany(e => e.Value))
+                : result.Detail ?? (result.Status == ApiResultStatus.Forbidden ? "Solo la persona propietaria de la empresa puede activar el asistente." : UiMessages.InvalidRequest);
+        }
+        else
+        {
+            await TryFailAsync(result);
+        }
+
+        if (!Redirected && !Denied)
+        {
+            await LoadAsync(fillForm: !keepForm);
+        }
+    }
+}

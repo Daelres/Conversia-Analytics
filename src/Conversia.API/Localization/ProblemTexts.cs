@@ -19,6 +19,7 @@ public static class ProblemTexts
     public const string ContactNotFoundTitle = "Contacto no encontrado";
     public const string ReportNotFoundTitle = "Informe no encontrado";
     public const string ReportLimitTitle = "Límite de informes alcanzado";
+    public const string AssistantTitle = "Asistente de IA";
     public const string TenantGoneTitle = "Empresa eliminada";
     public const string ConversationNotFoundTitle = "Conversación no encontrada";
     public const string MessageNotFoundTitle = "Mensaje no encontrado";

@@ -22,4 +22,6 @@ public enum Permission
     BillingManage = 11,
     /// <summary>Create, change and delete the company's automatic manager reports, and preview them (docs/REPORTS.md).</summary>
     ReportsManage = 12,
+    /// <summary>Change the AI sales assistant's settings, its lines and its knowledge base (docs/ASSISTANT.md). Switching it on is the owner's alone.</summary>
+    AssistantManage = 13,
 }

@@ -1,0 +1,240 @@
+@page "/organizacion/asistente/conocimiento"
+@attribute [Authorize]
+@using Conversia.Application.Assistant
+@using Conversia.Application.DTOs.Assistant
+@using Conversia.Domain.Entities
+@inherits AuthenticatedPageBase
+
+<PageTitle>Base de conocimiento - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="assistant-knowledge">
+        <PageHeader Eyebrow="Asistente de IA" EyebrowIcon="sparkles" Title="Base de conocimiento"
+                    Description="Lo único que el asistente puede contar a tus clientes: servicios, precios, promociones, horarios y reglas. Cada vez que guardas se crea una versión; el asistente usa la versión publicada.">
+            <a class="btn btn--secondary" href="/organizacion/asistente"><Icon Name="arrow-left" />Volver al asistente</a>
+        </PageHeader>
+
+        @if (Notice == SavedNotice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">Versión guardada. Publícala para que el asistente la use.</Alert>
+        }
+        else if (Notice == PublishedNotice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-published">Versión publicada: el asistente ya la usa.</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+        @if (_errors.Count > 0)
+        {
+            <Alert Kind="AlertKind.Danger" data-testid="knowledge-errors">
+                <ul>
+                    @foreach (var error in _errors)
+                    {
+                        <li>@error</li>
+                    }
+                </ul>
+            </Alert>
+        }
+
+        @if (_list is not null)
+        {
+            <Card Title="Versiones" IconName="layers" data-testid="knowledge-versions">
+                @if (_list.Versions.Count == 0)
+                {
+                    <p class="muted" data-testid="knowledge-empty">Todavía no hay ninguna versión. Completa el formulario y guárdala.</p>
+                }
+                else
+                {
+                    <EditForm Model="Publish" FormName="knowledge-publish" OnSubmit="PublishAsync" method="post" class="form">
+                        <ul class="stack">
+                            @foreach (var version in _list.Versions)
+                            {
+                                <li data-testid="knowledge-version" data-number="@version.Number" data-status="@version.Status">
+                                    <strong>Versión @version.Number</strong> · @StatusText(version.Status) · guardada el @version.CreatedAt.ToString("yyyy-MM-dd HH:mm") (UTC)
+                                    @if (version.Status == "Draft")
+                                    {
+                                        <button type="submit" class="btn btn--ghost btn--sm" name="@($"{nameof(Publish)}.{nameof(PublishInput.Number)}")" value="@version.Number" data-testid="knowledge-publish">Publicar</button>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                    </EditForm>
+                }
+            </Card>
+
+            <Card Title="Contenido" IconName="pencil" data-testid="knowledge-editor">
+                <p class="muted">
+                    Un elemento por línea, con las columnas separadas por «|» (también puedes pegar desde una hoja de cálculo con «;»). Los precios van en pesos
+                    (120.000 o 120.000 - 150.000). Solo se permiten enlaces al dominio de reservas o pagos que indiques abajo. No escribas datos de clientes.
+                </p>
+                <EditForm Model="Form" FormName="knowledge-save" OnSubmit="SaveAsync" method="post" class="form" data-testid="knowledge-form">
+                    <label class="field"><span>Servicios: nombre | descripción | precio | duración en minutos | condiciones | activo o inactivo</span><InputTextArea @bind-Value="Form.Services" rows="6" data-testid="knowledge-services" /></label>
+                    <label class="field"><span>Promociones: título | descripción | desde AAAA-MM-DD | hasta AAAA-MM-DD</span><InputTextArea @bind-Value="Form.Promotions" rows="3" data-testid="knowledge-promotions" /></label>
+                    <label class="field"><span>Horario de atención: día | abre HH:mm | cierra HH:mm</span><InputTextArea @bind-Value="Form.OpeningHours" rows="4" data-testid="knowledge-hours" /></label>
+                    <label class="field"><span>Festivos: AAAA-MM-DD | nota</span><InputTextArea @bind-Value="Form.Holidays" rows="3" data-testid="knowledge-holidays" /></label>
+                    <label class="field"><span>Cómo reservar</span><InputTextArea @bind-Value="Form.HowToBook" rows="2" data-testid="knowledge-booking" /></label>
+                    <label class="field"><span>Abono</span><InputTextArea @bind-Value="Form.Deposit" rows="2" data-testid="knowledge-deposit" /></label>
+                    <label class="field"><span>Cancelación</span><InputTextArea @bind-Value="Form.Cancellation" rows="2" data-testid="knowledge-cancellation" /></label>
+                    <label class="field"><span>Medios de pago (uno por línea)</span><InputTextArea @bind-Value="Form.PaymentMethods" rows="3" data-testid="knowledge-payments" /></label>
+                    <label class="field"><span>Preguntas frecuentes: pregunta | respuesta | tema</span><InputTextArea @bind-Value="Form.Faqs" rows="6" data-testid="knowledge-faqs" /></label>
+                    <label class="field"><span>Temas de los que puede hablar (uno por línea)</span><InputTextArea @bind-Value="Form.AllowedTopics" rows="3" data-testid="knowledge-topics" /></label>
+                    <label class="field"><span>Temas y frases prohibidos (uno por línea)</span><InputTextArea @bind-Value="Form.ForbiddenPhrases" rows="3" data-testid="knowledge-forbidden" /></label>
+                    <label class="field"><span>Cuándo pasar la conversación a una persona (una regla por línea)</span><InputTextArea @bind-Value="Form.EscalationRules" rows="3" data-testid="knowledge-escalation" /></label>
+                    <label class="field"><span>Dominio permitido para enlaces (por ejemplo reservas.miempresa.com)</span><InputText @bind-Value="Form.AllowedLinkDomain" data-testid="knowledge-domain" /></label>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn--primary" data-testid="knowledge-save"><Icon Name="check" />Guardar como nueva versión</button>
+                    </div>
+                </EditForm>
+            </Card>
+        }
+    </div>
+}
+
+@code {
+    public const string SavedNotice = "guardado";
+    public const string PublishedNotice = "publicado";
+
+    private KnowledgeListResponse? _list;
+    private AssistantKnowledge? _latest;
+    private List<string> _errors = [];
+    private KnowledgeInput? _form;
+    private PublishInput? _publish;
+
+    public sealed class PublishInput
+    {
+        public int Number { get; set; }
+    }
+
+    public sealed class KnowledgeInput
+    {
+        public string? Services { get; set; }
+        public string? Promotions { get; set; }
+        public string? OpeningHours { get; set; }
+        public string? Holidays { get; set; }
+        public string? HowToBook { get; set; }
+        public string? Deposit { get; set; }
+        public string? Cancellation { get; set; }
+        public string? PaymentMethods { get; set; }
+        public string? Faqs { get; set; }
+        public string? AllowedTopics { get; set; }
+        public string? ForbiddenPhrases { get; set; }
+        public string? EscalationRules { get; set; }
+        public string? AllowedLinkDomain { get; set; }
+
+        public KnowledgeText ToText() => new(Services ?? "", Promotions ?? "", OpeningHours ?? "", Holidays ?? "", HowToBook, Deposit, Cancellation,
+            PaymentMethods ?? "", Faqs ?? "", AllowedTopics ?? "", ForbiddenPhrases ?? "", EscalationRules ?? "", AllowedLinkDomain);
+
+        public static KnowledgeInput From(KnowledgeText t) => new()
+        {
+            Services = t.Services, Promotions = t.Promotions, OpeningHours = t.OpeningHours, Holidays = t.Holidays, HowToBook = t.HowToBook, Deposit = t.Deposit,
+            Cancellation = t.Cancellation, PaymentMethods = t.PaymentMethods, Faqs = t.Faqs, AllowedTopics = t.AllowedTopics, ForbiddenPhrases = t.ForbiddenPhrases,
+            EscalationRules = t.EscalationRules, AllowedLinkDomain = t.AllowedLinkDomain,
+        };
+    }
+
+    [SupplyParameterFromForm(FormName = "knowledge-save")]
+    private KnowledgeInput Form { get => _form ??= new(); set => _form = value; }
+
+    [SupplyParameterFromForm(FormName = "knowledge-publish")]
+    private PublishInput Publish { get => _publish ??= new(); set => _publish = value; }
+
+    [SupplyParameterFromQuery(Name = "aviso")]
+    public string? Notice { get; set; }
+
+    private static string StatusText(string status) => status switch
+    {
+        "Published" => "publicada (en uso)",
+        "Archived" => "publicada antes",
+        _ => "borrador",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        // On a post too: a POST is dispatched only to a form that exists in the render tree; the posted values stay.
+        await LoadAsync(fillForm: !IsPost);
+    }
+
+    private async Task LoadAsync(bool fillForm)
+    {
+        var list = await Api.ListKnowledgeAsync(Token!);
+        if (await TryFailAsync(list))
+        {
+            return;
+        }
+
+        _list = list.Value!;
+        if (_list.LatestNumber is { } latest)
+        {
+            var version = await Api.GetKnowledgeAsync(Token!, latest);
+            if (await TryFailAsync(version))
+            {
+                return;
+            }
+
+            _latest = version.Value!.Content;
+        }
+
+        if (fillForm)
+        {
+            _form = KnowledgeInput.From(KnowledgeTextFormat.Format(_latest ?? new AssistantKnowledge()));
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        var (knowledge, errors) = KnowledgeTextFormat.Parse(Form.ToText(), _latest);
+        if (knowledge is null)
+        {
+            SetStatusCode(StatusCodes.Status400BadRequest);
+            _errors = [.. errors];
+            return;
+        }
+
+        var saved = await Api.SaveKnowledgeAsync(Token!, new SaveKnowledgeRequest { Content = knowledge });
+        if (saved.IsSuccess)
+        {
+            RedirectTo($"/organizacion/asistente/conocimiento?aviso={SavedNotice}");
+            return;
+        }
+
+        await RefusedAsync(saved);
+    }
+
+    private async Task PublishAsync()
+    {
+        var published = await Api.PublishKnowledgeAsync(Token!, Publish.Number);
+        if (published.IsSuccess)
+        {
+            RedirectTo($"/organizacion/asistente/conocimiento?aviso={PublishedNotice}");
+            return;
+        }
+
+        await RefusedAsync(published);
+        if (!Redirected && !Denied)
+        {
+            await LoadAsync(fillForm: true);
+        }
+    }
+
+    private async Task RefusedAsync<T>(ApiResult<T> result)
+    {
+        if (result.Status is ApiResultStatus.ValidationFailed or ApiResultStatus.Conflict or ApiResultStatus.NotFound)
+        {
+            SetStatusCode(StatusCodes.Status400BadRequest);
+            Message = result.ValidationErrors.Count > 0 ? string.Join(" ", result.ValidationErrors.SelectMany(e => e.Value)) : result.Detail ?? UiMessages.InvalidRequest;
+            return;
+        }
+
+        await TryFailAsync(result);
+    }
+}

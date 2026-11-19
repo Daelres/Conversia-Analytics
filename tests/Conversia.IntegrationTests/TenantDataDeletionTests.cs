@@ -89,6 +89,14 @@ public class TenantDataDeletionTests
             await db.Database.ExecuteSqlAsync($"""
                 INSERT INTO "MessageSendOutcomes" ("TenantId", "Day", "IsSandbox", "Outcome", "Count") VALUES ({f.TenantId}, DATE '2026-10-01', false, 'sent', 3)
                 """);
+            // The AI sales assistant (docs/ASSISTANT.md): its counters, settings, knowledge base and the state of a conversation.
+            await db.Database.ExecuteSqlAsync($"""
+                INSERT INTO "AssistantActivityCounts" ("TenantId", "Day", "IsSandbox", "Metric", "Count") VALUES ({f.TenantId}, DATE '2026-10-01', false, 'timer_armed', 2)
+                """);
+            db.AssistantSettings.Add(AssistantSettings.Create(f.TenantId));
+            db.AssistantKnowledgeVersions.Add(AssistantKnowledgeVersion.Create(f.TenantId, 1, "{}", null));
+            db.ConversationAssistants.Add(ConversationAssistant.Create(f.TenantId, seeded.ConversationId, isSandbox: false));
+            db.AssistantAuditEntries.Add(AssistantAuditEntry.Record(f.TenantId, null, AssistantAuditActions.Disabled, new Dictionary<string, object?>(), DateTime.UtcNow));
             // A stored media object waiting to be deleted (docs/MESSAGING.md, "Media").
             db.MediaObjectDeletions.Add(MediaObjectDeletion.Create(f.TenantId, $"{f.TenantId:N}/2026/10/0123456789abcdef0123456789abcdef", DateTime.UtcNow));
             // A synced template of the line (docs/MESSAGING.md, "Templates"): the business's own text, deleted with the company.

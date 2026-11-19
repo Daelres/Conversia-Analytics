@@ -236,4 +236,36 @@ public class ClosingPointRulesTests
             }
         }
     }
+
+    // ---- The AI sales assistant (docs/ASSISTANT.md, "Metrics") --------------------------------------------------------
+
+    private static ConversationSnapshot WithSenders(string chat, MessageSender business)
+    {
+        var snapshot = ChatScript.Snapshot(chat);
+        return snapshot with
+        {
+            Messages = snapshot.Messages
+                .Select(m => m with { Sender = m.Direction == MessageDirection.Outbound ? business : MessageSender.Customer })
+                .ToList(),
+        };
+    }
+
+    private const string AiWonChat = "C: quiero agendar axilas\nA: Listo, quedó agendada para el sábado a las 10";
+
+    [Fact]
+    public void AWonChat_ClosedOnlyByTheAssistant_IsTheAssistants()
+    {
+        var result = Classifier.Classify(WithSenders(AiWonChat, MessageSender.AiAssistant));
+        Assert.Equal(ClassificationOutcome.Won, result.Outcome);
+        Assert.Equal(ClosedBy.AiAssistant, result.ClosingPoint!.ClosedBy);
+    }
+
+    [Fact]
+    public void AWonChat_WhereAPersonWroteToo_IsTheAdvisors()
+    {
+        var snapshot = WithSenders(AiWonChat, MessageSender.AiAssistant);
+        snapshot = snapshot with { Messages = [.. snapshot.Messages, new SnapshotMessage(MessageDirection.Outbound, "text", "Te esperamos", snapshot.Messages[^1].SentAt.AddMinutes(1), Sender: MessageSender.PhoneApp)] };
+        Assert.Equal(ClosedBy.Advisor, Classifier.Classify(snapshot).ClosingPoint!.ClosedBy);
+        Assert.Equal(ClosedBy.Advisor, Classifier.Classify(WithSenders(AiWonChat, MessageSender.Conversia)).ClosingPoint!.ClosedBy);
+    }
 }

@@ -19,6 +19,7 @@ internal static class TenantDataDeletionPlan
         ByTenant("Messages"), // -> Conversations, WhatsAppChannels
         ByTenant("MediaObjectDeletions"), // the queue of media objects to delete (the store itself is emptied by prefix, TenantDataDeleter)
         ByTenant("Opportunities"), // -> Conversations
+        ByTenant("ConversationAssistants"), // -> Conversations; the assistant's state and timer per conversation (codes and times)
         ByTenant("AiUsageConversations"), // the AI distinct conversation sets (design D24: they go with the conversations)
         ByTenant("LlmBatchRequests"), // -> Conversations, LlmBatches; ids and hashes of the batched analyses (the batch rows hold no company)
         ByTenant("Conversations"), // -> Contacts, WhatsAppChannels, Branches, Advisors
@@ -37,6 +38,10 @@ internal static class TenantDataDeletionPlan
         ByTenant("ReportRecipients"), // -> ReportDefinitions, Users
         ByTenant("ReportDefinitions"),
         ByTenant("ReportLedgerEntries"), // counts and money of the written reports
+        ByTenant("AssistantKnowledgeVersions"), // the company's knowledge base versions (business facts, no customer data)
+        ByTenant("AssistantSettings"), // the assistant's settings and the owner's consent evidence
+        ByTenant("AssistantActivityCounts"), // counts of the assistant's activity
+        ByTenant("AssistantAuditEntries"), // the history of the assistant's settings and consent (ids and the company's own settings)
         ByTenant("MessageTemplates"), // -> WhatsAppChannels; the business's own template texts (no customer data)
         ByTenant("WhatsAppChannels"), // the lines, with their encrypted provider key -> Branches
         ByTenant("Advisors"), // -> Branches, Users

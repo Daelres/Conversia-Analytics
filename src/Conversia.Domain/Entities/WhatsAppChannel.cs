@@ -155,6 +155,21 @@ public class WhatsAppChannel : BaseEntity
         HistoryAiAnalysisEnabled = false;
     }
 
+    /// <summary>The AI sales assistant may answer on this line (docs/ASSISTANT.md, "Settings"). Off by default; the company's switch applies on top.</summary>
+    public bool AssistantEnabled { get; private set; }
+
+    /// <summary>Returns false when the line already was that way.</summary>
+    public bool SetAssistantEnabled(bool enabled)
+    {
+        if (AssistantEnabled == enabled)
+        {
+            return false;
+        }
+
+        AssistantEnabled = enabled;
+        return true;
+    }
+
     // Required by EF Core for materialization.
     private WhatsAppChannel()
     {

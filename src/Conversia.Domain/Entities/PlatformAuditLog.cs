@@ -54,6 +54,8 @@ public class PlatformAuditLog : BaseEntity
         public const string BillingPaymentLinkCreated = "billing.payment_link_created";
         public const string BillingPaymentNeedsReview = "billing.payment_needs_review";
         public const string BillingPaymentReviewed = "billing.payment_reviewed";
+        public const string TenantAssistantBlockedChanged = "tenant.assistant_blocked_changed";
+        public const string PlatformAssistantChanged = "platform.assistant_changed";
     }
 
     /// <summary>The administrator who made the change; null when the system made it (see <see cref="IsSystem"/>).</summary>

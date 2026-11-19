@@ -150,7 +150,7 @@ public sealed class ConversationClassificationRunner(
             .Where(m => m.ConversationId == conversation.Id)
             .OrderByDescending(m => m.SentAt).ThenByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id)
             .Take(MaxMessagesPerConversation)
-            .Select(m => new SnapshotMessage(m.Direction, m.Type, m.Text == null ? null : m.Text.Substring(0, characters), m.SentAt, m.Id))
+            .Select(m => new SnapshotMessage(m.Direction, m.Type, m.Text == null ? null : m.Text.Substring(0, characters), m.SentAt, m.Id, m.Sender))
             .ToListAsync(cancellationToken);
         messages.Reverse();
 

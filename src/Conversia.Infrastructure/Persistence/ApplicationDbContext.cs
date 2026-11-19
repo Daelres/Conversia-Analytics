@@ -110,6 +110,20 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<ReportLedgerEntry> ReportLedgerEntries => Set<ReportLedgerEntry>();
 
+    /// <summary>The AI sales assistant (docs/ASSISTANT.md): settings, per-conversation state and timer, knowledge base versions, counters. Tenant-scoped.</summary>
+    public DbSet<AssistantSettings> AssistantSettings => Set<AssistantSettings>();
+
+    public DbSet<ConversationAssistant> ConversationAssistants => Set<ConversationAssistant>();
+
+    public DbSet<AssistantKnowledgeVersion> AssistantKnowledgeVersions => Set<AssistantKnowledgeVersion>();
+
+    public DbSet<AssistantActivityCount> AssistantActivityCounts => Set<AssistantActivityCount>();
+
+    public DbSet<AssistantAuditEntry> AssistantAuditEntries => Set<AssistantAuditEntry>();
+
+    /// <summary>Platform-level switches the administrator flips at run time (the assistant's global kill switch).</summary>
+    public DbSet<PlatformSwitch> PlatformSwitches => Set<PlatformSwitch>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
@@ -155,6 +169,11 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<ManagerReport>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<ReportDelivery>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<ReportLedgerEntry>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AssistantSettings>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ConversationAssistant>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AssistantKnowledgeVersion>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AssistantAuditEntry>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AssistantActivityCount>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
 
         base.OnModelCreating(modelBuilder);
     }

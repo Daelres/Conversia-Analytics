@@ -104,6 +104,10 @@ public class ExceptionHandlingMiddleware
         {
             await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.ReportNotFoundTitle, ex.Message);
         }
+        catch (AssistantException ex)
+        {
+            await WriteProblemAsync(context, ex.StatusCode, ProblemTexts.AssistantTitle, ex.Message, ("code", ex.Code));
+        }
         catch (ReportLimitException ex)
         {
             await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.ReportLimitTitle, ex.Message, ("code", ReportLimitException.Code));

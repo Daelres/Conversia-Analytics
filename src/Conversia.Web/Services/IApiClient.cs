@@ -1,4 +1,6 @@
+using Conversia.Application.Assistant;
 using Conversia.Application.DTOs;
+using Conversia.Application.DTOs.Assistant;
 using Conversia.Application.DTOs.Admin;
 using Conversia.Application.DTOs.Contacts;
 using Conversia.Application.DTOs.Auth;
@@ -308,6 +310,39 @@ public interface IApiClient
 
     /// <summary>Anonymous: the token of the link names the recipient.</summary>
     Task<ApiResult<ReportUnsubscribeResponse>> UnsubscribeFromReportAsync(string unsubscribeToken, CancellationToken cancellationToken = default);
+
+    // The AI sales assistant (docs/ASSISTANT.md).
+    Task<ApiResult<AssistantSettingsResponse>> GetAssistantSettingsAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantSettingsResponse>> UpdateAssistantSettingsAsync(string token, UpdateAssistantSettingsRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantSettingsResponse>> EnableAssistantAsync(string token, EnableAssistantRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantSettingsResponse>> DisableAssistantAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantSettingsResponse>> SetChannelAssistantAsync(string token, Guid channelId, bool enabled, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<KnowledgeListResponse>> ListKnowledgeAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<KnowledgeVersionResponse>> GetKnowledgeAsync(string token, int number, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<KnowledgeVersionResponse>> SaveKnowledgeAsync(string token, SaveKnowledgeRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<KnowledgeVersionResponse>> PublishKnowledgeAsync(string token, int number, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ConversationAssistantResponse>> GetConversationAssistantAsync(string token, Guid conversationId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ConversationAssistantResponse>> TakeOverConversationAsync(string token, Guid conversationId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ConversationAssistantResponse>> HandBackConversationAsync(string token, Guid conversationId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantAdminResponse>> GetAdminAssistantAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantAdminResponse>> SetAdminAssistantAsync(string token, SetAssistantSwitchRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantAdminResponse>> GetTenantAssistantAsync(string token, Guid tenantId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantAdminResponse>> SetTenantAssistantAsync(string token, Guid tenantId, SetAssistantSwitchRequest request, CancellationToken cancellationToken = default);
 }
 
 /// <summary>An inbox answer with the API's <c>ETag</c>; <see cref="NotModified"/> means the caller's version is still current.</summary>

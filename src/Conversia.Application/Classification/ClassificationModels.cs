@@ -24,7 +24,8 @@ public enum ClassificationOutcome
 /// <param name="Text">The message text; null for media without caption. Customer data: it is read, never copied into a result.</param>
 /// <param name="SentAt">UTC.</param>
 /// <param name="Id">The stored message id (part of the snapshot hash); null for snapshots built without the database.</param>
-public sealed record SnapshotMessage(MessageDirection Direction, string Type, string? Text, DateTime SentAt, Guid? Id = null);
+/// <param name="Sender">Who wrote it (docs/MESSAGING.md, "Who sent it"): the rules name the AI sales assistant as the closer from it. Not hashed.</param>
+public sealed record SnapshotMessage(MessageDirection Direction, string Type, string? Text, DateTime SentAt, Guid? Id = null, MessageSender Sender = MessageSender.Unknown);
 
 /// <summary>
 /// Everything a classifier is given about one conversation: its messages in conversation order (oldest first) and the markers ingestion

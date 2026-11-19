@@ -250,3 +250,10 @@ conversations (design D24); the sandbox monthly totals (`AiUsageMonths` with `Is
 - An attachment sent by the advisor in sandbox mode is stored in the media store (when one is configured) and recorded in the sandbox
   conversation; nothing is uploaded or sent.
 - Deleting the sandbox data deletes the stored copies of its messages too (docs/MESSAGING.md, "Media retention and deletion").
+
+## El asistente de IA en el sandbox
+
+Con el asistente activado ([ASSISTANT.md](ASSISTANT.md)), una conversación simulada lo prueba de punta a punta sin ningún proveedor: si
+nadie responde dentro de la espera, contesta un texto de prueba fijo (nunca un modelo) por el remitente interno, y los disparadores de
+traspaso funcionan igual que en real. Borrar los datos de prueba borra también su estado del asistente; sus contadores quedan aparte, marcados
+como sandbox.

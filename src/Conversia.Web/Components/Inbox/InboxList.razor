@@ -38,6 +38,10 @@
                         {
                             <li><Chip Tone="ChipTone.Success" IconName="message" data-testid="badge-window" data-window="open">Ventana abierta</Chip></li>
                         }
+                        @if (AssistantBadge(item) is { } badge)
+                        {
+                            <li><Chip Tone="badge.Tone" IconName="badge.Icon" data-testid="badge-assistant" data-assistant="@item.AssistantState">@badge.Text</Chip></li>
+                        }
                         @if (item.IsSandbox)
                         {
                             <li><Chip Tone="ChipTone.Warning" IconName="zap" data-testid="badge-sandbox">Sandbox</Chip></li>
@@ -61,4 +65,15 @@
 
     [Parameter]
     public DateTime NowUtc { get; set; }
+
+    // The assistant's state (docs/ASSISTANT.md): waiting, answering, pending review, taken by an advisor.
+    private static (string Text, ChipTone Tone, string Icon)? AssistantBadge(InboxItem item) => item.AssistantState switch
+    {
+        "Waiting" when item.AssistantGenerating => ("Respondiendo IA", ChipTone.Accent, "zap"),
+        "Waiting" => ("Asistente esperando", ChipTone.Accent, "clock"),
+        "Active" => ("Atendida por IA", ChipTone.Accent, "zap"),
+        "HandedOff" => ("Pendiente de revisión", ChipTone.Danger, "alert-triangle"),
+        "HumanTookOver" => ("Tomada por asesor", ChipTone.Success, "user"),
+        _ => null,
+    };
 }

@@ -211,3 +211,37 @@ Formato: fecha, decisión, razón. Las decisiones abiertas se listan al final.
   la aceptación pero no se envía nada a ese número.
 - **La baja por correo tiene un presupuesto por enlace válido** separado del de los enlaces inválidos, para que nadie pueda bloquearla probando
   enlaces falsos. Clave propia opcional (`Reports:UnsubscribeKey`).
+
+### Etapa 5a: base del asistente de ventas con IA (2026-11-19)
+
+- **Se amplía el alcance del MVP.** Las respuestas automáticas estaban fuera del MVP; el dueño del producto decidió incluir un asistente de
+  ventas con IA como respaldo de los asesores (reunión del 9 de noviembre, hoja de ruta aprobada el 11 de noviembre). No es un chatbot de
+  opciones: atiende con la información que la empresa publica, impulsa la venta y puede cerrarla.
+- **Primero las personas.** El asistente solo responde si nadie del equipo contesta dentro de la espera configurada (60 segundos por defecto,
+  de 30 a 900). Cualquier mensaje de una persona (desde Conversia o desde el teléfono) cancela la espera y lo detiene por un tiempo; un asesor
+  puede tomar la conversación o devolverla en cualquier momento.
+- **Apagado por defecto.** Solo la persona propietaria lo activa, aceptando los términos del asistente y confirmando la base legal y el aviso
+  de asistente virtual (quién y cuándo quedan guardados), y además se activa por línea.
+- **Nunca dice ser una persona.** Por defecto se identifica como asistente virtual cuando el cliente lo pregunta; la empresa puede elegir
+  avisarlo en el primer mensaje o no avisar. Si la Ley 1480 obliga a avisarlo siempre no está verificado: queda pendiente de concepto legal.
+- **Traspaso sutil.** Si el cliente pide una persona, se queja, amenaza con acciones legales, pide reembolso o cancelar, intenta darle
+  instrucciones, o el asistente ya respondió el máximo de veces, la conversación queda «Pendiente de revisión» con una frase natural
+  configurable («Ya le paso tu mensaje a un asesor para que te ayude con esto.»). Nunca envía plantillas por su cuenta.
+- **Interruptores de emergencia.** Además del de la empresa y el de la IA, el administrador de la plataforma puede detenerlo para una empresa
+  o para todas, con motivo y auditoría.
+- **Lo determinista primero.** Esta etapa no llama a ningún modelo: las conversaciones reales quedan pendientes de revisión cuando vence la
+  espera, y en el sandbox responde un texto de prueba. El modelo (etapa 5b) entra por un puerto definido aquí, con la conversación seudonimizada.
+- **Toda la orquestación en .NET**, con temporizadores guardados en la base de datos y tomados con `SKIP LOCKED` (sin n8n).
+
+### Revisión de la etapa 5a (2026-11-19)
+
+- **El asistente nunca envía dos veces**: cada toma del temporizador invalida a la anterior, el envío queda marcado antes de llamar al proveedor
+  y, si el resultado se desconoce (caída o tiempo agotado), la conversación pasa a una persona en vez de reenviar. El eco de su propio mensaje
+  no cuenta como un asesor que respondió. Queda una única carrera inherente: una persona que escribe justo durante la llamada al proveedor.
+- **Siempre responde con la verdad si le preguntan si es un bot**, aunque la empresa no quiera aviso proactivo; nunca se presenta con nombre
+  propio ni como persona, y esa revisión no se puede esquivar con caracteres invisibles ni letras parecidas de otros alfabetos.
+- **Si el cliente pide una persona, se le responde en segundos** con la frase de traspaso, incluso fuera del horario del asistente; audios y
+  archivos sin texto pasan a una persona.
+- **Enlaces**: solo al dominio propio de la empresa (nunca acortadores ni sitios compartidos), comparado en su forma ASCII.
+- **Topes**: mensajes del asistente por hora por empresa y por conversación; las esperas muy atrasadas o que fallan varias veces pasan a una persona.
+- **Historial de consentimiento y ajustes** en filas que nunca se sobrescriben.

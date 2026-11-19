@@ -150,10 +150,40 @@ else if (!Redirected)
                     }
                 }
 
+                @if (_assistant is { Available: true } assistant)
+                {
+                    <Card Title="Asistente de IA" IconName="sparkles" data-testid="assistant-card" data-assistant="@assistant.State">
+                        <p data-testid="assistant-status">@AssistantStatus(assistant)</p>
+                        @if (assistant.State == "HandedOff")
+                        {
+                            <p class="muted" data-testid="assistant-reason">Motivo: @AssistantReason(assistant.HandoffReason)</p>
+                        }
+                    </Card>
+                }
+
                 @* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller
                    without ConversationsManage who forges one must still reach the API and be refused there, not crash here. *@
                 <div hidden="@(!CanManage)" data-testid="manage-panel">
                     <div class="stack">
+                        <div hidden="@(_assistant is not { Available: true })">
+                            <EditForm Model="AssistantControl" FormName="assistant-control" OnSubmit="AssistantControlAsync" method="post" class="form" data-testid="assistant-control-form">
+                                <input type="hidden" name="@($"{nameof(AssistantControl)}.{nameof(AssistantControlInput.Action)}")" value="@(_assistant?.State == "HumanTookOver" || _assistant?.State == "HandedOff" ? "hand-back" : "take-over")" />
+                                <div class="form-actions">
+                                    @if (_assistant is not { Available: true })
+                                    {
+                                        @* No assistant on this line: the form exists for the POST dispatch only, without a button. *@
+                                    }
+                                    else if (_assistant.State is "HumanTookOver" or "HandedOff")
+                                    {
+                                        <button type="submit" class="btn btn--secondary" data-testid="assistant-hand-back"><Icon Name="sparkles" />Devolver al asistente</button>
+                                    }
+                                    else
+                                    {
+                                        <button type="submit" class="btn btn--primary" data-testid="assistant-take-over"><Icon Name="user" />Tomar la conversación</button>
+                                    }
+                                </div>
+                            </EditForm>
+                        </div>
                         <Card Title="Asignar asesor" Subtitle="Asesores activos de esta sucursal." IconName="user">
                             <EditForm Model="Assign" FormName="assign-advisor" OnValidSubmit="AssignAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="assign-form">
                                 <DataAnnotationsValidator />
@@ -251,6 +281,73 @@ else if (!Redirected)
     private AssignAdvisorInput? _assign;
     private OutcomeInput? _outcome;
 
+    private Application.DTOs.Assistant.ConversationAssistantResponse? _assistant;
+    private AssistantControlInput? _assistantControl;
+
+    public sealed class AssistantControlInput
+    {
+        public string? Action { get; set; }
+    }
+
+    [SupplyParameterFromForm(FormName = "assistant-control")]
+    private AssistantControlInput AssistantControl
+    {
+        get => _assistantControl ??= new();
+        set => _assistantControl = value;
+    }
+
+    private static string AssistantStatus(Application.DTOs.Assistant.ConversationAssistantResponse a) => a.State switch
+    {
+        "Waiting" when a.Generating => "El asistente está preparando su respuesta.",
+        "Waiting" => "El cliente espera: si nadie responde, el asistente lo atiende.",
+        "Active" => $"El asistente está atendiendo ({a.AssistantTurns} respuestas).",
+        "HandedOff" => "Pendiente de revisión: el asistente pasó la conversación a una persona.",
+        "HumanTookOver" when a.TakenOverExplicitly => "Tomada por un asesor: el asistente no responde hasta que se la devuelvan.",
+        "HumanTookOver" => "Un asesor respondió: el asistente espera un tiempo antes de volver a atender.",
+        _ => "El asistente atiende si nadie responde a tiempo.",
+    };
+
+    private static string AssistantReason(string? reason) => reason switch
+    {
+        "max_turns" => "llegó al máximo de respuestas seguidas",
+        "keyword" => "el cliente mencionó una queja, un reclamo u otro tema sensible",
+        "human_requested" => "el cliente pidió hablar con una persona",
+        "misunderstanding" => "no entendió al cliente varias veces",
+        "window_closed" => "pasaron 24 horas desde el último mensaje del cliente",
+        "injection_suspected" => "el mensaje del cliente intentaba darle instrucciones",
+        "assistant_unavailable" => "el asistente todavía no redacta respuestas",
+        "generator_failed" or "generator_handoff" => "prefirió que una persona respondiera",
+        "send_failed" => "no pudo enviar el mensaje",
+        "quota_exhausted" => "se agotó el cupo del asistente este mes",
+        _ => "otro motivo",
+    };
+
+    private async Task AssistantControlAsync()
+    {
+        var result = AssistantControl.Action == "hand-back"
+            ? await Api.HandBackConversationAsync(Token!, Id)
+            : await Api.TakeOverConversationAsync(Token!, Id);
+        if (result.IsSuccess)
+        {
+            RedirectTo(ConversationLinks.Detail(Id));
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.Conflict)
+        {
+            Message = result.Detail;
+        }
+        else
+        {
+            await TryFailAsync(result);
+        }
+
+        if (!Redirected && !Denied)
+        {
+            await LoadAsync();
+        }
+    }
+
     [SupplyParameterFromForm(FormName = "assign-advisor")]
     private AssignAdvisorInput Assign
     {
@@ -339,6 +436,10 @@ else if (!Redirected)
 
         _conversation = detailTask.Result.Value;
         CanManage = profileTask.Result.Value!.Can(Permission.ConversationsManage);
+
+        // The assistant's state (docs/ASSISTANT.md): best effort, the page works without it.
+        var assistant = await Api.GetConversationAssistantAsync(Token!, Id);
+        _assistant = assistant.IsSuccess ? assistant.Value : null;
         CanSuppress = profileTask.Result.Value!.Can(Permission.ContactsSuppress);
 
         // The conversation itself says whether its line can send, so a person who may write needs no access to the organization.

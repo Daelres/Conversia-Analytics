@@ -89,4 +89,15 @@ public class WonGuardClosingPointTests
 
         Assert.Equal(point, WonGuard.Apply(Reading(ClassificationOutcome.InFollowUp, point), RulesFollow).Result.ClosingPoint);
     }
+
+    // The rules read who wrote the business messages (docs/ASSISTANT.md, "Metrics"): their AI closer survives the guard; the model never names it.
+    [Fact]
+    public void ARulesWon_ClosedByTheAssistant_StaysTheAssistants()
+    {
+        var rules = Reading(ClassificationOutcome.Won, new ClosingPointReading(ReachedStage.AppointmentBooked, OffChannelMove.None, null, ClosedBy.AiAssistant, false));
+        var llm = Reading(ClassificationOutcome.Won, new ClosingPointReading(ReachedStage.AppointmentBooked, OffChannelMove.None, null, ClosedBy.Advisor, false));
+
+        Assert.Equal(ClosedBy.AiAssistant, WonGuard.Apply(llm, rules).Result.ClosingPoint!.ClosedBy);
+        Assert.Equal(ClosedBy.Advisor, WonGuard.Apply(llm, RulesWon).Result.ClosingPoint!.ClosedBy);
+    }
 }

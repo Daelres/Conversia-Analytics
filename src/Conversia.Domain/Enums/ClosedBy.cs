@@ -12,6 +12,6 @@ public enum ClosedBy
     /// <summary>The customer booked or paid on their own (the web page, a payment link).</summary>
     CustomerSelfService = 2,
 
-    /// <summary>Reserved for the AI sales assistant (roadmap stage 5). No classifier produces it and a person cannot set it yet.</summary>
+    /// <summary>The AI sales assistant (docs/ASSISTANT.md): the rules set it for a deal won in the chat whose business messages were all the assistant's. A person cannot set it.</summary>
     AiAssistant = 3,
 }

@@ -102,7 +102,8 @@ run retries; the monitoring overview raises `tenant_deletion_stuck` (critical) w
 never a company. The window is due from its exact end (`DataDeletionDueAt <= now`, the job and the domain alike).
 
 **Order** (children first; every foreign key is `RESTRICT`): `Messages`, `Opportunities`, `AiUsageConversations`, `Conversations`,
-`ContactSuppressions`, `Contacts`, `WebhookEvents` (raw payloads), `AiUsageMonths`, `MessageSendOutcomes`, `WhatsAppChannels` (with the
+`ContactSuppressions`, `Contacts`, `WebhookEvents` (raw payloads), `AiUsageMonths`, `MessageSendOutcomes`, the assistant's `AssistantKnowledgeVersions`, `AssistantSettings` and `AssistantActivityCounts` (and
+`ConversationAssistants` before `Conversations`), `WhatsAppChannels` (with the
 encrypted provider key), `Advisors`, `Branches`, `UserPermissions`, `Users`, `ErrorLogs` (the company's error registry rows), then `Tenants`.
 The plan is a list of constant table names in `TenantDataDeletionPlan`; `TenantDataDeletionTests` compares it with every table of the EF model
 that has a `TenantId` (and every table that points at one of them), so a new tenant table fails the tests until the plan covers it, and proves
@@ -265,6 +266,16 @@ a bad address, a missing SMTP host, a security other than TLS or a user without 
 never a report's text, a recipient or an address. The model's use for reports is bounded apart from the conversation quota
 (`Reports:Ai:MonthlyReportsPerCompany`, `Reports:Ai:DeploymentMonthlyUsdCap`) and follows the company's AI switch.
 
+### Assistant
+
+The AI sales assistant (docs/ASSISTANT.md) has two kill switches of the administrator, both with a required reason (1 to 200 characters) and
+audited: **per company** (`PUT /api/admin/tenants/{id}/assistant` `{enabled, reason}`, `Tenants.AssistantBlocked`,
+`tenant.assistant_blocked_changed`) and **global** (`PUT /api/admin/assistant`, `PlatformSwitches`, `platform.assistant_changed`; on by
+default). The company's AI switch (`aiEnabled`) gates it too. `GET /api/admin/assistant` and `GET /api/admin/tenants/{id}/assistant` answer
+counts only: the switches, the companies (or lines) with it on, timers waiting now, being answered and pending review, and the last 7 days of
+`AssistantActivityCounts` by metric, real and sandbox apart. In the Web: `/admin/asistente` (from `/admin/monitoreo`) and
+`/admin/empresas/{id}/asistente` (from the company page).
+
 ## Endpoints
 
 All under `/api/admin`, policy `PlatformAdmin`, Spanish `application/problem+json` errors, an unknown id is always the same `404`
@@ -313,7 +324,8 @@ and new values and the time. A database check refuses a row with neither an admi
 `tenant.ai_quota_changed` and `tenant.send_rate_limit_changed` (`from`, `to`, `reason`; `null` = default), `tenant.ai_schedule_changed` (`from` and `to` as
 `{mode, nightlyHour, intervalHours}`, `reason`), the AI switch also with `previousTermsVersion`, `license.created` (`licenseId`, `number` masked,
 `customerOwned`, `monthlyCostUsd`), `license.assigned` (`licenseId`, `number`, `channelId`), `license.released` (`licenseId`, `number`, `channelId`,
-`lineDeactivated`) and `license.retired` (`licenseId`, `number`). Refused changes and no-ops (same quota, line already off) write nothing. Rows hold ids, statuses, numbers and
+`lineDeactivated`) and `license.retired` (`licenseId`, `number`), `tenant.assistant_blocked_changed` (`from`, `to`, `reason`) and `platform.assistant_changed`
+(`switch`, `from`, `to`, `reason`; no company). Refused changes and no-ops (same quota, line already off) write nothing. Rows hold ids, statuses, numbers and
 the reason the administrator typed: never a secret, a message or customer data. There is no foreign key on the company, so the trail survives it.
 
 **Personal data and retention.** The reason is free text, so it is the one place a person could type something personal. The status form says so

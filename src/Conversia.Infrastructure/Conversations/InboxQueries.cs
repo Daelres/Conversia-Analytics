@@ -127,6 +127,10 @@ public sealed class InboxQueries(ApplicationDbContext db, ICurrentTenantService 
         public bool IsSandbox { get; init; }
 
         public DateTime ChangedAt { get; init; }
+
+        public Domain.Enums.AssistantState? AssistantState { get; init; }
+
+        public bool AssistantGenerating { get; init; }
     }
 
     // The names are scalar subqueries, so a page costs one query however many rows it has (no N+1).
@@ -146,6 +150,9 @@ public sealed class InboxQueries(ApplicationDbContext db, ICurrentTenantService 
             LastOutboundAt = c.LastOutboundAt,
             IsSandbox = c.IsSandbox,
             ChangedAt = c.UpdatedAt ?? c.CreatedAt,
+            // The assistant's badge (docs/ASSISTANT.md): one row per conversation, read through its unique index.
+            AssistantState = db.ConversationAssistants.Where(a => a.ConversationId == c.Id).Select(a => (Domain.Enums.AssistantState?)a.State).FirstOrDefault(),
+            AssistantGenerating = db.ConversationAssistants.Any(a => a.ConversationId == c.Id && a.State == Domain.Enums.AssistantState.Waiting && a.ClaimedUntil > DateTime.UtcNow),
         });
 
     private static InboxItem ToItem(Row r, bool inFilter) => new()
@@ -164,6 +171,8 @@ public sealed class InboxQueries(ApplicationDbContext db, ICurrentTenantService 
         IsSandbox = r.IsSandbox,
         ChangedAt = r.ChangedAt,
         InFilter = inFilter,
+        AssistantState = r.AssistantState is { } state and not Domain.Enums.AssistantState.Off ? state.ToString() : null,
+        AssistantGenerating = r.AssistantGenerating,
     };
 
     public async Task<ConversationVersionResponse?> GetVersionAsync(Guid conversationId, CancellationToken cancellationToken = default)

@@ -167,6 +167,11 @@ Where it lives: the panel already has its six indicators (the 4 to 6 rule), so t
 `/conversaciones/hasta-donde-llegan` (link "Hasta dónde llegan" on `/conversaciones`), with the period, branch, advisor and source
 filters. Same permission (`MetricsView`), the same throttling and statement time limit.
 
+
+**The AI sales assistant** (docs/ASSISTANT.md). An opportunity won in the chat whose business messages were all the assistant's has
+`ClosedBy = AiAssistant`; every message keeps its `Sender`. No metric splits conversion "with assistant" vs "human only" yet: the data
+(`Opportunities.ClosedBy`, `Messages.Sender`, `ConversationAssistants`) supports it when it is added.
+
 ## Volume
 
 - `byDay`: every local day of the period (zero-filled) with `conversations` (cohort conversations that **started** that day), `inboundMessages` and

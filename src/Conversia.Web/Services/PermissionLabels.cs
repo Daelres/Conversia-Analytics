@@ -20,6 +20,7 @@ public static class PermissionLabels
         [Permission.ContactsSuppress] = "Suprimir datos de contactos",
         [Permission.BillingManage] = "Gestionar facturación",
         [Permission.ReportsManage] = "Gestionar informes",
+        [Permission.AssistantManage] = "Gestionar el asistente de IA",
     };
 
     public static string For(Permission permission)

@@ -515,6 +515,24 @@ public class Tenant : BaseEntity
         return true;
     }
 
+    /// <summary>
+    /// The platform administrator's kill switch of the AI sales assistant for this company (docs/ASSISTANT.md, "Kill switches"): while it is
+    /// on, the assistant answers nothing for the company, whatever its own settings say.
+    /// </summary>
+    public bool AssistantBlocked { get; private set; }
+
+    /// <summary>Returns false, and changes nothing, when it already was that way.</summary>
+    public bool SetAssistantBlocked(bool blocked)
+    {
+        if (AssistantBlocked == blocked)
+        {
+            return false;
+        }
+
+        AssistantBlocked = blocked;
+        return true;
+    }
+
     /// <summary>Switches the internal sandbox on or off. Returns false, and changes nothing, when it already was that way.</summary>
     public bool SetSandboxMode(bool enabled)
     {

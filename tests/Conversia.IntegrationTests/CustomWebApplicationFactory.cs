@@ -99,6 +99,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         builder.UseSetting("Tenants:Deletion:Enabled", "false"); // the tests run the deleter directly
         builder.UseSetting("Billing:Job:Enabled", "false"); // the tests run the billing job directly
         builder.UseSetting("Reports:Job:Enabled", "false"); // the tests run the manager reports job with the time they choose
+        builder.UseSetting("Assistant:JobEnabled", "false"); // the tests run the assistant job with the time they choose
         builder.UseSetting("Email:Provider", "None"); // no test writes or sends an email unless it brings its own stand-in
         // A real privacy key, as every deployment outside Development has one (the Development fallback would log a warning).
         builder.UseSetting("Privacy:HashKey", "dGVzdC1vbmx5LXByaXZhY3ktaGFzaC1rZXktMzItYnl0ZXMhIQ==");

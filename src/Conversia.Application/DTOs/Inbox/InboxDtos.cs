@@ -71,6 +71,12 @@ public class InboxItem
 
     public bool IsSandbox { get; set; }
 
+    /// <summary>The AI sales assistant's state (docs/ASSISTANT.md): <c>Waiting</c>, <c>Active</c>, <c>HandedOff</c>, <c>HumanTookOver</c>; null when it is not involved.</summary>
+    public string? AssistantState { get; set; }
+
+    /// <summary>The assistant is preparing its answer right now.</summary>
+    public bool AssistantGenerating { get; set; }
+
     /// <summary>When the row last changed (or was created): what the delta compares with.</summary>
     public DateTime ChangedAt { get; set; }
 

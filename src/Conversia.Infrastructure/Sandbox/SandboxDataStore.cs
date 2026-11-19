@@ -45,6 +45,12 @@ public sealed class SandboxDataStore(ApplicationDbContext db) : ISandboxDataStor
             WHERE o."TenantId" = {tenantId} AND c."Id" = o."ConversationId" AND c."TenantId" = {tenantId} AND c."IsSandbox"
             """, cancellationToken);
 
+        // The assistant's state of the sandbox conversations (docs/ASSISTANT.md); its counters hold counts only and stay.
+        await db.Database.ExecuteSqlAsync($"""
+            DELETE FROM "ConversationAssistants" a
+            WHERE a."TenantId" = {tenantId} AND a."IsSandbox"
+            """, cancellationToken);
+
         // The AI distinct-conversation rows of the sandbox conversations (design D24); the sandbox month totals hold counts only and stay.
         await db.Database.ExecuteSqlAsync($"""
             DELETE FROM "AiUsageConversations" u

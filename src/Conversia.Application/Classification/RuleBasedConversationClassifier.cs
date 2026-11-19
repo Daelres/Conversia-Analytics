@@ -311,7 +311,21 @@ public sealed partial class RuleBasedConversationClassifier : IConversationClass
         }
 
         var closingPoint = ReadClosingPoint(messages, first, outcome, confirmedByAdvisor);
+
+        // A deal won in the chat where every business message was the AI sales assistant's (docs/ASSISTANT.md, "Metrics"): the stored
+        // authors are the evidence, not the text. One message of a person (Conversia, the phone app, or unknown) keeps it the advisor's.
+        if (outcome == ClassificationOutcome.Won && ClosedByTheAssistant(all))
+        {
+            closingPoint = closingPoint with { ClosedBy = ClosedBy.AiAssistant };
+        }
+
         return new ClassificationResult(service, reason, objection, outcome, lossReason, Math.Clamp(confidence, 0m, 1m), codes, ClosingPoint: closingPoint);
+    }
+
+    private static bool ClosedByTheAssistant(IReadOnlyList<SnapshotMessage> messages)
+    {
+        var business = messages.Where(m => m.Direction == MessageDirection.Outbound).ToList();
+        return business.Count > 0 && business.All(m => m.Sender == MessageSender.AiAssistant);
     }
 
     // ---- The closing point --------------------------------------------------------------------------------------------

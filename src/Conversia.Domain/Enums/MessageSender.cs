@@ -15,6 +15,6 @@ public enum MessageSender
     /// <summary>The business, from the WhatsApp Business app or another device: a message the webhook delivered as an echo.</summary>
     PhoneApp = 3,
 
-    /// <summary>Reserved for the AI sales assistant (roadmap stage 5).</summary>
+    /// <summary>The AI sales assistant (docs/ASSISTANT.md): a reply or a handoff line it sent through the send path. No user, no advisor.</summary>
     AiAssistant = 4,
 }

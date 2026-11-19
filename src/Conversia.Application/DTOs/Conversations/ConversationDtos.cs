@@ -228,8 +228,12 @@ public class MessageResponse
     /// <summary>The message came from an imported chat history (coexistence onboarding).</summary>
     public bool Imported { get; set; }
 
+    /// <summary>Who wrote it (docs/MESSAGING.md, "Who sent it"): <c>Customer</c>, <c>Conversia</c>, <c>PhoneApp</c>, <c>AiAssistant</c>, <c>Unknown</c>.</summary>
+    public string Sender { get; set; } = string.Empty;
+
     public static MessageResponse From(Message message) => new()
     {
+        Sender = message.Sender.ToString(),
         Id = message.Id,
         Direction = message.Direction.ToString(),
         Type = message.Type,

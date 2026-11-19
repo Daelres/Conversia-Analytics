@@ -3,7 +3,9 @@
 A person can send a plain-text WhatsApp message into an existing conversation. The API calls 360dialog with the API key of the
 conversation's channel and, once 360dialog accepts the message, stores it as an **Outbound** message of that conversation.
 
-**This is a manual action, for validation and operation. It is not a bot:** nothing in Conversia sends a message by itself.
+**This is a manual action, for validation and operation.** The only thing that sends by itself is the AI sales assistant, off by default and
+switched on by each company's owner ([ASSISTANT.md](ASSISTANT.md)): it uses this same send path (`SendAsAssistantAsync`, recorded as
+`AiAssistant`) with the same checks, window and record.
 Advisors still answer from their phones; this endpoint exists to test the provider end to end and to operate a line when needed.
 The Web has a screen for each part: see [From the Web](#from-the-web).
 
@@ -176,8 +178,8 @@ A sent message is stored through the same domain paths as an ingested one (`Mess
 - **Not verified:** whether 360dialog echoes API-sent messages to the webhook at all (only statuses are documented), and under
   which id. If an answer carries no message id the message is stored under `conversia.{guid}`, and a later echo of it could not
   be matched.
-- **Who sent it.** Every stored message carries `Messages.Sender` (`Customer`, `Conversia`, `PhoneApp`, `AiAssistant` reserved for
-  roadmap stage 5, `Unknown` for rows older than the column) and, for outbound ones, `SentByUserId` and `SentByAdvisorId` (ids only):
+- **Who sent it.** Every stored message carries `Messages.Sender` (`Customer`, `Conversia`, `PhoneApp`, `AiAssistant` for the AI sales
+  assistant (no user, no advisor; [ASSISTANT.md](ASSISTANT.md)), `Unknown` for rows older than the column) and, for outbound ones, `SentByUserId` and `SentByAdvisorId` (ids only):
   - a send from Conversia records `Conversia`, the user who sent it and the advisor **linked to that user** (`Advisors.UserId`), or no
     advisor when the user has none (a manager writing in someone else's conversation is not the assigned advisor);
   - an outbound message that arrives through the webhook is an echo of the WhatsApp Business app: `PhoneApp`, with **no author**
@@ -357,6 +359,15 @@ the user), unassigned, branch. While the company is in sandbox mode it shows the
 - **Later: Blazor interactive / SignalR.** The polling contract is the seam: a hub that pushes "conversation X changed" (raised where the
   timeline is applied) can replace the timer, and the same `/bandeja/lista` and version endpoints can be fetched on push instead of on a
   timer. Interactive render mode would need a circuit per advisor; the pilot's volume does not justify it yet (docs/decisiones.md).
+
+### The assistant in the inbox
+
+With the AI sales assistant on ([ASSISTANT.md](ASSISTANT.md)) every inbox item carries `assistantState` and `assistantGenerating`, and the
+list shows a badge: "Asistente esperando", "Respondiendo IA", "Atendida por IA", **"Pendiente de revisión"** (handed off) or "Tomada por
+asesor". Any message a person sends (text, template, attachment from Conversia, or an echo of the phone app) cancels the assistant's timer
+and holds it back. The conversation view shows its state with "Tomar la conversación" / "Devolver al asistente", and marks the assistant's
+messages "Asistente de IA" for the advisors (the customer receives the text alone). Messages carry `sender`. While the assistant prepares an
+answer with read receipts on, the customer sees "escribiendo...".
 
 ## Read receipts and typing
 

@@ -44,6 +44,10 @@ adapted to PostgreSQL and rewritten around this product.
   pipeline, the advisor's messages are recorded without reaching any phone, and the
   dashboard shows only that test data, which is marked and never mixed with real numbers
   ([`docs/SANDBOX.md`](docs/SANDBOX.md)).
+- **AI sales assistant** — off by default; once the owner switches it on, it attends a customer nobody answered within the
+  company's delay, from the company's published knowledge base, and leaves the conversation pending human review when it gets
+  out of hand. Never claims to be a person; advisors can take over at any moment. Unit 5a is deterministic (no model yet)
+  ([`docs/ASSISTANT.md`](docs/ASSISTANT.md)).
 - **Data separation** — every record belongs to a company (tenant); access is controlled
   per company and per permission. The design takes the Colombian data-protection law
   (Ley 1581 de 2012) into account; the project makes no certification claim.
@@ -91,7 +95,7 @@ tests/
   Conversia.WebhookSimulator.UnitTests the simulator's chats, plan, payloads and commands (no network)
 tools/
   Conversia.WebhookSimulator           dev-only: fills a local API with believable WhatsApp conversations (docs/SIMULATOR.md)
-docs/                                    ARCHITECTURE, WEBHOOKS, METRICS, CLASSIFICATION, SIMULATOR, DOCKER, ...
+docs/                                    ARCHITECTURE, WEBHOOKS, METRICS, CLASSIFICATION, ASSISTANT, SIMULATOR, DOCKER, ...
 docker-compose.yml, .env.example         full local stack
 docker/healthcheck.sh                    container health probe (bash /dev/tcp, no curl in the image)
 scripts/docker-build.sh                  builds the conversia-api, -migrator and -web images
@@ -238,6 +242,7 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Messaging:CredentialEncryptionKey` | API | *(unset)* | Master key that encrypts each channel's 360dialog API key: base64 of exactly 32 random bytes (`openssl rand -base64 32`). **Unset: the API runs and sending answers `503`**; malformed: the API does not start. In compose it comes from `CREDENTIAL_ENCRYPTION_KEY`. Set it as a secret, never in a committed file. |
 | `Messaging:CredentialEncryptionKeyId` | API | `1` | Id written in front of every value the master key encrypts. 1 to 32 letters, digits, `-` or `_`. |
 | `Messaging:SendRateLimitPerMinute`, `Messaging:TenantSendRateLimitPerMinute` | API | `30`, `120` | `POST /api/conversations/{id}/messages` per minute and user, and per minute and company (sliding windows); the next one answers `429` with `Retry-After`. Whole numbers >= 1. |
+| `Assistant:TermsVersion` | API | `asistente-2026-11` | The AI sales assistant terms an owner accepts to switch it on. Other `Assistant:*` keys (job pace, lease, timeout): `docs/ASSISTANT.md`. |
 | `Licensing:RequireAssignedLicense` | API | `false` | `true`: a company can switch a line on only with a 360dialog licence assigned to it for that number, and releasing the licence switches the line off. `false`: lines work as before and licences are linked for reporting only. `docs/PLATFORM_ADMIN.md`, "Line licences". |
 | `Usage:Retention:Enabled`, `Messaging:TenantSendLimitRefresh:Enabled` | API | `true`, `true` | The purge of the AI distinct conversation sets (older than the previous month) and of the send counters (older than 90 days), every 6 hours; and the reload of the per-company send limits every 30 s. Switch them off only in tests: without the reload an instance only knows the limits saved through itself. |
 | `Privacy:HashKey` (compose: `PRIVACY_HASH_KEY`), `Privacy:HashKeyId` (`PRIVACY_HASH_KEY_ID`) | API | none, `1` | **Required outside Development**: base64 of at least 32 random bytes (`openssl rand -base64 32`) that keys the hashes kept of suppressed customers' numbers and deleted companies' names. Unset in Development: a fixed non-secret key and a startup warning. To rotate, set a new key and id and move the old one to `Privacy:RetiredHashKeys:<old id>` (docs/USERS_TENANTS_PERMISSIONS.md, "Contact suppression"). Add `PRIVACY_HASH_KEY` to your `.env` before upgrading: compose refuses to start without it. |

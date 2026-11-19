@@ -70,6 +70,9 @@ public sealed class ContactSuppressionStore(ApplicationDbContext db, PrivacyHash
             $"""DELETE FROM "Messages" WHERE "TenantId" = {tenantId} AND "ConversationId" = ANY({conversations})""", cancellationToken);
         var opportunities = await db.Database.ExecuteSqlAsync(
             $"""DELETE FROM "Opportunities" WHERE "TenantId" = {tenantId} AND "ConversationId" = ANY({conversations})""", cancellationToken);
+        // The assistant's state of those conversations (docs/ASSISTANT.md).
+        await db.Database.ExecuteSqlAsync(
+            $"""DELETE FROM "ConversationAssistants" WHERE "TenantId" = {tenantId} AND "ConversationId" = ANY({conversations})""", cancellationToken);
         // Design D24: the AI distinct conversation sets go with the conversations (the monthly totals hold counts only and stay).
         var usage = await db.Database.ExecuteSqlAsync(
             $"""DELETE FROM "AiUsageConversations" WHERE "TenantId" = {tenantId} AND "ConversationId" = ANY({conversations})""", cancellationToken);

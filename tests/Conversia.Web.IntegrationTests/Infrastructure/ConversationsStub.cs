@@ -109,6 +109,9 @@ internal sealed class ConversationsStub
     /// <summary>Answers these paths (with their method, <c>PUT /api/conversations/...</c>) with something else.</summary>
     public Dictionary<string, Func<BackendRequest, HttpResponseMessage>> Overrides { get; } = new();
 
+    /// <summary>The AI sales assistant's state of every conversation (docs/ASSISTANT.md): not available by default.</summary>
+    public Conversia.Application.DTOs.Assistant.ConversationAssistantResponse Assistant { get; set; } = new();
+
     /// <summary>What the write endpoints answered, for the assertions that follow a post.</summary>
     public int Total { get; set; } = -1;
 
@@ -125,6 +128,7 @@ internal sealed class ConversationsStub
         {
             ("GET", "/api/users/me") when MemberPermissions is not null || ReadReceipts => FakeBackend.Answer(HttpStatusCode.OK, Member(request)),
             ("GET", _) when IdOf(path, "/templates") is { } => FakeBackend.Answer(HttpStatusCode.OK, Templates),
+            ("GET", _) when IdOf(path, "/assistant") is { } => FakeBackend.Answer(HttpStatusCode.OK, Assistant),
             ("POST", _) when IdOf(path, "/template-messages") is { } id => SendTemplate(id, request),
             ("POST", _) when IdOf(path, "/read") is { } => FakeBackend.Answer(HttpStatusCode.OK, new PresenceResponse { Outcome = PresenceOutcome.Sent }),
             ("POST", _) when IdOf(path, "/typing") is { } => FakeBackend.Answer(HttpStatusCode.OK, new PresenceResponse { Outcome = PresenceOutcome.Sent }),

@@ -29,4 +29,12 @@ public interface IMessageSendingService
     /// caption, and the message is recorded with the stored copy. Same checks, window, attribution and record as a text.
     /// </summary>
     Task<MessageResponse> SendMediaAsync(Guid conversationId, SendMediaMessageRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sends a text of the AI sales assistant (docs/ASSISTANT.md, "Pipeline"): the same checks, window, provider call and record as a text,
+    /// recorded as <c>AiAssistant</c> without user or advisor. <paramref name="whileRecording"/> runs inside the record step, under the
+    /// conversation's lock, with the locked conversation (the assistant's state changes with the message).
+    /// </summary>
+    Task<MessageResponse> SendAsAssistantAsync(
+        Guid conversationId, string text, Func<Domain.Entities.Conversation, Task>? whileRecording = null, CancellationToken cancellationToken = default);
 }

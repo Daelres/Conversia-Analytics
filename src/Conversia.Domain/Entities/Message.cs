@@ -206,6 +206,20 @@ public class Message : BaseEntity
         AssignedAdvisorIdAtReceipt = null; // it was not an echo of the phone app after all
     }
 
+    /// <summary>The message was sent by the AI sales assistant (docs/ASSISTANT.md): its echo was stored first. No user, no advisor.</summary>
+    public void AttributeToAssistant()
+    {
+        if (Direction != MessageDirection.Outbound)
+        {
+            throw new DomainException(SenderRuleMessage);
+        }
+
+        Sender = MessageSender.AiAssistant;
+        SentByUserId = null;
+        SentByAdvisorId = null;
+        AssignedAdvisorIdAtReceipt = null;
+    }
+
     /// <summary>The download job stored a copy of the media.</summary>
     public void MarkMediaStored(StoredMediaObject stored, DateTime at)
     {

@@ -32,8 +32,15 @@ public static class WonGuard
         var llmWon = llm.Outcome == ClassificationOutcome.Won;
         if (rules.Outcome == ClassificationOutcome.Won)
         {
-            var won = llm with { Outcome = ClassificationOutcome.Won, LossReason = null, ClosingPoint = Booked(llm.ClosingPoint) };
-            return new WonGuardDecision(Coherent(won), WonDowngraded: false, WonDisagreement: !llmWon);
+            var won = Coherent(llm with { Outcome = ClassificationOutcome.Won, LossReason = null, ClosingPoint = Booked(llm.ClosingPoint) });
+
+            // The rules read the stored authors: a deal the AI sales assistant closed alone stays the assistant's (docs/ASSISTANT.md, "Metrics").
+            if (rules.ClosingPoint?.ClosedBy == Domain.Enums.ClosedBy.AiAssistant && won.ClosingPoint is { } point)
+            {
+                won = won with { ClosingPoint = point with { ClosedBy = Domain.Enums.ClosedBy.AiAssistant } };
+            }
+
+            return new WonGuardDecision(won, WonDowngraded: false, WonDisagreement: !llmWon);
         }
 
         if (llmWon)

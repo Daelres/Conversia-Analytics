@@ -39,6 +39,7 @@ internal static class SpanishText
         [Permission.ContactsSuppress] = "Suprimir datos de contactos",
         [Permission.BillingManage] = "Gestionar facturación",
         [Permission.ReportsManage] = "Gestionar informes",
+        [Permission.AssistantManage] = "Gestionar el asistente de IA",
     };
 
     /// <summary>

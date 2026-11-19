@@ -44,7 +44,7 @@ How far each conversation got and where it stopped (roadmap point 10), read auto
 | `ReachedStage` | ordered: `FirstContact` < `NeedsIdentified` < `PriceShared` < `ObjectionRaised` < `AppointmentProposed` < `AppointmentBooked` < `PaymentOrDeposit`; null | The **furthest** step reached, whatever the order the steps happened in. Null when the customer never wrote. |
 | `MovedOffChannel` | `None`, `PhoneCall`, `InPerson`, `OtherChannel` | The latest explicit move out of the chat. |
 | `OffChannelEvidenceIndex` | 1-based position, or null | The message that shows the move, among the messages read (the latest 200), as the LLM cites lines. Null with `None`. |
-| `ClosedBy` | `Unknown`, `Advisor`, `CustomerSelfService`, `AiAssistant` | Who closed the deal. `AiAssistant` is reserved for roadmap stage 5: no classifier may produce it and a person cannot set it yet. |
+| `ClosedBy` | `Unknown`, `Advisor`, `CustomerSelfService`, `AiAssistant` | Who closed the deal. `AiAssistant` is the AI sales assistant (docs/ASSISTANT.md): the rules set it for a Won where every business message was the assistant's (`Messages.Sender`), the Won guard keeps it, the model's vocabulary cannot produce it and a person cannot set it. |
 | `ClosedOutsideSystem` | bool | The evidence says the deal continued outside WhatsApp. |
 
 The steps, with Spanish chats:

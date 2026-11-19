@@ -163,7 +163,7 @@ public class Opportunity : BaseEntity
         RecordDetailsChange(now, changedBy);
     }
 
-    /// <summary>A person sets who closed the deal and pins it <see cref="FieldSource.Manual"/>. <see cref="Enums.ClosedBy.AiAssistant"/> is reserved.</summary>
+    /// <summary>A person sets who closed the deal and pins it <see cref="FieldSource.Manual"/>. A person cannot type <see cref="Enums.ClosedBy.AiAssistant"/>: only the stored message authors show it.</summary>
     public void SetManualClosedBy(ClosedBy closedBy, DateTime now, Guid? changedBy = null)
     {
         if (!Enum.IsDefined(closedBy) || closedBy == Enums.ClosedBy.AiAssistant)
@@ -347,7 +347,7 @@ public class Opportunity : BaseEntity
 
         if (update.ClosingPoint is { } closing)
         {
-            ValidateClosingPoint(closing);
+            ValidateClosingPoint(closing, update.Stage);
         }
 
         var service = NormalizeCode(update.ServiceInterest, ServiceInterestMaxLength, "El servicio de interés");
@@ -441,7 +441,7 @@ public class Opportunity : BaseEntity
         }
     }
 
-    private static void ValidateClosingPoint(ClosingPointReading point)
+    private static void ValidateClosingPoint(ClosingPointReading point, OpportunityStage? outcome)
     {
         if (point.ReachedStage is { } stage && !Enum.IsDefined(stage))
         {
@@ -455,8 +455,9 @@ public class Opportunity : BaseEntity
             throw new DomainException(OffChannelInvalidMessage);
         }
 
-        // AiAssistant is reserved for the AI sales assistant (roadmap stage 5): no classifier may claim it.
-        if (!Enum.IsDefined(point.ClosedBy) || point.ClosedBy == Enums.ClosedBy.AiAssistant)
+        // AiAssistant is the AI sales assistant (docs/ASSISTANT.md, "Metrics"): a classifier may name it only for a deal won in the chat (the
+        // rules read it from the stored authors of the messages; the LLM's vocabulary cannot produce it).
+        if (!Enum.IsDefined(point.ClosedBy) || (point.ClosedBy == Enums.ClosedBy.AiAssistant && outcome != OpportunityStage.Won))
         {
             throw new DomainException(ClosedByInvalidMessage);
         }
@@ -541,7 +542,7 @@ public sealed record ClassificationUpdate(
 /// <param name="ReachedStage">The furthest step reached; null when nothing can be read (no customer message).</param>
 /// <param name="MovedOffChannel">Where the conversation moved out of the chat, if it did.</param>
 /// <param name="OffChannelEvidenceIndex">The 1-based position of the message that shows the move; null with <see cref="OffChannelMove.None"/>.</param>
-/// <param name="ClosedBy">Who closed the deal; never <see cref="Enums.ClosedBy.AiAssistant"/> from a classifier (reserved).</param>
+/// <param name="ClosedBy">Who closed the deal; <see cref="Enums.ClosedBy.AiAssistant"/> only on a won reading, from the stored message authors.</param>
 /// <param name="ClosedOutsideSystem">The evidence says the deal continued outside WhatsApp.</param>
 public sealed record ClosingPointReading(
     ReachedStage? ReachedStage,

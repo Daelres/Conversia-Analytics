@@ -1,3 +1,5 @@
+using Conversia.Application.Assistant;
+using Conversia.Application.DTOs.Assistant;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -452,6 +454,54 @@ public sealed class ApiClient : IApiClient
 
     public Task<ApiResult<ReportWhatsAppOptInResponse>> VerifyReportWhatsAppAsync(string token, ReportWhatsAppVerifyRequest request, CancellationToken cancellationToken = default)
         => SendAsync<ReportWhatsAppOptInResponse>(HttpMethod.Post, "api/reports/whatsapp-opt-in/verify", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<AssistantSettingsResponse>> GetAssistantSettingsAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<AssistantSettingsResponse>(HttpMethod.Get, "api/assistant/settings", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<AssistantSettingsResponse>> UpdateAssistantSettingsAsync(string token, UpdateAssistantSettingsRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<AssistantSettingsResponse>(HttpMethod.Put, "api/assistant/settings", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<AssistantSettingsResponse>> EnableAssistantAsync(string token, EnableAssistantRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<AssistantSettingsResponse>(HttpMethod.Post, "api/assistant/enable", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<AssistantSettingsResponse>> DisableAssistantAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<AssistantSettingsResponse>(HttpMethod.Post, "api/assistant/disable", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<AssistantSettingsResponse>> SetChannelAssistantAsync(string token, Guid channelId, bool enabled, CancellationToken cancellationToken = default)
+        => SendAsync<AssistantSettingsResponse>(HttpMethod.Put, $"api/assistant/channels/{channelId}", token, new SetChannelAssistantRequest { Enabled = enabled }, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<KnowledgeListResponse>> ListKnowledgeAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<KnowledgeListResponse>(HttpMethod.Get, "api/assistant/knowledge", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<KnowledgeVersionResponse>> GetKnowledgeAsync(string token, int number, CancellationToken cancellationToken = default)
+        => SendAsync<KnowledgeVersionResponse>(HttpMethod.Get, $"api/assistant/knowledge/{number}", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<KnowledgeVersionResponse>> SaveKnowledgeAsync(string token, SaveKnowledgeRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<KnowledgeVersionResponse>(HttpMethod.Post, "api/assistant/knowledge", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<KnowledgeVersionResponse>> PublishKnowledgeAsync(string token, int number, CancellationToken cancellationToken = default)
+        => SendAsync<KnowledgeVersionResponse>(HttpMethod.Post, $"api/assistant/knowledge/{number}/publish", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ConversationAssistantResponse>> GetConversationAssistantAsync(string token, Guid conversationId, CancellationToken cancellationToken = default)
+        => SendAsync<ConversationAssistantResponse>(HttpMethod.Get, $"api/conversations/{conversationId}/assistant", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ConversationAssistantResponse>> TakeOverConversationAsync(string token, Guid conversationId, CancellationToken cancellationToken = default)
+        => SendAsync<ConversationAssistantResponse>(HttpMethod.Post, $"api/conversations/{conversationId}/assistant/take-over", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ConversationAssistantResponse>> HandBackConversationAsync(string token, Guid conversationId, CancellationToken cancellationToken = default)
+        => SendAsync<ConversationAssistantResponse>(HttpMethod.Post, $"api/conversations/{conversationId}/assistant/hand-back", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<AssistantAdminResponse>> GetAdminAssistantAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<AssistantAdminResponse>(HttpMethod.Get, "api/admin/assistant", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<AssistantAdminResponse>> SetAdminAssistantAsync(string token, SetAssistantSwitchRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<AssistantAdminResponse>(HttpMethod.Put, "api/admin/assistant", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<AssistantAdminResponse>> GetTenantAssistantAsync(string token, Guid tenantId, CancellationToken cancellationToken = default)
+        => SendAsync<AssistantAdminResponse>(HttpMethod.Get, $"api/admin/tenants/{tenantId}/assistant", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<AssistantAdminResponse>> SetTenantAssistantAsync(string token, Guid tenantId, SetAssistantSwitchRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<AssistantAdminResponse>(HttpMethod.Put, $"api/admin/tenants/{tenantId}/assistant", token, request, isUsable: null, cancellationToken);
 
     private async Task<ApiResult<T>> SendAsync<T>(
         HttpMethod method, string path, string? token, object? body, Func<T, bool>? isUsable, CancellationToken cancellationToken,

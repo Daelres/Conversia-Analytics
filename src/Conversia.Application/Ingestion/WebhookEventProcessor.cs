@@ -1,3 +1,4 @@
+using Conversia.Application.Assistant;
 using Conversia.Application.Interfaces;
 using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
@@ -17,13 +18,19 @@ public class WebhookEventProcessor : IWebhookEventProcessor
     private readonly ILogger<WebhookEventProcessor> _logger;
     private readonly IContactSuppressionRepository? _suppressions;
     private readonly IMessageTemplateRepository? _templates;
+    private readonly IAssistantSignals? _assistant;
+
+    // The conversations of this delivery that got a live (not imported) customer message, and those that got an echo of the phone app.
+    private readonly Dictionary<Guid, List<string?>> _customerWrote = [];
+    private readonly Dictionary<Guid, List<string?>> _personWrote = [];
 
     /// <param name="suppressions">The marks of suppressed contacts: their old messages are dropped (docs/USERS_TENANTS_PERMISSIONS.md, "Contact suppression").</param>
     public WebhookEventProcessor(
         IWhatsAppChannelRepository channels, IContactRepository contacts, IConversationRepository conversations,
         IMessageRepository messages, TimeProvider timeProvider, WebhookIngestionLimits limits, ILogger<WebhookEventProcessor> logger,
-        IContactSuppressionRepository? suppressions = null, IMessageTemplateRepository? templates = null)
+        IContactSuppressionRepository? suppressions = null, IMessageTemplateRepository? templates = null, IAssistantSignals? assistant = null)
     {
+        _assistant = assistant;
         _templates = templates;
         _suppressions = suppressions;
         _logger = logger;
@@ -37,6 +44,9 @@ public class WebhookEventProcessor : IWebhookEventProcessor
 
     public async Task<WebhookProcessingResult> ProcessAsync(WebhookEvent webhookEvent, CancellationToken cancellationToken = default)
     {
+        _customerWrote.Clear();
+        _personWrote.Clear();
+
         // A channel that cannot be found here would be a deleted or foreign one: fail (and retry), never guess.
         var channel = await _channels.GetByIdAsync(webhookEvent.ChannelId, cancellationToken)
             ?? throw new InvalidOperationException("The channel of the webhook event no longer exists.");
@@ -111,6 +121,7 @@ public class WebhookEventProcessor : IWebhookEventProcessor
             conversation.ApplyTimeline(ConversationTimeline.From(times)!);
             // Imported history is read by the rules; by the AI only when the company opted in (each conversation costs, docs/decisiones.md).
             conversation.RequestClassification(now, includeLlm: !conversation.IsImported || channel.HistoryAiAnalysisEnabled);
+            await SignalAssistantAsync(conversation, channel, now, cancellationToken);
             await _conversations.UpdateAsync(conversation, cancellationToken);
         }
 
@@ -257,7 +268,38 @@ public class WebhookEventProcessor : IWebhookEventProcessor
             conversation.MarkAsAds(message.Referral.Reference, message.Referral.Ad);
         }
 
+        if (!message.Imported)
+        {
+            var byConversation = echo ? _personWrote : _customerWrote;
+            if (!byConversation.TryGetValue(conversation.Id, out var texts))
+            {
+                byConversation[conversation.Id] = texts = [];
+            }
+
+            texts.Add(message.Text);
+        }
+
         return true;
+    }
+
+    // The AI sales assistant (docs/ASSISTANT.md): an echo of the phone app is a person answering (it cancels the timer and holds the
+    // assistant back); then, if the customer still wrote last, their message arms the timer. Same transaction, same lock as the messages.
+    private async Task SignalAssistantAsync(Conversation conversation, WhatsAppChannel channel, DateTime now, CancellationToken cancellationToken)
+    {
+        if (_assistant is null)
+        {
+            return;
+        }
+
+        if (_personWrote.TryGetValue(conversation.Id, out var echoes))
+        {
+            await _assistant.HumanWroteAsync(conversation, now, echoes, cancellationToken);
+        }
+
+        if (_customerWrote.TryGetValue(conversation.Id, out var texts) && conversation.AwaitingReply)
+        {
+            await _assistant.CustomerWroteAsync(conversation, channel, now, texts, cancellationToken);
+        }
     }
 
     private async Task<Contact?> GetOrCreateContactAsync(

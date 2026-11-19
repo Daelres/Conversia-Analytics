@@ -14,6 +14,8 @@ public class TenantFilterGuardTests
     // Every file of src/ that calls IgnoreQueryFilters (migrations aside), and why.
     private static readonly string[] AllowedFiles =
     [
+        "Conversia.Infrastructure/Assistant/AssistantJob.cs", // the assistant job claims due timers across companies; each conversation is handled in its own company
+        "Conversia.Infrastructure/Assistant/AssistantMonitoringQueries.cs", // the platform administrator's assistant counts
         "Conversia.Infrastructure/Classification/ClassificationBacklogMonitor.cs", // counts of the shared backlog (operations view)
         "Conversia.Infrastructure/Classification/ConversationClassificationRunner.cs", // the worker claims across companies
         "Conversia.Infrastructure/Classification/LlmAnalysisRunner.cs", // claims and relocks name the company explicitly; batch collection spans companies

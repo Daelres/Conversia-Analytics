@@ -28,6 +28,7 @@ else if (!Redirected)
         <PageHeader Eyebrow="Tu negocio" EyebrowIcon="building" Title="Organización"
                     Description="Las sucursales, los asesores que atienden y los números de WhatsApp que Conversia lee.">
             <a class="btn btn--secondary" href="/organizacion/mensajeria" data-testid="to-messaging-settings"><Icon Name="message" />Confirmaciones de lectura</a>
+            <a class="btn btn--secondary" href="/organizacion/asistente" data-testid="to-assistant-settings"><Icon Name="sparkles" />Asistente de IA</a>
         </PageHeader>
 
         @if (OrganizationNotice.Describe(Notice) is { } notice)
