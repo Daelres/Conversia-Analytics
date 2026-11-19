@@ -128,6 +128,17 @@ public class TenantDataDeletionTests
                 """);
         }
 
+        // A manager report definition with a generated report and its delivery (docs/REPORTS.md).
+        var created = await f.Tenant.Owner.Client.PostAsJsonAsync("/api/reports/definitions", new
+        {
+            name = "Resumen semanal", frequency = "Weekly", sections = new[] { "Headline" },
+            recipients = new[] { new { userId = f.Tenant.Owner.UserId, email = true, whatsApp = false } },
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var definition = (await created.Content.ReadFromJsonAsync<Conversia.Application.DTOs.Reports.ReportDefinitionResponse>())!;
+        Assert.NotNull(await _factory.Services.GetRequiredService<Conversia.Infrastructure.Reports.ReportJobRunner>().GenerateAsync(
+            f.TenantId, definition.Id, new Conversia.Application.Reports.ReportPeriod(new DateOnly(2026, 9, 28), new DateOnly(2026, 10, 5)), DateTime.UtcNow));
+
         // A suppressed contact leaves its mark (ContactSuppressions).
         var suppressed = await SeedConversationAsync(_factory.Services, f, new DateTime(2026, 10, 2, 12, 0, 0, DateTimeKind.Utc), [In(0, "Borren mis datos")]);
         Assert.Equal(HttpStatusCode.OK, (await f.Tenant.Owner.Client.PostAsync($"/api/contacts/{suppressed.ContactId}/suppression", null)).StatusCode);

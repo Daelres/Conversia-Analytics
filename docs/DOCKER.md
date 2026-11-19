@@ -82,6 +82,9 @@ Nothing secret is baked into an image; everything below is supplied at run time.
 | `Media__Azure__ServiceUri` or `Media__Azure__ConnectionString`, `Media__Azure__ManagedIdentityClientId`, `Media__Azure__Container` | api | with `Azure` | Exactly one of the service URL (`https://<account>.blob.core.windows.net`, the app's managed identity) or the connection string (a secret). Container name default `conversia-media`. |
 | `Media__RetentionDays` | api | no | Platform default of the media retention (90). |
 | `Media__Local__AllowOutsideDevelopment` | api | with `Local` outside Development | `true` to accept the local store in Production (one instance only: the compose stack). Compose passes `MEDIA_LOCAL_ALLOW_OUTSIDE_DEVELOPMENT` (default `false`); the smoke test sets it. |
+| `Reports__WebBaseUrl` | api | no | Public address of the Web for the links of the manager reports (default `http://localhost:5112`; https required outside Development unless loopback). Compose: `REPORTS_WEB_BASE_URL`. docs/REPORTS.md. |
+| `Email__Provider`, `Email__FromAddress`, `Email__FromName` | api | no | `None` (default: no email is sent, deliveries fail with `email_not_configured`), `Smtp` or `Pickup` (Development only). With a provider the From address is required and validated at startup. Compose: `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME`. |
+| `Email__Smtp__Host`, `__Port`, `__Security`, `__UserName`, `__Password` | api | with `Smtp` | TLS is mandatory: `StartTls` (587, default) or `SslOnConnect` (465). The password is a secret: only from the environment (`EMAIL_SMTP_PASSWORD`). Compose: `EMAIL_SMTP_*`. |
 | `Api__BaseUrl` | web | yes | Base URL of the API as seen from the Web container. |
 | `ErrorReporting__ApiKey` | web | no | See `ErrorLogging__ReportKey`. |
 | `Support__ContactText` | web | no | One line of plain text (up to 300 characters) shown on the pending/suspended page so the person knows how to reach the team, for example `Escríbenos a soporte@empresa.co o al +57 300 000 0000`. Empty = no contact card. Too long or with control characters stops the Web at startup. Compose passes it from `SUPPORT_CONTACT_TEXT`; `.env.example` does not list it yet, add `SUPPORT_CONTACT_TEXT=` to your `.env` by hand. |
@@ -90,7 +93,7 @@ Nothing secret is baked into an image; everything below is supplied at run time.
 | `ASPNETCORE_HTTP_PORTS` | api, web | no | Defaults to 8080 in the images. |
 | `--connection` (argument) | migrator | yes | Same connection string as the API. |
 
-Compose-level variables (`.env`, see `.env.example`): `MEDIA_STORE`, `MEDIA_ENCRYPTION_KEY`, `MEDIA_AZURE_CONNECTION_STRING`, `MEDIA_AZURE_SERVICE_URI`, `MEDIA_AZURE_MANAGED_IDENTITY_CLIENT_ID`, `MEDIA_AZURE_CONTAINER`, `MEDIA_RETENTION_DAYS`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ERROR_REPORT_KEY`, `D360_API_KEY`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `PLATFORM_ADMIN_PASSWORD_FILE`, `SUPPORT_CONTACT_TEXT`, `API_PORT`, `WEB_PORT`, `POSTGRES_PORT`, `CONVERSIA_TAG`, `CONVERSIA_VERSION`, `CONVERSIA_GIT_SHA`, `CONVERSIA_BUILD_DATE`.
+Compose-level variables (`.env`, see `.env.example`): `MEDIA_STORE`, `MEDIA_ENCRYPTION_KEY`, `MEDIA_AZURE_CONNECTION_STRING`, `MEDIA_AZURE_SERVICE_URI`, `MEDIA_AZURE_MANAGED_IDENTITY_CLIENT_ID`, `MEDIA_AZURE_CONTAINER`, `MEDIA_RETENTION_DAYS`, `REPORTS_WEB_BASE_URL`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME`, `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_SECURITY`, `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ERROR_REPORT_KEY`, `D360_API_KEY`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `PLATFORM_ADMIN_PASSWORD_FILE`, `SUPPORT_CONTACT_TEXT`, `API_PORT`, `WEB_PORT`, `POSTGRES_PORT`, `CONVERSIA_TAG`, `CONVERSIA_VERSION`, `CONVERSIA_GIT_SHA`, `CONVERSIA_BUILD_DATE`.
 
 ### Volumes
 
@@ -99,6 +102,14 @@ Compose-level variables (`.env`, see `.env.example`): `MEDIA_STORE`, `MEDIA_ENCR
 | `postgres-data` | `/var/lib/postgresql/data` (postgres) | The database. The password is fixed here when the volume is first created. |
 | `web-keys` | `/keys` (web) | The Web's ASP.NET Core Data Protection keys. |
 | `api-media` | `/var/lib/conversia/media` (api) | The local media store (`Media__Store=Local`): every file encrypted with `Media__Local__EncryptionKey`. Empty with `None` or `Azure`. |
+
+### Email of the manager reports
+
+The compose stack sends no email by default (`EMAIL_PROVIDER=None`). For a real server set `EMAIL_PROVIDER=Smtp`, `EMAIL_FROM_ADDRESS`,
+`EMAIL_SMTP_HOST` and, if it needs a login, `EMAIL_SMTP_USERNAME` and `EMAIL_SMTP_PASSWORD` in `.env`; the connection always uses TLS.
+Running the API with `dotnet run` (Development), `appsettings.Development.json` uses `Email:Provider=Pickup`: every report email is written as
+an `.eml` file to `.email-outbox/` at the repository root (ignored by git), to open with any mail program. Nothing leaves the machine.
+Also set `REPORTS_WEB_BASE_URL` to the address people use to open the Web, or the links of the emails point to `localhost`.
 
 ### Media storage
 

@@ -1,5 +1,6 @@
 using Conversia.Application.DTOs.Admin;
 using Conversia.Application.Monitoring;
+using Conversia.Application.Reports;
 using Conversia.Infrastructure.Administration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -16,11 +17,18 @@ namespace Conversia.API.Controllers;
 public class AdminMonitoringController : ControllerBase
 {
     private readonly IPlatformMonitoringService _monitoring;
+    private readonly IReportMonitoringQueries _reports;
 
-    public AdminMonitoringController(IPlatformMonitoringService monitoring)
+    public AdminMonitoringController(IPlatformMonitoringService monitoring, IReportMonitoringQueries reports)
     {
         _monitoring = monitoring;
+        _reports = reports;
     }
+
+    /// <summary>The manager reports of this month per company (docs/PLATFORM_ADMIN.md, "Manager reports"): counts, model share and cost, and the email sender.</summary>
+    [HttpGet("monitoring/reports")]
+    public async Task<ActionResult<ReportMonitoringResponse>> Reports(CancellationToken cancellationToken)
+        => Ok(await _reports.GetAsync(cancellationToken));
 
     [HttpGet("monitoring")]
     public async Task<ActionResult<PlatformOverviewResponse>> Overview(CancellationToken cancellationToken)

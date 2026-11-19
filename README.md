@@ -226,6 +226,8 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `PlatformAdmin:TokenMinutes` | API | `60` | Lifetime of the administrator's token (1 to 720). |
 | `RateLimiting:Login:PermitLimit` | API | `10` | Login requests allowed per IP per window. Whole number >= 1, otherwise the API will not start. |
 | `RateLimiting:Login:WindowSeconds` | API | `60` | Length of the login rate-limit window in seconds. Whole number >= 1. |
+| `Reports:WebBaseUrl` | API | `http://localhost:5112` | Public address of the Web for the links of the manager reports (https outside Development unless loopback). Other `Reports:*` keys: `docs/REPORTS.md`. |
+| `Email:Provider` | API | `None` | Email of the manager reports: `None`, `Smtp` (TLS required; `Email:FromAddress`, `Email:Smtp:Host`, ... ) or `Pickup` (Development: `.eml` files). `docs/REPORTS.md`. |
 | `ErrorLogging:Enabled` | API | `true` | Store unexpected errors. `false`: the code is still generated, returned and logged, nothing is stored. `true`/`false` only, otherwise the API will not start. |
 | `ErrorLogging:RetentionDays` | API | `90` | Error rows older than this are purged. 1 to 3650. |
 | `ErrorLogging:MaxPerFingerprintPerMinute` | API | `20` | Rows stored per defect and minute; beyond it an error still gets a code and a log entry. Whole number >= 1. |
@@ -411,6 +413,7 @@ Docker smoke test.
 - `docs/WEBHOOKS.md` — the 360dialog webhook: endpoint, mapping, retries, closing of conversations.
 - `docs/MESSAGING.md` — sending a message by hand through 360dialog: endpoints, per-channel encrypted keys, errors, sandbox limits; media (storage, download job, serving, attachments, retention), coexistence and the history import.
 - `docs/SANDBOX.md` — the internal sandbox mode: how it is switched, what is simulated and what is real, the data rules, and how it differs from the 360dialog sandbox and the webhook simulator.
+- `docs/REPORTS.md` — the automatic manager reports: definitions, schedule, data pack, grounding of the model's text, template fallback, email (SMTP over TLS, one-click unsubscribe) and WhatsApp delivery, privacy, costs, configuration and runbook.
 - `docs/METRICS.md` — the exact definition of every dashboard metric, the alerts and their settings.
 - `docs/CLASSIFICATION.md` — the rule-based classifier and how to plug in another one.
 - `docs/DOCKER.md` — the three images (api, migrator, web): build, variables, health checks, troubleshooting.

@@ -132,10 +132,44 @@
             <CompanyList Companies="LimitedItems(o)" Empty="Ninguna." />
         </Card>
     }
+
+    @if (_reports is { } r)
+    {
+        <Card Title="Informes a gerentes este mes" Subtitle="@ReportsSubtitle(r)" IconName="mail" data-testid="reports-card">
+            <p data-testid="reports-totals">
+                @MetricsFormat.Whole(r.Totals.Generated) generados (@MetricsFormat.Whole(r.Totals.ByModel) con IA, @MetricsFormat.Whole(r.Totals.ByTemplate) con plantilla) ·
+                @MetricsFormat.Whole(r.Totals.Sent) entregas enviadas · @MetricsFormat.Whole(r.Totals.Failed) fallidas · @AdminFormat.Usd(r.Totals.EstimatedUsd)
+            </p>
+            @if (r.Companies.Count > 0)
+            {
+                <table class="table">
+                    <thead><tr><th>Empresa</th><th>Generados</th><th>Con IA</th><th>Enviadas</th><th>Fallidas</th><th>Costo estimado</th></tr></thead>
+                    <tbody>
+                        @foreach (var c in r.Companies)
+                        {
+                            <tr data-testid="reports-company" data-tenant-id="@c.TenantId">
+                                <td><a href="/admin/empresas/@c.TenantId">@c.TenantName</a></td>
+                                <td>@MetricsFormat.Whole(c.Generated)</td>
+                                <td>@MetricsFormat.Whole(c.ByModel)</td>
+                                <td>@MetricsFormat.Whole(c.Sent)</td>
+                                <td>@MetricsFormat.Whole(c.Failed)</td>
+                                <td>@AdminFormat.Usd(c.EstimatedUsd)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </Card>
+    }
 </div>
 
 @code {
     private PlatformOverviewResponse? _overview;
+    private ReportMonitoringResponse? _reports;
+
+    private static string ReportsSubtitle(ReportMonitoringResponse r)
+        => (r.EmailProvider == "None" ? "El correo no está configurado: los informes no se envían por correo." : $"Remitente: {r.EmailSender}.")
+           + (r.AiConfigured ? " La IA redacta los informes de las empresas con IA activa." : " Sin IA: todos se redactan con la plantilla.");
 
     private static string HealthHelp(PlatformOverviewResponse o) => string.Join(" · ", o.Health.Checks.Select(c => $"{c.Name}: {AdminFormat.Health(c.Status)}"));
 
@@ -181,5 +215,9 @@
         }
 
         _overview = result.Value;
+
+        // Best effort: the reports card is left out if its numbers are not available; the rest of the page stands.
+        var reports = await Api.GetAdminReportMonitoringAsync(Token!);
+        _reports = reports.IsSuccess ? reports.Value : null;
     }
 }

@@ -1,0 +1,227 @@
+@page "/informes/whatsapp"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Reports
+@using Conversia.Web.Time
+@inherits AuthenticatedPageBase
+@inject Conversia.Application.Time.TenantTimeZone TimeZone
+
+<PageTitle>Informes en mi WhatsApp - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="report-whatsapp">
+        <PageHeader Eyebrow="Informes" EyebrowIcon="phone" Title="Recibir los informes en mi WhatsApp"
+                    Description="Tu empresa puede enviarte el aviso del informe a tu WhatsApp, solo si tú lo aceptas aquí.">
+            <a class="btn btn--secondary" href="/informes"><Icon Name="arrow-left" />Volver a informes</a>
+        </PageHeader>
+
+        @if (Notice == SavedNotice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">Te enviamos un código por WhatsApp. Escríbelo abajo para confirmar que el número es tuyo.</Alert>
+        }
+        else if (Notice == NotSentNotice)
+        {
+            <Alert Kind="AlertKind.Warning" data-testid="notice-code-not-sent">
+                Guardamos tu aceptación, pero todavía no podemos enviarte el código: tu empresa aún no tiene un número con una plantilla de informes aprobada.
+                Mientras tanto no recibirás informes por WhatsApp.
+            </Alert>
+        }
+        else if (Notice == VerifiedNotice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">Listo: tu número quedó confirmado y recibirás los informes en tu WhatsApp.</Alert>
+        }
+        else if (Notice == RemovedNotice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">Listo: ya no recibirás informes en tu WhatsApp.</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+        @foreach (var problem in _problems)
+        {
+            <Alert Kind="AlertKind.Danger" data-testid="optin-problem">@problem</Alert>
+        }
+
+        @if (_state is not null)
+        {
+            <Card Title="Tu número" IconName="phone" data-testid="optin-card">
+                @if (_state.Verified)
+                {
+                    <p data-testid="optin-state">Recibes los informes en <strong>@_state.PhoneNumber</strong>, confirmado el @(TimeZone.ToLocal(_state.VerifiedAt!.Value).ToString("dd/MM/yyyy HH:mm")).</p>
+                }
+                else if (_state.OptedIn)
+                {
+                    <p data-testid="optin-state">Falta confirmar <strong>@_state.PhoneNumber</strong> con el código que te enviamos por WhatsApp. Hasta entonces no recibes informes ahí.</p>
+                    <EditForm Model="Code" FormName="report-optin-verify" OnSubmit="VerifyAsync" method="post" class="form" data-testid="optin-verify-form">
+                        <div class="field">
+                            <label for="optin-code" class="field__label">Código de 6 dígitos</label>
+                            <input id="optin-code" class="input" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+                                   name="@($"{nameof(Code)}.{nameof(VerifyInput.Value)}")" />
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn--primary" data-testid="optin-verify"><Icon Name="check" />Confirmar número</button>
+                        </div>
+                    </EditForm>
+                }
+                else
+                {
+                    <p data-testid="optin-state">No recibes informes por WhatsApp.</p>
+                }
+
+                <EditForm Model="Input" FormName="report-optin" OnSubmit="SaveAsync" method="post" class="form" data-testid="optin-form">
+                    <div class="field">
+                        <label for="optin-number" class="field__label">Número de WhatsApp (con indicativo del país)</label>
+                        <input id="optin-number" class="input" type="tel" autocomplete="tel" placeholder="+57 300 000 0000"
+                               name="@($"{nameof(Input)}.{nameof(OptInInput.PhoneNumber)}")" value="@Input.PhoneNumber" />
+                    </div>
+                    <label class="check">
+                        <input type="checkbox" name="@($"{nameof(Input)}.{nameof(OptInInput.Consent)}")" value="true" data-testid="optin-consent" />
+                        Acepto recibir en este número los informes que mi empresa me asigne. Puedo retirar este permiso cuando quiera desde esta página.
+                    </label>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn--primary" data-testid="optin-save"><Icon Name="check" />Guardar</button>
+                    </div>
+                </EditForm>
+
+                @if (_state.OptedIn || _state.Verified)
+                {
+                    <EditForm Model="Remove" FormName="report-optout" OnSubmit="RemoveAsync" method="post" class="form" data-testid="optout-form">
+                        <input type="hidden" name="@($"{nameof(Remove)}.{nameof(OptOutInput.Confirm)}")" value="yes" />
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn--secondary" data-testid="optout"><Icon Name="x" />Dejar de recibirlos por WhatsApp</button>
+                        </div>
+                    </EditForm>
+                }
+            </Card>
+        }
+    </div>
+}
+
+@code {
+    public const string SavedNotice = "aceptado";
+    public const string RemovedNotice = "retirado";
+    public const string NotSentNotice = "sin-codigo";
+    public const string VerifiedNotice = "confirmado";
+
+    private ReportWhatsAppOptInResponse? _state;
+    private List<string> _problems = [];
+    private OptInInput? _input;
+    private OptOutInput? _remove;
+
+    public sealed class OptInInput
+    {
+        public string? PhoneNumber { get; set; }
+
+        public bool Consent { get; set; }
+    }
+
+    public sealed class VerifyInput
+    {
+        public string? Value { get; set; }
+    }
+
+    private VerifyInput? _code;
+
+    [SupplyParameterFromForm(FormName = "report-optin-verify")]
+    private VerifyInput Code
+    {
+        get => _code ??= new();
+        set => _code = value;
+    }
+
+    private async Task VerifyAsync()
+    {
+        var result = await Api.VerifyReportWhatsAppAsync(Token!, new ReportWhatsAppVerifyRequest { Code = Code.Value });
+        if (result.IsSuccess)
+        {
+            RedirectTo($"/informes/whatsapp?aviso={VerifiedNotice}");
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.ValidationFailed)
+        {
+            SetStatusCode(StatusCodes.Status400BadRequest);
+            _problems = [.. result.ValidationErrors.SelectMany(e => e.Value).Distinct()];
+            return;
+        }
+
+        await TryFailAsync(result);
+    }
+
+    public sealed class OptOutInput
+    {
+        public string? Confirm { get; set; }
+    }
+
+    [SupplyParameterFromForm(FormName = "report-optin")]
+    private OptInInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    [SupplyParameterFromForm(FormName = "report-optout")]
+    private OptOutInput Remove
+    {
+        get => _remove ??= new();
+        set => _remove = value;
+    }
+
+    [SupplyParameterFromQuery(Name = "aviso")]
+    public string? Notice { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        var state = await Api.GetReportWhatsAppOptInAsync(Token!);
+        if (await TryFailAsync(state))
+        {
+            return;
+        }
+
+        _state = state.Value;
+    }
+
+    private async Task SaveAsync()
+    {
+        var result = await Api.SetReportWhatsAppOptInAsync(Token!, new ReportWhatsAppOptInRequest { PhoneNumber = Input.PhoneNumber, Consent = Input.Consent });
+        if (result.IsSuccess)
+        {
+            RedirectTo($"/informes/whatsapp?aviso={(result.Value!.Verified ? VerifiedNotice : result.Value.CodeSent == true ? SavedNotice : NotSentNotice)}");
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.ValidationFailed)
+        {
+            SetStatusCode(StatusCodes.Status400BadRequest);
+            _problems = [.. result.ValidationErrors.SelectMany(e => e.Value).Distinct()];
+            return;
+        }
+
+        await TryFailAsync(result);
+    }
+
+    private async Task RemoveAsync()
+    {
+        if (Remove.Confirm != "yes")
+        {
+            return;
+        }
+
+        var result = await Api.RemoveReportWhatsAppOptInAsync(Token!);
+        if (result.IsSuccess)
+        {
+            RedirectTo($"/informes/whatsapp?aviso={RemovedNotice}");
+            return;
+        }
+
+        await TryFailAsync(result);
+    }
+}

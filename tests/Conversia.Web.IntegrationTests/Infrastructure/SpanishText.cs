@@ -38,6 +38,7 @@ internal static class SpanishText
         [Permission.MetricsView] = "Ver métricas",
         [Permission.ContactsSuppress] = "Suprimir datos de contactos",
         [Permission.BillingManage] = "Gestionar facturación",
+        [Permission.ReportsManage] = "Gestionar informes",
     };
 
     /// <summary>

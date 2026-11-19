@@ -168,3 +168,46 @@ Formato: fecha, decisión, razón. Las decisiones abiertas se listan al final.
 - **El almacenamiento local solo para desarrollo o una sola instancia:** fuera de Development exige una confirmación explícita.
 - **Los mensajes borrados o editados desde el teléfono no se marcan aún:** el mensaje original queda como llegó; marcarlo para que la IA no lo
   lea queda como mejora.
+
+### Etapa 4: informe automático para gerentes (2026-11-19)
+
+- **El informe lo arma Conversia en .NET** (un proceso en segundo plano), sin n8n: cada empresa define quién lo recibe (personas de la empresa),
+  por correo, WhatsApp o ambos, cada cuánto (diario, semanal —lunes 07:00 por defecto— o mensual, hora de Colombia), qué sucursales y qué
+  partes del análisis (lista cerrada). Pocas cosas: como máximo tres indicadores, un diagnóstico corto y hasta cinco acciones.
+- **Nuevo permiso `ReportsManage` (12, «Gestionar informes»)** para configurar los informes; el historial pide `MetricsView`, y quien recibe un
+  informe siempre puede leerlo. Los cambios quedan en el registro de la aplicación (evento 4301), como la supresión de contactos.
+- **La IA solo escribe con un paquete de datos agregados** (conteos, tasas, minutos y nombres internos de la empresa: sucursales y asesores),
+  nunca con datos de clientes ni textos de mensajes. **Cada cifra y cada nombre del texto se comprueba contra ese paquete**; si no cuadra se
+  pide una vez más y, si vuelve a fallar, el informe lo escribe una **plantilla fija en español** que siempre está disponible (también cuando
+  la IA está apagada, sin cupo o el proveedor no responde).
+- **El costo de la IA de los informes va aparte del cupo de conversaciones**: no lo consume; tiene su propio límite por empresa al mes (62
+  informes) y un tope en USD de toda la plataforma (5 USD/mes). Sigue el interruptor de IA de la empresa y, como el análisis, la IA real
+  solo funciona en Development hasta levantar la puerta del diseño llm-extraction.
+- **Correo con MailKit sobre TLS obligatorio** (System.Net.Mail.SmtpClient no se recomienda para desarrollos nuevos), con parte en texto y en
+  HTML sin imágenes ni rastreadores, y **baja en un clic** (cabecera List-Unsubscribe, RFC 8058) con un enlace firmado por persona. En
+  desarrollo los correos se guardan como archivos `.eml`. Azure Communication Services queda documentado como adaptador futuro.
+- **WhatsApp solo para quien lo aceptó desde su propia cuenta** (número y fecha de aceptación guardados; al retirarla se borra el número), con
+  una plantilla de utilidad aprobada de tres campos (periodo, resumen y enlace). Meta cobra cada mensaje de plantilla. Un tiempo de espera
+  agotado no se reintenta, igual que los envíos manuales, para no mandar el aviso dos veces.
+- **Un informe por definición y periodo** (índice único) y una entrega por persona y canal: nunca se envía dos veces el mismo periodo. Los
+  correos que fallan por un problema temporal se reintentan con espera creciente (hasta 5 intentos).
+- **Los informes generados se guardan 180 días** (configurable) y se borran con los datos de la empresa.
+- Pendiente: límites por plan (hoy son de la plataforma) y validar con el cliente piloto el texto de la plantilla de WhatsApp en 360dialog.
+
+### Revisión de la etapa 4 (2026-11-19)
+
+- **La conversión del informe se mide sobre la ventana más reciente ya madura** (sus conversaciones tienen al menos 7 días), con sus fechas en el
+  título del indicador; con menos de 20 conversaciones decididas dice «Sin datos suficientes», y la comparación con la ventana anterior solo
+  aparece si ambas pasan esa regla. Así un informe del lunes no muestra «50 %» a partir de dos chats.
+- **«Responder hoy» cuenta las conversaciones abiertas que esperan respuesta ahora**, sin importar cuándo empezaron.
+- **La verificación de cifras distingue porcentajes, puntos, minutos, horas, días y conteos**, redondea según lo escrito, acepta días y años solo
+  dentro de una fecha y comprueba que «subió»/«bajó» coincida con el signo del cambio.
+- **Toda redacción queda en un registro (`ReportLedgerEntries`) apenas se escribe**, vistas previas incluidas: cuentan para el límite mensual y el
+  tope en USD, y si algo falla después de llamar a la IA, el siguiente intento usa la plantilla en vez de volver a llamarla. Vistas previas: además,
+  10 por empresa al día.
+- **Las entregas de una empresa que no opera (o sin correo configurado) esperan** dentro de la ventana de recuperación sin gastar intentos, y luego
+  fallan; el envío respeta la elección actual de la persona; una conexión SMTP perdida durante la entrega no se reintenta.
+- **El número de WhatsApp se verifica con un código de un solo uso** enviado por la plantilla de informes de la empresa; sin plantilla, se guarda
+  la aceptación pero no se envía nada a ese número.
+- **La baja por correo tiene un presupuesto por enlace válido** separado del de los enlaces inválidos, para que nadie pueda bloquearla probando
+  enlaces falsos. Clave propia opcional (`Reports:UnsubscribeKey`).

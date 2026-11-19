@@ -26,6 +26,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<OneTimeSubmissions>();
 builder.Services.AddHealthChecks();
 builder.Services.AddInboxPolling(builder.Configuration);
+builder.Services.AddReportUnsubscribeRateLimiting();
 
 var app = builder.Build();
 
@@ -65,6 +66,7 @@ app.MapLogout();
 app.MapPermissionEndpoints();
 app.MapInboxEndpoints();
 app.MapMediaEndpoints();
+app.MapReportEndpoints();
 app.MapRazorComponents<App>();
 
 app.Run();

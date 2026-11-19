@@ -100,6 +100,8 @@ public sealed class TestApiFactory : WebApplicationFactory<ApiHost::Program>, IA
         builder.UseSetting("Usage:Retention:Enabled", "false");
         builder.UseSetting("Tenants:Deletion:Enabled", "false"); // the tests run the deleter directly
         builder.UseSetting("Billing:Job:Enabled", "false"); // the tests run the billing job directly
+        builder.UseSetting("Reports:Job:Enabled", "false"); // the report tests run the manager reports job by hand
+        builder.UseSetting("Email:Provider", "None"); // no test writes or sends an email unless it brings its own stand-in
         // A real privacy key, as every deployment outside Development has one (the Development fallback would log a warning).
         builder.UseSetting("Privacy:HashKey", "dGVzdC1vbmx5LXByaXZhY3ktaGFzaC1rZXktMzItYnl0ZXMhIQ==");
         builder.UseSetting("Messaging:TenantSendLimitRefresh:Enabled", "false");

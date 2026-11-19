@@ -23,7 +23,9 @@ public interface IMetricsService
 }
 
 /// <summary>The cohort of a metrics query, resolved: UTC instants (<c>FromUtc</c> inclusive, <c>ToUtc</c> exclusive) and the filters.</summary>
-public sealed record MetricsFilter(DateTime FromUtc, DateTime ToUtc, Guid? BranchId, Guid? AdvisorId, bool Unassigned, ConversationSource? Source)
+/// <param name="BranchIds">Only these branches (the manager reports' scope); null = no such restriction.</param>
+public sealed record MetricsFilter(
+    DateTime FromUtc, DateTime ToUtc, Guid? BranchId, Guid? AdvisorId, bool Unassigned, ConversationSource? Source, IReadOnlyList<Guid>? BranchIds = null)
 {
     public MetricsFilter WithoutBranch() => this with { BranchId = null };
 

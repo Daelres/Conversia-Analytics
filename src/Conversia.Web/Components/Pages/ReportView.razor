@@ -1,0 +1,98 @@
+@page "/informes/{Id:guid}"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Reports
+@using Conversia.Web.Components.Reports
+@using Conversia.Web.Time
+@inherits AuthenticatedPageBase
+@inject Conversia.Application.Time.TenantTimeZone TimeZone
+
+<PageTitle>@(_report?.Content.Title ?? "Informe") - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (_missing)
+{
+    <ReportNotFoundView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow report-page" data-page="report">
+        <ErrorAlert Message="@Message" />
+        @if (_report is not null)
+        {
+            <PageHeader Eyebrow="@_report.Company" EyebrowIcon="bar-chart" Title="@_report.Content.Title" Description="@Description">
+                <a class="btn btn--secondary no-print" href="/informes"><Icon Name="arrow-left" />Informes</a>
+            </PageHeader>
+
+            @if (_report.IsSandbox)
+            {
+                <Alert Kind="AlertKind.Warning" data-testid="report-sandbox">Este informe se generó con los datos de prueba del modo sandbox.</Alert>
+            }
+
+            <ReportContentView Content="_report.Content" />
+
+            <p class="muted" data-testid="report-generator">
+                @(_report.Generator == "Llm"
+                    ? "Redactado con IA a partir de los números del periodo; cada cifra se comprobó contra esos números."
+                    : "Redactado automáticamente a partir de los números del periodo.")
+                Para guardarlo o imprimirlo, usa la opción Imprimir de tu navegador.
+            </p>
+
+            @if (_report.Deliveries.Count > 0)
+            {
+                <Card Title="Entregas" IconName="mail" Class="no-print" data-testid="report-deliveries">
+                    <table class="table">
+                        <thead><tr><th>Persona</th><th>Canal</th><th>Estado</th><th>Detalle</th></tr></thead>
+                        <tbody>
+                            @foreach (var delivery in _report.Deliveries)
+                            {
+                                <tr data-testid="delivery-row" data-status="@delivery.Status" data-channel="@delivery.Channel">
+                                    <td>@delivery.Email</td>
+                                    <td>@ReportLabels.Channel(delivery.Channel)</td>
+                                    <td>@ReportLabels.Status(delivery.Status)</td>
+                                    <td>@(delivery.SentAt is { } sent ? TimeZone.ToLocal(sent).ToString("dd/MM/yyyy HH:mm") : ReportLabels.Problem(delivery))</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </Card>
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private ReportResponse? _report;
+    private bool _missing;
+
+    private string Description => _report is null ? string.Empty : $"{_report.DefinitionName} · {_report.Period.Label}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        var result = await Api.GetReportAsync(Token!, Id);
+        if (await TryFailAsync(result))
+        {
+            return;
+        }
+
+        _report = result.Value;
+    }
+
+    protected override void OnNotFound()
+    {
+        _missing = true;
+        Conversia.Web.Http.NotFoundMarker.Mark(HttpContext, Conversia.Web.Http.NotFoundMarker.Report);
+        SetStatusCode(StatusCodes.Status404NotFound);
+        Message = null;
+    }
+}

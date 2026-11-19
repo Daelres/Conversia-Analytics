@@ -7,6 +7,7 @@ using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Messages;
 using Conversia.Application.DTOs.Metrics;
 using Conversia.Application.DTOs.Organization;
+using Conversia.Application.DTOs.Reports;
 using Conversia.Application.DTOs.Sandbox;
 using Conversia.Application.DTOs.Tenants;
 using Conversia.Application.DTOs.Users;
@@ -163,6 +164,9 @@ public interface IApiClient
 
     Task<ApiResult<PlatformOverviewResponse>> GetAdminMonitoringAsync(string token, CancellationToken cancellationToken = default);
 
+    /// <summary>The manager reports of this month per company: counts, model share, cost and the email sender (docs/PLATFORM_ADMIN.md).</summary>
+    Task<ApiResult<ReportMonitoringResponse>> GetAdminReportMonitoringAsync(string token, CancellationToken cancellationToken = default);
+
     Task<ApiResult<PagedResponse<LineLicenseResponse>>> GetAdminLicensesAsync(string token, AdminLicensesQuery query, CancellationToken cancellationToken = default);
 
     Task<ApiResult<LineLicenseResponse>> GetAdminLicenseAsync(string token, Guid id, CancellationToken cancellationToken = default);
@@ -273,6 +277,37 @@ public interface IApiClient
     /// <see cref="InboxPage.NotModified"/> (the API then built no list).
     /// </summary>
     Task<InboxPage> GetInboxPageAsync(string token, Application.DTOs.Inbox.InboxQuery query, string? ifNoneMatch, CancellationToken cancellationToken = default);
+
+    // ---- manager reports (docs/REPORTS.md) ----
+
+    Task<ApiResult<IReadOnlyList<ReportDefinitionResponse>>> GetReportDefinitionsAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportDefinitionResponse>> GetReportDefinitionAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportDefinitionResponse>> CreateReportDefinitionAsync(string token, ReportDefinitionRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportDefinitionResponse>> UpdateReportDefinitionAsync(string token, Guid id, ReportDefinitionRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Unit>> DeleteReportDefinitionAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportOptionsResponse>> GetReportOptionsAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportPreviewResponse>> PreviewReportAsync(string token, Guid definitionId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PagedResponse<ReportSummaryResponse>>> GetReportsAsync(string token, int page, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportResponse>> GetReportAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportWhatsAppOptInResponse>> GetReportWhatsAppOptInAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportWhatsAppOptInResponse>> SetReportWhatsAppOptInAsync(string token, ReportWhatsAppOptInRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportWhatsAppOptInResponse>> RemoveReportWhatsAppOptInAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportWhatsAppOptInResponse>> VerifyReportWhatsAppAsync(string token, ReportWhatsAppVerifyRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Anonymous: the token of the link names the recipient.</summary>
+    Task<ApiResult<ReportUnsubscribeResponse>> UnsubscribeFromReportAsync(string unsubscribeToken, CancellationToken cancellationToken = default);
 }
 
 /// <summary>An inbox answer with the API's <c>ETag</c>; <see cref="NotModified"/> means the caller's version is still current.</summary>

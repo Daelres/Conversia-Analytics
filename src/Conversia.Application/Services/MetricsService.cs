@@ -76,7 +76,7 @@ public class MetricsService : IMetricsService
 
         var period = new MetricsPeriod(from, to, _timeZone.Id, to.DayNumber - from.DayNumber);
         var source = string.IsNullOrWhiteSpace(query.Source) ? (ConversationSource?)null : Enum.Parse<ConversationSource>(query.Source.Trim(), ignoreCase: true);
-        var filter = new MetricsFilter(_timeZone.StartOfDayUtc(from), _timeZone.StartOfDayUtc(to), query.BranchId, query.AdvisorId, query.Unassigned == true, source);
+        var filter = new MetricsFilter(_timeZone.StartOfDayUtc(from), _timeZone.StartOfDayUtc(to), query.BranchId, query.AdvisorId, query.Unassigned == true, source, query.BranchIds);
         return new Scope(period, filter, now);
     }
 
@@ -236,7 +236,7 @@ public class MetricsService : IMetricsService
         }
 
         // Branches far below the tenant's average (only when the caller is not looking at one branch).
-        if (scope.Filter.BranchId is null && ExactRate(current.MaturedWon, current.Decided) is { } tenantExact && current.Decided >= _options.MinSampleSize)
+        if (scope.Filter.BranchId is null && scope.Filter.BranchIds is null && ExactRate(current.MaturedWon, current.Decided) is { } tenantExact && current.Decided >= _options.MinSampleSize)
         {
             foreach (var branch in (await ConversionRowsAsync(scope.Filter, MetricsGroupBy.Branch, scope, cancellationToken))
                          .Where(b => b.Decided >= _options.MinSampleSize && b.Decided > 0)

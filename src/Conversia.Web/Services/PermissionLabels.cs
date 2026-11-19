@@ -19,6 +19,7 @@ public static class PermissionLabels
         [Permission.MetricsView] = "Ver métricas",
         [Permission.ContactsSuppress] = "Suprimir datos de contactos",
         [Permission.BillingManage] = "Gestionar facturación",
+        [Permission.ReportsManage] = "Gestionar informes",
     };
 
     public static string For(Permission permission)

@@ -1,0 +1,90 @@
+@page "/informes/baja"
+@attribute [AllowAnonymous]
+@attribute [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting(Conversia.Web.Endpoints.ReportEndpoints.UnsubscribePolicy)]
+@layout AuthLayout
+@using Conversia.Application.DTOs.Reports
+@inherits ApiPageBase
+
+<PageTitle>Dejar de recibir un informe - Conversia</PageTitle>
+
+<div class="page auth-page" data-page="report-unsubscribe">
+    <PageHeader Eyebrow="Informes" EyebrowIcon="mail" Title="Dejar de recibir un informe por correo"
+                Description="Confirma y no volverás a recibir este informe en tu correo. Los demás informes no cambian." />
+
+    @if (_done is not null)
+    {
+        <Alert Kind="AlertKind.Success" data-testid="notice-success">Listo: ya no recibirás «@_done.DefinitionName» por correo.</Alert>
+    }
+    else if (_invalid)
+    {
+        <Alert Kind="AlertKind.Danger" data-testid="unsubscribe-invalid">El enlace no es válido o el informe ya no existe. Si sigues recibiéndolo, pide a quien administra los informes de tu empresa que te quite.</Alert>
+    }
+    else if (_message is not null)
+    {
+        <Alert Kind="AlertKind.Danger">@_message</Alert>
+    }
+    else
+    {
+        <Card>
+            <EditForm Model="Input" FormName="report-unsubscribe" OnSubmit="UnsubscribeAsync" method="post" class="form" data-testid="unsubscribe-form">
+                <input type="hidden" name="@($"{nameof(Input)}.{nameof(UnsubscribeInput.Token)}")" value="@(Input.Token ?? TokenFromLink)" />
+                <div class="form-actions">
+                    <button type="submit" class="btn btn--primary" data-testid="unsubscribe-confirm"><Icon Name="check" />Dejar de recibirlo</button>
+                </div>
+            </EditForm>
+        </Card>
+    }
+</div>
+
+@code {
+    private ReportUnsubscribeResponse? _done;
+    private bool _invalid;
+    private string? _message;
+    private UnsubscribeInput? _input;
+
+    public sealed class UnsubscribeInput
+    {
+        public string? Token { get; set; }
+    }
+
+    [SupplyParameterFromQuery(Name = "t")]
+    public string? TokenFromLink { get; set; }
+
+    [SupplyParameterFromForm(FormName = "report-unsubscribe")]
+    private UnsubscribeInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    private async Task UnsubscribeAsync()
+    {
+        var token = Input.Token;
+        if (string.IsNullOrWhiteSpace(token) || token.Length > 100)
+        {
+            _invalid = true;
+            SetStatusCode(StatusCodes.Status400BadRequest);
+            return;
+        }
+
+        var result = await Api.UnsubscribeFromReportAsync(token);
+        switch (result.Status)
+        {
+            case ApiResultStatus.Success:
+                _done = result.Value;
+                break;
+            case ApiResultStatus.NotFound or ApiResultStatus.ValidationFailed:
+                _invalid = true;
+                SetStatusCode(StatusCodes.Status404NotFound);
+                break;
+            case ApiResultStatus.RateLimited:
+                _message = UiMessages.TooManyAttempts(result.RetryAfterSeconds);
+                SetStatusCode(StatusCodes.Status429TooManyRequests);
+                break;
+            default:
+                _message = UiMessages.Unavailable;
+                SetStatusCode(StatusCodes.Status503ServiceUnavailable);
+                break;
+        }
+    }
+}

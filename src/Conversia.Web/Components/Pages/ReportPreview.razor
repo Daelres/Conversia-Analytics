@@ -1,0 +1,91 @@
+@page "/informes/definiciones/{Id:guid}/vista-previa"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Reports
+@using Conversia.Web.Components.Reports
+@inherits AuthenticatedPageBase
+
+<PageTitle>Vista previa del informe - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (_missing)
+{
+    <ReportNotFoundView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow report-page" data-page="report-preview">
+        <PageHeader Eyebrow="Vista previa" EyebrowIcon="sparkles" Title="Así se vería el informe"
+                    Description="Se escribe ahora con los datos del último periodo completo. No se guarda ni se envía a nadie.">
+            <a class="btn btn--secondary no-print" href="/informes/definiciones/@Id"><Icon Name="arrow-left" />Volver al informe</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_preview is null)
+        {
+            <EditForm Model="Input" FormName="report-preview" OnSubmit="PreviewAsync" method="post" class="form" data-testid="report-preview-form">
+                <input type="hidden" name="@($"{nameof(Input)}.{nameof(PreviewInput.Go)}")" value="yes" />
+                <p class="muted">Puede tardar unos segundos. Hay un número limitado de vistas previas por hora.</p>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn--primary" data-testid="report-preview-run"><Icon Name="sparkles" />Generar vista previa</button>
+                </div>
+            </EditForm>
+        }
+        else
+        {
+            <p class="muted" data-testid="report-preview-period">Periodo: @_preview.Period.Label · @ReportLabels.Generator(_preview.Generator)</p>
+            <h2 data-testid="report-preview-title">@_preview.Content.Title</h2>
+            <ReportContentView Content="_preview.Content" />
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private ReportPreviewResponse? _preview;
+    private bool _missing;
+    private PreviewInput? _input;
+
+    public sealed class PreviewInput
+    {
+        public string? Go { get; set; }
+    }
+
+    [SupplyParameterFromForm(FormName = "report-preview")]
+    private PreviewInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    protected override async Task OnInitializedAsync() => await TryReadTokenAsync();
+
+    private async Task PreviewAsync()
+    {
+        if (Token is null || Input.Go != "yes")
+        {
+            return;
+        }
+
+        var result = await Api.PreviewReportAsync(Token, Id);
+        if (await TryFailAsync(result))
+        {
+            return;
+        }
+
+        _preview = result.Value;
+    }
+
+    protected override void OnNotFound()
+    {
+        _missing = true;
+        Conversia.Web.Http.NotFoundMarker.Mark(HttpContext, Conversia.Web.Http.NotFoundMarker.Report);
+        SetStatusCode(StatusCodes.Status404NotFound);
+        Message = null;
+    }
+}

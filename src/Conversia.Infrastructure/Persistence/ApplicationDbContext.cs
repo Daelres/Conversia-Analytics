@@ -99,6 +99,17 @@ public class ApplicationDbContext : DbContext
     /// <summary>Stored media objects whose messages are gone, waiting to be deleted from the media store (docs/MESSAGING.md, "Media").</summary>
     public DbSet<MediaObjectDeletion> MediaObjectDeletions => Set<MediaObjectDeletion>();
 
+    /// <summary>The manager reports (docs/REPORTS.md): definitions, recipients, generated reports and their deliveries. Tenant-scoped.</summary>
+    public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
+
+    public DbSet<ReportRecipient> ReportRecipients => Set<ReportRecipient>();
+
+    public DbSet<ManagerReport> ManagerReports => Set<ManagerReport>();
+
+    public DbSet<ReportDelivery> ReportDeliveries => Set<ReportDelivery>();
+
+    public DbSet<ReportLedgerEntry> ReportLedgerEntries => Set<ReportLedgerEntry>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
@@ -139,6 +150,11 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<AiAnalysisRun>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<LlmBatchRequest>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<MediaObjectDeletion>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ReportDefinition>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ReportRecipient>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ManagerReport>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ReportDelivery>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ReportLedgerEntry>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
 
         base.OnModelCreating(modelBuilder);
     }

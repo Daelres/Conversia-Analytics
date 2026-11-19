@@ -38,6 +38,7 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
         AND c."IsSandbox" = (SELECT t."SandboxMode" FROM "Tenants" t WHERE t."Id" = @tenant)
         AND NOT c."IsImported"
         AND (@branch IS NULL OR c."BranchId" = @branch)
+        AND (@branches IS NULL OR c."BranchId" = ANY(@branches))
         AND (@advisor IS NULL OR c."AdvisorId" = @advisor)
         AND (NOT @unassigned OR c."AdvisorId" IS NULL)
         AND (@source IS NULL OR c."Source" = @source)
@@ -452,6 +453,7 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
             Timestamp("fromUtc", filter.FromUtc),
             Timestamp("toUtc", filter.ToUtc),
             new("branch", NpgsqlDbType.Uuid) { Value = (object?)filter.BranchId ?? DBNull.Value },
+            new("branches", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = (object?)filter.BranchIds?.ToArray() ?? DBNull.Value },
             new("advisor", NpgsqlDbType.Uuid) { Value = (object?)filter.AdvisorId ?? DBNull.Value },
             new("unassigned", NpgsqlDbType.Boolean) { Value = filter.Unassigned },
             new("source", NpgsqlDbType.Varchar) { Value = filter.Source is { } source ? source.ToString() : DBNull.Value },

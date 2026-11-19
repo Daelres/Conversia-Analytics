@@ -24,6 +24,10 @@ public class TenantFilterGuardTests
         "Conversia.Infrastructure/Messaging/MessageSendOutcomeRecorder.cs", // retention of the send counters across companies
         "Conversia.Infrastructure/Messaging/TemplateSyncService.cs", // the periodic template sync lists the channels of every company, then syncs each in its own company
         "Conversia.Infrastructure/Monitoring/PlatformMonitoringQueries.cs", // the platform administrator's monitoring counts
+        "Conversia.Infrastructure/Reports/ReportAiAdmission.cs", // the deployment's monthly report spend sums every company
+        "Conversia.Infrastructure/Reports/ReportJob.cs", // the reports job finds due definitions and claims deliveries across companies; each write runs in its row's company
+        "Conversia.Infrastructure/Reports/ReportMonitoringQueries.cs", // the platform administrator's report counts
+        "Conversia.Infrastructure/Reports/ReportStore.cs", // the anonymous unsubscribe link names its recipient row by id
         "Conversia.Infrastructure/Repositories/BillingRepositories.cs", // the billing lock and lookups name the company explicitly; the job and events run without one
         "Conversia.Infrastructure/Repositories/PlatformAdminQueries.cs", // the platform administrator's scalar projections
         "Conversia.Infrastructure/Repositories/TenantUnitOfWork.cs", // names the locked company explicitly in every query

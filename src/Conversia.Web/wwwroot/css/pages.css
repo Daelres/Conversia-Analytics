@@ -727,3 +727,72 @@ textarea.input {
   white-space: normal;
   text-align: left;
 }
+
+/* ---- Manager reports (docs/REPORTS.md) ------------------------------------------------------------------------------ */
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+
+.check input {
+  margin-top: 0.25rem;
+}
+
+.report__indicators {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
+.report__indicator {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+}
+
+.report__label,
+.report__note {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.report__value {
+  font-size: 1.5rem;
+}
+
+.report__heading {
+  font-size: 1.1rem;
+  margin: var(--space-6) 0 var(--space-2);
+}
+
+.report__actions li {
+  margin-bottom: var(--space-2);
+}
+
+/* A report prints as a clean page: no navigation, no buttons, no delivery table. */
+@media print {
+  header,
+  nav,
+  footer,
+  .no-print,
+  .btn {
+    display: none !important;
+  }
+
+  .report-page {
+    max-width: none;
+  }
+
+  .report__indicator {
+    break-inside: avoid;
+  }
+}

@@ -1,0 +1,388 @@
+@page "/informes/nuevo"
+@page "/informes/definiciones/{Id:guid}"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Reports
+@inherits AuthenticatedPageBase
+
+<PageTitle>@(Id is null ? "Nuevo informe" : "Editar informe") - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (_missing)
+{
+    <ReportNotFoundView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="report-definition">
+        <PageHeader Eyebrow="Informes" EyebrowIcon="bar-chart" Title="@(Id is null ? "Nuevo informe" : "Editar informe")"
+                    Description="Quién lo recibe, cada cuánto, de qué sucursales y qué partes del análisis.">
+            <a class="btn btn--secondary" href="/informes"><Icon Name="arrow-left" />Volver a informes</a>
+            @if (Id is { } id)
+            {
+                <a class="btn btn--secondary" href="/informes/definiciones/@id/vista-previa" data-testid="report-preview-link"><Icon Name="sparkles" />Vista previa</a>
+            }
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+        @foreach (var problem in _problems)
+        {
+            <Alert Kind="AlertKind.Danger" data-testid="report-problem">@problem</Alert>
+        }
+
+        @if (_options is not null)
+        {
+            <EditForm Model="Input" FormName="report-definition" OnSubmit="SaveAsync" method="post" class="form" data-testid="report-definition-form">
+                <Card Title="El informe" IconName="layers">
+                    <div class="field">
+                        <label for="report-name" class="field__label">Nombre</label>
+                        <input id="report-name" class="input" name="@Field(nameof(DefinitionInput.Name))" value="@Input.Name" maxlength="100" required />
+                    </div>
+                    <div class="field">
+                        <label for="report-status" class="field__label">Estado</label>
+                        <select id="report-status" class="input" name="@Field(nameof(DefinitionInput.Status))">
+                            <option value="active" selected="@(Input.Status != "paused")">Activo: se envía solo</option>
+                            <option value="paused" selected="@(Input.Status == "paused")">En pausa: no se envía</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="report-frequency" class="field__label">Frecuencia</label>
+                        <select id="report-frequency" class="input" name="@Field(nameof(DefinitionInput.Frequency))">
+                            @foreach (var frequency in ReportLabels.Frequencies)
+                            {
+                                <option value="@frequency.Code" selected="@(Input.Frequency == frequency.Code)">@frequency.Label</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="report-day" class="field__label">Día de envío (informes semanales)</label>
+                        <select id="report-day" class="input" name="@Field(nameof(DefinitionInput.SendDayOfWeek))">
+                            @foreach (var (day, label) in ReportLabels.Days)
+                            {
+                                <option value="@day" selected="@(Input.SendDayOfWeek == day)">@label</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="report-hour" class="field__label">Hora de envío (hora de Colombia)</label>
+                        <select id="report-hour" class="input" name="@Field(nameof(DefinitionInput.SendHour))">
+                            @for (var hour = 0; hour < 24; hour++)
+                            {
+                                <option value="@hour" selected="@(Input.SendHour == hour)">@ReportLabels.Hour(hour)</option>
+                            }
+                        </select>
+                    </div>
+                    <p class="muted">Los informes diarios cubren el día anterior; los semanales, la semana anterior de lunes a domingo; los mensuales, el mes anterior y se envían el día 1.</p>
+                </Card>
+
+                <Card Title="Sucursales" IconName="building">
+                    <p class="muted">Sin ninguna marcada, el informe cubre todas las sucursales.</p>
+                    @for (var i = 0; i < Input.Branches.Count; i++)
+                    {
+                        var branch = Input.Branches[i];
+                        <input type="hidden" name="@List(nameof(DefinitionInput.Branches), i, nameof(ChoiceInput.Value))" value="@branch.Value" />
+                        <label class="check" data-testid="report-branch">
+                            <input type="checkbox" name="@List(nameof(DefinitionInput.Branches), i, nameof(ChoiceInput.Selected))" value="true" checked="@branch.Selected" />
+                            @branch.Label
+                        </label>
+                    }
+                </Card>
+
+                <Card Title="Qué incluye" IconName="bar-chart">
+                    <p class="muted">Pocas cosas y claras: el informe muestra como máximo tres indicadores, un diagnóstico y hasta cinco acciones.</p>
+                    @for (var i = 0; i < Input.Sections.Count; i++)
+                    {
+                        var section = Input.Sections[i];
+                        <input type="hidden" name="@List(nameof(DefinitionInput.Sections), i, nameof(ChoiceInput.Value))" value="@section.Value" />
+                        <label class="check" data-testid="report-section" data-section="@section.Value">
+                            <input type="checkbox" name="@List(nameof(DefinitionInput.Sections), i, nameof(ChoiceInput.Selected))" value="true" checked="@section.Selected" />
+                            @section.Label
+                        </label>
+                    }
+                </Card>
+
+                <Card Title="Quién lo recibe" IconName="users">
+                    <table class="table">
+                        <thead><tr><th>Persona</th><th>Correo</th><th>WhatsApp</th></tr></thead>
+                        <tbody>
+                            @for (var i = 0; i < Input.Recipients.Count; i++)
+                            {
+                                var recipient = Input.Recipients[i];
+                                <tr data-testid="report-recipient" data-user-id="@recipient.UserId">
+                                    <td>
+                                        <input type="hidden" name="@List(nameof(DefinitionInput.Recipients), i, nameof(RecipientInput.UserId))" value="@recipient.UserId" />
+                                        @recipient.Email
+                                        @if (!recipient.OptedIn)
+                                        {
+                                            <br /><span class="muted">Aún no aceptó recibir informes por WhatsApp.</span>
+                                        }
+                                    </td>
+                                    <td><input type="checkbox" aria-label="@($"Correo a {recipient.Email}")" name="@List(nameof(DefinitionInput.Recipients), i, nameof(RecipientInput.ByEmail))" value="true" checked="@recipient.ByEmail" /></td>
+                                    <td><input type="checkbox" aria-label="@($"WhatsApp a {recipient.Email}")" name="@List(nameof(DefinitionInput.Recipients), i, nameof(RecipientInput.ByWhatsApp))" value="true" checked="@recipient.ByWhatsApp" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    <p class="muted">Cada persona acepta recibirlo por WhatsApp desde su cuenta, en «Recibir en mi WhatsApp». Sin esa aceptación solo recibe el correo.</p>
+                </Card>
+
+                <Card Title="WhatsApp" IconName="phone">
+                    <div class="field">
+                        <label for="report-template" class="field__label">Número y plantilla aprobada</label>
+                        <select id="report-template" class="input" name="@Field(nameof(DefinitionInput.Template))">
+                            <option value="" selected="@string.IsNullOrEmpty(Input.Template)">No enviar por WhatsApp</option>
+                            @foreach (var template in _options.Templates)
+                            {
+                                var key = TemplateKey(template.ChannelId, template.Name, template.Language);
+                                <option value="@key" selected="@(Input.Template == key)">@template.ChannelPhoneNumber · @template.Name (@template.Language)</option>
+                            }
+                        </select>
+                    </div>
+                    <p class="muted" data-testid="report-whatsapp-cost">
+                        Se usa una plantilla de utilidad aprobada en 360dialog con tres campos: el periodo, el resumen y el enlace al informe. Meta cobra cada mensaje
+                        de plantilla que se envía; el informe completo se lee en Conversia.
+                    </p>
+                </Card>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn--primary" data-testid="report-save"><Icon Name="check" />Guardar</button>
+                </div>
+            </EditForm>
+
+            @if (Id is not null)
+            {
+                <EditForm Model="DeleteInput" FormName="report-delete" OnSubmit="DeleteAsync" method="post" class="form" data-testid="report-delete-form">
+                    <input type="hidden" name="@($"{nameof(DeleteInput)}.{nameof(DeleteConfirmation.Confirm)}")" value="yes" />
+                    <p class="muted">Eliminar el informe borra también su historial de envíos.</p>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn--danger" data-testid="report-delete"><Icon Name="trash" />Eliminar informe</button>
+                    </div>
+                </EditForm>
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private ReportOptionsResponse? _options;
+    private bool _missing;
+    private List<string> _problems = [];
+    private DefinitionInput? _input;
+    private DeleteConfirmation? _delete;
+
+    public sealed class ChoiceInput
+    {
+        public string? Value { get; set; }
+
+        public bool Selected { get; set; }
+
+        public string Label { get; set; } = string.Empty;
+    }
+
+    public sealed class RecipientInput
+    {
+        public Guid UserId { get; set; }
+
+        public bool ByEmail { get; set; }
+
+        public bool ByWhatsApp { get; set; }
+
+        public string Email { get; set; } = string.Empty;
+
+        public bool OptedIn { get; set; }
+    }
+
+    public sealed class DefinitionInput
+    {
+        public string? Name { get; set; }
+
+        public string? Status { get; set; }
+
+        public string? Frequency { get; set; } = "Weekly";
+
+        public int SendDayOfWeek { get; set; } = 1;
+
+        public int SendHour { get; set; } = 7;
+
+        public List<ChoiceInput> Branches { get; set; } = [];
+
+        public List<ChoiceInput> Sections { get; set; } = [];
+
+        public List<RecipientInput> Recipients { get; set; } = [];
+
+        public string? Template { get; set; }
+    }
+
+    public sealed class DeleteConfirmation
+    {
+        public string? Confirm { get; set; }
+    }
+
+    [SupplyParameterFromForm(FormName = "report-definition")]
+    private DefinitionInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    [SupplyParameterFromForm(FormName = "report-delete")]
+    private DeleteConfirmation DeleteInput
+    {
+        get => _delete ??= new();
+        set => _delete = value;
+    }
+
+    private static string Field(string name) => $"{nameof(Input)}.{name}";
+
+    private static string List(string list, int index, string name) => $"{nameof(Input)}.{list}[{index}].{name}";
+
+    private static string TemplateKey(Guid channelId, string name, string language) => $"{channelId}|{name}|{language}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        var options = await Api.GetReportOptionsAsync(Token!);
+        if (await TryFailAsync(options))
+        {
+            return;
+        }
+
+        _options = options.Value!;
+        if (IsPost)
+        {
+            Complete(Input);
+            return;
+        }
+
+        if (Id is { } id)
+        {
+            var definition = await Api.GetReportDefinitionAsync(Token!, id);
+            if (await TryFailAsync(definition))
+            {
+                return;
+            }
+
+            _input = FromDefinition(definition.Value!);
+        }
+        else
+        {
+            _input = new DefinitionInput { Name = "Resumen semanal" };
+            Complete(_input, allSections: true);
+        }
+    }
+
+    // The lists of the form follow the options; what was chosen (posted or stored) keeps its choice.
+    private void Complete(DefinitionInput input, bool allSections = false)
+    {
+        var branches = (input.Branches ?? []).Where(b => b.Selected).Select(b => b.Value).ToHashSet();
+        input.Branches = [.. _options!.Branches.Select(b => new ChoiceInput { Value = b.Id.ToString(), Label = b.Name, Selected = branches.Contains(b.Id.ToString()) })];
+        var sections = (input.Sections ?? []).Where(s => s.Selected).Select(s => s.Value).ToHashSet();
+        input.Sections = [.. _options.Sections.Select(s => new ChoiceInput { Value = s.Code, Label = s.Label, Selected = allSections || sections.Contains(s.Code) })];
+        var recipients = (input.Recipients ?? []).GroupBy(r => r.UserId).ToDictionary(g => g.Key, g => g.Last());
+        input.Recipients = [.. _options.Users.Select(u => new RecipientInput
+        {
+            UserId = u.Id, Email = u.Email, OptedIn = u.WhatsAppOptedIn,
+            ByEmail = recipients.TryGetValue(u.Id, out var r) && r.ByEmail,
+            ByWhatsApp = recipients.TryGetValue(u.Id, out var w) && w.ByWhatsApp,
+        })];
+    }
+
+    private DefinitionInput FromDefinition(ReportDefinitionResponse definition)
+    {
+        var input = new DefinitionInput
+        {
+            Name = definition.Name,
+            Status = definition.IsActive ? "active" : "paused",
+            Frequency = definition.Frequency,
+            SendDayOfWeek = definition.SendDayOfWeek,
+            SendHour = definition.SendHour,
+            Branches = [.. definition.BranchIds.Select(b => new ChoiceInput { Value = b.ToString(), Selected = true })],
+            Sections = [.. definition.Sections.Select(s => new ChoiceInput { Value = s, Selected = true })],
+            Recipients = [.. definition.Recipients.Select(r => new RecipientInput { UserId = r.UserId, ByEmail = r.ByEmail, ByWhatsApp = r.ByWhatsApp })],
+            Template = definition.WhatsAppChannelId is { } channel ? TemplateKey(channel, definition.WhatsAppTemplateName!, definition.WhatsAppTemplateLanguage!) : null,
+        };
+        Complete(input);
+        return input;
+    }
+
+    private ReportDefinitionRequest ToRequest()
+    {
+        var template = Input.Template?.Split('|');
+        return new ReportDefinitionRequest
+        {
+            Name = Input.Name,
+            IsActive = Input.Status != "paused",
+            Frequency = Input.Frequency,
+            SendDayOfWeek = Input.SendDayOfWeek,
+            SendHour = Input.SendHour,
+            BranchIds = [.. Input.Branches.Where(b => b.Selected && Guid.TryParse(b.Value, out _)).Select(b => Guid.Parse(b.Value!))],
+            Sections = [.. Input.Sections.Where(s => s.Selected && s.Value is not null).Select(s => s.Value!)],
+            Recipients = [.. Input.Recipients.Where(r => r.ByEmail || r.ByWhatsApp).Select(r => new ReportRecipientRequest { UserId = r.UserId, Email = r.ByEmail, WhatsApp = r.ByWhatsApp })],
+            WhatsAppChannelId = template is [var channel, _, _] && Guid.TryParse(channel, out var id) ? id : null,
+            WhatsAppTemplateName = template is [_, var name, _] ? name : null,
+            WhatsAppTemplateLanguage = template is [_, _, var language] ? language : null,
+        };
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_options is null)
+        {
+            return;
+        }
+
+        var result = Id is { } id
+            ? await Api.UpdateReportDefinitionAsync(Token!, id, ToRequest())
+            : await Api.CreateReportDefinitionAsync(Token!, ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo($"/informes?aviso={Reports.SavedNotice}");
+            return;
+        }
+
+        if (result.Status is ApiResultStatus.ValidationFailed or ApiResultStatus.Conflict)
+        {
+            SetStatusCode(result.Status == ApiResultStatus.Conflict ? StatusCodes.Status409Conflict : StatusCodes.Status400BadRequest);
+            _problems = result.Status == ApiResultStatus.Conflict
+                ? [result.Detail ?? UiMessages.InvalidRequest]
+                : [.. result.ValidationErrors.SelectMany(e => e.Value).Distinct()];
+            return;
+        }
+
+        await TryFailAsync(result);
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (Id is not { } id || DeleteInput.Confirm != "yes")
+        {
+            return;
+        }
+
+        var result = await Api.DeleteReportDefinitionAsync(Token!, id);
+        if (result.IsSuccess)
+        {
+            RedirectTo($"/informes?aviso={Reports.DeletedNotice}");
+            return;
+        }
+
+        await TryFailAsync(result);
+    }
+
+    protected override void OnNotFound()
+    {
+        _missing = true;
+        Conversia.Web.Http.NotFoundMarker.Mark(HttpContext, Conversia.Web.Http.NotFoundMarker.Report);
+        SetStatusCode(StatusCodes.Status404NotFound);
+        Message = null;
+    }
+}

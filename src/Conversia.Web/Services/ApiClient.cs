@@ -10,6 +10,7 @@ using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Messages;
 using Conversia.Application.DTOs.Metrics;
 using Conversia.Application.DTOs.Organization;
+using Conversia.Application.DTOs.Reports;
 using Conversia.Application.DTOs.Sandbox;
 using Conversia.Application.DTOs.Tenants;
 using Conversia.Application.DTOs.Users;
@@ -198,6 +199,9 @@ public sealed class ApiClient : IApiClient
 
     public Task<ApiResult<TenantMonitoringResponse>> GetAdminTenantMonitoringAsync(string token, Guid id, CancellationToken cancellationToken = default)
         => SendAsync<TenantMonitoringResponse>(HttpMethod.Get, $"api/admin/tenants/{id}/monitoring", token, body: null, response => response.Days is not null, cancellationToken);
+
+    public Task<ApiResult<ReportMonitoringResponse>> GetAdminReportMonitoringAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<ReportMonitoringResponse>(HttpMethod.Get, "api/admin/monitoring/reports", token, body: null, r => r.Totals is not null && r.Companies is not null, cancellationToken);
 
     public Task<ApiResult<PlatformOverviewResponse>> GetAdminMonitoringAsync(string token, CancellationToken cancellationToken = default)
         => SendAsync<PlatformOverviewResponse>(HttpMethod.Get, "api/admin/monitoring", token, body: null, response => response.Flags is not null && response.Health is not null, cancellationToken);
@@ -406,6 +410,49 @@ public sealed class ApiClient : IApiClient
 
     /// <param name="expectedCodes">The refusals this call knows how to word (see <see cref="ApiResponseReader"/>); none by default.</param>
     /// <param name="timeout">The limit of this call when it is not the usual one.</param>
+    public Task<ApiResult<IReadOnlyList<ReportDefinitionResponse>>> GetReportDefinitionsAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<IReadOnlyList<ReportDefinitionResponse>>(HttpMethod.Get, "api/reports/definitions", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ReportDefinitionResponse>> GetReportDefinitionAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<ReportDefinitionResponse>(HttpMethod.Get, $"api/reports/definitions/{id}", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ReportDefinitionResponse>> CreateReportDefinitionAsync(string token, ReportDefinitionRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<ReportDefinitionResponse>(HttpMethod.Post, "api/reports/definitions", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ReportDefinitionResponse>> UpdateReportDefinitionAsync(string token, Guid id, ReportDefinitionRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<ReportDefinitionResponse>(HttpMethod.Put, $"api/reports/definitions/{id}", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<Unit>> DeleteReportDefinitionAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<Unit>(HttpMethod.Delete, $"api/reports/definitions/{id}", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ReportOptionsResponse>> GetReportOptionsAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<ReportOptionsResponse>(HttpMethod.Get, "api/reports/options", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ReportPreviewResponse>> PreviewReportAsync(string token, Guid definitionId, CancellationToken cancellationToken = default)
+        => SendAsync<ReportPreviewResponse>(HttpMethod.Post, $"api/reports/definitions/{definitionId}/preview", token, body: null, r => r.Content is not null, cancellationToken,
+            timeout: TimeSpan.FromSeconds(60));
+
+    public Task<ApiResult<PagedResponse<ReportSummaryResponse>>> GetReportsAsync(string token, int page, CancellationToken cancellationToken = default)
+        => SendAsync<PagedResponse<ReportSummaryResponse>>(HttpMethod.Get, $"api/reports?page={Math.Max(page, 1)}&pageSize=20", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ReportResponse>> GetReportAsync(string token, Guid id, CancellationToken cancellationToken = default)
+        => SendAsync<ReportResponse>(HttpMethod.Get, $"api/reports/{id}", token, body: null, r => r.Content is not null, cancellationToken);
+
+    public Task<ApiResult<ReportWhatsAppOptInResponse>> GetReportWhatsAppOptInAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<ReportWhatsAppOptInResponse>(HttpMethod.Get, "api/reports/whatsapp-opt-in", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ReportWhatsAppOptInResponse>> SetReportWhatsAppOptInAsync(string token, ReportWhatsAppOptInRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<ReportWhatsAppOptInResponse>(HttpMethod.Put, "api/reports/whatsapp-opt-in", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ReportWhatsAppOptInResponse>> RemoveReportWhatsAppOptInAsync(string token, CancellationToken cancellationToken = default)
+        => SendAsync<ReportWhatsAppOptInResponse>(HttpMethod.Delete, "api/reports/whatsapp-opt-in", token, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ReportUnsubscribeResponse>> UnsubscribeFromReportAsync(string unsubscribeToken, CancellationToken cancellationToken = default)
+        => SendAsync<ReportUnsubscribeResponse>(HttpMethod.Post, $"api/reports/unsubscribe/{Uri.EscapeDataString(unsubscribeToken)}", token: null, body: null, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<ReportWhatsAppOptInResponse>> VerifyReportWhatsAppAsync(string token, ReportWhatsAppVerifyRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<ReportWhatsAppOptInResponse>(HttpMethod.Post, "api/reports/whatsapp-opt-in/verify", token, request, isUsable: null, cancellationToken);
+
     private async Task<ApiResult<T>> SendAsync<T>(
         HttpMethod method, string path, string? token, object? body, Func<T, bool>? isUsable, CancellationToken cancellationToken,
         IReadOnlySet<string>? expectedCodes = null, TimeSpan? timeout = null)

@@ -20,4 +20,6 @@ public enum Permission
     ContactsSuppress = 10,
     /// <summary>See and manage the company's subscription: payment method, charges, payment links, cancellation (docs/BILLING.md).</summary>
     BillingManage = 11,
+    /// <summary>Create, change and delete the company's automatic manager reports, and preview them (docs/REPORTS.md).</summary>
+    ReportsManage = 12,
 }

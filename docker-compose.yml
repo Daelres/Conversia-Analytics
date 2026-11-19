@@ -101,6 +101,17 @@ services:
       Media__Azure__ManagedIdentityClientId: ${MEDIA_AZURE_MANAGED_IDENTITY_CLIENT_ID:-}
       Media__Azure__Container: ${MEDIA_AZURE_CONTAINER:-conversia-media}
       Media__RetentionDays: ${MEDIA_RETENTION_DAYS:-90}
+      # Manager reports (docs/REPORTS.md). The public address of the Web for the links of the emails and WhatsApp notices (https outside
+      # a local machine). Email: None (default, nothing is sent), Smtp (TLS required) or Pickup (Development only, .eml files).
+      Reports__WebBaseUrl: ${REPORTS_WEB_BASE_URL:-http://localhost:5112}
+      Email__Provider: ${EMAIL_PROVIDER:-None}
+      Email__FromAddress: ${EMAIL_FROM_ADDRESS:-}
+      Email__FromName: ${EMAIL_FROM_NAME:-Conversia}
+      Email__Smtp__Host: ${EMAIL_SMTP_HOST:-}
+      Email__Smtp__Port: ${EMAIL_SMTP_PORT:-587}
+      Email__Smtp__Security: ${EMAIL_SMTP_SECURITY:-StartTls}
+      Email__Smtp__UserName: ${EMAIL_SMTP_USERNAME:-}
+      Email__Smtp__Password: ${EMAIL_SMTP_PASSWORD:-}
     volumes:
       - api-media:/var/lib/conversia/media
     ports:

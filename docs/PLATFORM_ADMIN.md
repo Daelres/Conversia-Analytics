@@ -256,6 +256,15 @@ never cached.
 The send counters (`MessageSendOutcomes`, one row per company, day, sandbox flag and outcome) are kept 90 days; the overview lists at most 20
 companies per list (the totals are exact). Every list is one grouped query, whatever the number of companies.
 
+### Manager reports
+
+`GET /api/admin/monitoring/reports` and the card "Informes a gerentes este mes" of `/admin/monitoreo` (docs/REPORTS.md): per company, the
+reports generated this month (America/Bogota), how many the model wrote and how many the template, the deliveries sent, failed and pending,
+and the estimated USD of the model; the totals; the email provider and the **sender identity** (`Email:FromAddress`, validated at startup:
+a bad address, a missing SMTP host, a security other than TLS or a user without password stop the API naming the key). Counts and money only:
+never a report's text, a recipient or an address. The model's use for reports is bounded apart from the conversation quota
+(`Reports:Ai:MonthlyReportsPerCompany`, `Reports:Ai:DeploymentMonthlyUsdCap`) and follows the company's AI switch.
+
 ## Endpoints
 
 All under `/api/admin`, policy `PlatformAdmin`, Spanish `application/problem+json` errors, an unknown id is always the same `404`

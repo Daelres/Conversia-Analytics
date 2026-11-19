@@ -66,6 +66,7 @@ public enum Permission
     MetricsView = 9,
     ContactsSuppress = 10,
     BillingManage = 11,
+    ReportsManage = 12,
 }
 ```
 
@@ -79,6 +80,7 @@ public enum Permission
 | `ConversationsManage` | 8 | `PUT /api/conversations/{id}/advisor`, `PUT /api/conversations/{id}/opportunity` and `POST /api/conversations/{id}/messages` (a person sends a WhatsApp message to the customer, `docs/MESSAGING.md`) |
 | `MetricsView` | 9 | every `GET /api/metrics/*` endpoint (docs/METRICS.md) |
 | `BillingManage` | 11 | `/api/billing/*`: the company's subscription, payment method, charges, payment links and cancellation (docs/BILLING.md). Money-sensitive: grant it only to whoever pays. |
+| `ReportsManage` | 12 | `/api/reports/definitions*` and `/api/reports/options`: create, change, preview and delete the company's automatic manager reports (docs/REPORTS.md). Reading the history needs `MetricsView`; a person always reads the reports they receive. |
 | `ContactsSuppress` | 10 | `POST /api/contacts/{id}/suppression` (deletes a customer's data on their request, see [Contact suppression](#contact-suppression)) |
 
 (`Organization*` gate the Conversia branches, advisors and WhatsApp channels; `Conversations*` the conversations captured from them.

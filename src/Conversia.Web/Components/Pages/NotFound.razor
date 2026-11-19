@@ -23,6 +23,12 @@ else if (NotFoundMarker.IsMarked(HttpContext, NotFoundMarker.Conversation))
 
     <ConversationNotFoundView />
 }
+else if (NotFoundMarker.IsMarked(HttpContext, NotFoundMarker.Report))
+{
+    <PageTitle>Informe no encontrado - Conversia</PageTitle>
+
+    <ReportNotFoundView />
+}
 else if (NotFoundMarker.IsMarked(HttpContext, NotFoundMarker.Channel))
 {
     <PageTitle>Número no encontrado - Conversia</PageTitle>

@@ -23,6 +23,20 @@ public class MetricsQuery : IValidatableObject
     [Display(Name = "Asesor")]
     public Guid? AdvisorId { get; set; }
 
+    /// <summary>
+    /// Only conversations of these branches (the manager reports' branch scope, docs/REPORTS.md). Not bound from a request: the setter is private,
+    /// so the public endpoints keep their single <see cref="BranchId"/>.
+    /// </summary>
+    public IReadOnlyList<Guid>? BranchIds { get; private set; }
+
+    /// <summary>This query restricted to <paramref name="branchIds"/> (none = no restriction).</summary>
+    public MetricsQuery WithBranches(IEnumerable<Guid> branchIds)
+    {
+        var ids = branchIds.Distinct().ToList();
+        BranchIds = ids.Count == 0 ? null : ids;
+        return this;
+    }
+
     /// <summary>Only conversations with no advisor. Cannot be combined with <see cref="AdvisorId"/>.</summary>
     [Display(Name = "Sin asesor")]
     public bool? Unassigned { get; set; }
