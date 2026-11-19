@@ -130,3 +130,41 @@ Formato: fecha, decisión, razón. Las decisiones abiertas se listan al final.
   la mitad; los avisos de estado se aplican en el orden en que ocurrieron.
 - **La ventana de 24 horas se valida antes de llamar al proveedor**, con un código propio (`customer_service_window_closed`), y el error
   131047 de Meta se traduce al mismo código. En modo sandbox rige la misma regla.
+
+## 2026-11-17 — Etapa 3b: multimedia y coexistencia
+
+- **Almacenamiento de archivos propio, detrás de un puerto (`IMediaStore`).** Meta guarda los archivos recibidos solo 7 días; para mostrarlos
+  después, Conversia descarga una copia. En producción, **Azure Blob Storage** con un contenedor privado (sin acceso anónimo; la API se niega a
+  escribir en uno público), cifrado del lado del servidor de Azure y, preferiblemente, identidad administrada (sin secretos en la
+  configuración). En desarrollo y pruebas, archivos locales **cifrados con AES-256-GCM**. Los objetos se nombran con un identificador aleatorio
+  bajo el prefijo de la empresa: nunca el nombre del archivo ni el número del cliente. El navegador nunca recibe una URL del almacenamiento:
+  la API entrega el archivo a un usuario autenticado de la empresa.
+- **Retención de archivos: 90 días por defecto**, configurable por la plataforma (`Media:RetentionDays`) y por empresa por el administrador de
+  la plataforma (con motivo y auditoría). Al cumplirse se borra la copia; el mensaje queda. Borrar los datos de una empresa, suprimir un
+  contacto o borrar los datos de prueba también borra sus archivos.
+- **Sin antivirus (fuera de alcance), por eso una lista de tipos permitidos estricta.** El tipo se decide por el contenido del archivo, no
+  por lo que declara; se bloquean ejecutables, scripts y HTML/SVG; los documentos siempre se descargan, nunca se abren en el navegador.
+  Riesgo aceptado: un PDF o documento de Office con contenido malicioso. Siguiente paso si hace falta: escaneo (por ejemplo, Microsoft
+  Defender for Storage) antes de marcar el archivo como guardado.
+- **Desde Conversia se envían solo imágenes (JPEG, PNG) y documentos**, con los límites de Meta, dentro de la ventana de 24 horas.
+- **Coexistencia (aplicación WhatsApp Business y API en el mismo número):** los mensajes del teléfono llegan como ecos; si Meta desconecta el
+  número (por ejemplo, la aplicación no se abrió en unos 14 días), Conversia lo marca en la línea y en el monitoreo, y recuerda la regla de
+  abrir la aplicación cada 13 días. La libreta de contactos del teléfono (`smb_app_state_sync`) **no se guarda** (minimización).
+- **Importación del historial: apagada por defecto, la activa solo la persona propietaria y confirmando la base legal** (Ley 1581: los clientes
+  no autorizaron ese tratamiento cuando escribieron por la aplicación). Se registra quién y cuándo lo confirmó. Las conversaciones importadas
+  quedan **cerradas y marcadas como importadas**, en sus fechas reales: nunca cuentan como «nuevas de hoy», nunca se mezclan con una
+  conversación en vivo, y se clasifican **con reglas**; con IA solo si la empresa también lo elige, porque cada conversación tiene costo.
+
+### Revisión de la etapa 3b (2026-11-18)
+
+- **Una caída del almacenamiento propio no hace perder archivos:** el intento se devuelve y se reintenta cada 5 minutos mientras el proveedor
+  todavía tenga el archivo (7 días). Las descargas tienen un plazo (2 minutos) y se escriben en un archivo temporal, nunca enteras en memoria.
+- **Nada del historial no importado ni de la libreta de contactos queda en la entrega cruda** que se guarda para la cola: se reduce a conteos
+  antes de guardarla. Un historial importado se divide en entregas de 500 mensajes, cada una en su propia transacción.
+- **Las conversaciones importadas quedan fuera de todas las métricas** (cambia lo decidido en la etapa 3b): no se atendieron por la línea como
+  hoy y moverían de golpe todas las tasas de sus fechas. Se siguen viendo en el listado y el detalle.
+- **Los documentos de Office con macros se bloquean** (sin antivirus, es la defensa más barata contra el riesgo más común).
+- **Se buscan y borran los archivos huérfanos** (un proceso que muere entre guardar la copia y registrarla) una vez al día, pasado un margen.
+- **El almacenamiento local solo para desarrollo o una sola instancia:** fuera de Development exige una confirmación explícita.
+- **Los mensajes borrados o editados desde el teléfono no se marcan aún:** el mensaje original queda como llegó; marcarlo para que la IA no lo
+  lea queda como mejora.

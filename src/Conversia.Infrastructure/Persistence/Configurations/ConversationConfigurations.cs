@@ -24,8 +24,7 @@ public class ContactConfiguration : IEntityTypeConfiguration<Contact>
         builder.Property(c => c.FirstSeenAt).IsRequired();
         builder.Property(c => c.DisplayNameAt);
         builder.Property(c => c.IsSandbox).IsRequired().HasDefaultValue(false);
-
-        // The profile an LLM extracts (or a person sets), with per-field provenance. Only the coarse range is stored, never an exact age.
+         // The profile an LLM extracts (or a person sets), with per-field provenance. Only the coarse range is stored, never an exact age.
         builder.Property(c => c.AgeRange).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.AgeRangeSource).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.Gender).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(Gender.Undetermined);
@@ -77,6 +76,7 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.PendingAgeRange).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.PendingGender).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.IsSandbox).IsRequired().HasDefaultValue(false);
+        builder.Property(c => c.IsImported).IsRequired().HasDefaultValue(false);
         // The LLM analysis state (docs/CLASSIFICATION.md, "When the AI reads"), apart from the rules' flag.
         builder.Property(c => c.LlmPending).IsRequired().HasDefaultValue(false);
         builder.Property(c => c.LlmLeaseUntil);
@@ -167,6 +167,15 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.Property(m => m.HasCaption).IsRequired().HasDefaultValue(false);
         builder.Property(m => m.TemplateName).HasMaxLength(MessageTemplate.NameMaxLength);
         builder.Property(m => m.TemplateCategory).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        // The stored copy of the media (docs/MESSAGING.md, "Media"): a random key, never a file name.
+        builder.Property(m => m.MediaStatus).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(m => m.MediaObjectKey).HasMaxLength(StoredMediaObject.MaxKeyLength);
+        builder.Property(m => m.MediaSizeBytes);
+        builder.Property(m => m.MediaContentType).HasMaxLength(MessageMedia.MaxMimeTypeLength);
+        builder.Property(m => m.MediaAttempts).IsRequired().HasDefaultValue(0);
+        builder.Property(m => m.MediaNextAttemptAt);
+        builder.Property(m => m.MediaStoredAt);
+        builder.Property(m => m.IsImported).IsRequired().HasDefaultValue(false);
         builder.Property(m => m.CreatedAt).IsRequired();
         builder.Property(m => m.UpdatedAt);
 
@@ -175,6 +184,10 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
 
         // A conversation's messages in time order.
         builder.HasIndex(m => new { m.ConversationId, m.SentAt });
+
+        // The download job's queue (only the pending ones) and the retention job's scan (only the stored ones).
+        builder.HasIndex(m => m.MediaNextAttemptAt, "IX_Messages_MediaPending").HasFilter("\"MediaStatus\" = 'Pending'");
+        builder.HasIndex(m => new { m.TenantId, m.MediaStoredAt }, "IX_Messages_MediaStored").HasFilter("\"MediaStatus\" = 'Stored'");
 
         // The message volume of a tenant over a period (and the foreign key to the tenant, which it serves as its first column).
         builder.HasIndex(m => new { m.TenantId, m.SentAt });
@@ -340,5 +353,22 @@ public class MessageTemplateConfiguration : IEntityTypeConfiguration<MessageTemp
 
         builder.HasOne<Tenant>().WithMany().HasForeignKey(t => t.TenantId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<WhatsAppChannel>().WithMany().HasForeignKey(t => t.ChannelId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public class MediaObjectDeletionConfiguration : IEntityTypeConfiguration<MediaObjectDeletion>
+{
+    public void Configure(EntityTypeBuilder<MediaObjectDeletion> builder)
+    {
+        builder.ToTable("MediaObjectDeletions");
+        builder.HasKey(d => d.Id);
+        builder.Property(d => d.TenantId).IsRequired();
+        builder.Property(d => d.ObjectKey).IsRequired().HasMaxLength(StoredMediaObject.MaxKeyLength);
+        builder.Property(d => d.CreatedAt).IsRequired();
+        builder.Property(d => d.UpdatedAt);
+        builder.Property(d => d.Attempts).IsRequired().HasDefaultValue(0);
+        builder.Property(d => d.NextAttemptAt);
+        builder.HasIndex(d => new { d.TenantId, d.CreatedAt });
+        builder.HasOne<Tenant>().WithMany().HasForeignKey(d => d.TenantId).OnDelete(DeleteBehavior.Restrict);
     }
 }

@@ -36,6 +36,9 @@ public interface IConversationRepository
     /// </summary>
     Task<Conversation?> FindOpenAsync(Guid contactId, Guid channelId, CancellationToken cancellationToken = default);
 
+    /// <summary>The conversation built from the shared chat history of the contact on the channel (closed, imported), locked; null when none.</summary>
+    Task<Conversation?> FindImportedAsync(Guid contactId, Guid channelId, CancellationToken cancellationToken = default);
+
     /// <summary>Persists a new conversation together with its opportunity.</summary>
     Task AddAsync(Conversation conversation, Opportunity opportunity, CancellationToken cancellationToken = default);
 
@@ -73,6 +76,9 @@ public interface IMessageRepository
 
     /// <summary>Untracked lookup of the message a channel stored under a provider id; null when there is none.</summary>
     Task<Message?> FindAsync(Guid channelId, string providerMessageId, CancellationToken cancellationToken = default);
+
+    /// <summary>Untracked: the message of the caller's company with that id in that conversation; null otherwise.</summary>
+    Task<Message?> GetInConversationAsync(Guid conversationId, Guid messageId, CancellationToken cancellationToken = default);
 
     Task AddAsync(Message message, CancellationToken cancellationToken = default);
 

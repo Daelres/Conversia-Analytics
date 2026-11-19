@@ -314,6 +314,9 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Api:BaseUrl` | Web | `https://localhost:7199/` | Absolute http(s) URL of the API. Required. |
 | `Api:TimeoutSeconds` | Web | `10` | Timeout of each API call, 1 to 300. |
 | `Templates:SyncEnabled`, `Templates:SyncIntervalMinutes` | API | `true`, `360` | The periodic sync of every channel's templates from 360dialog (15 to 10080 minutes; `docs/MESSAGING.md`, "Templates"). |
+| `Media:Store` | API | `None` | Where WhatsApp media is kept: `None` (not downloaded, no attachments), `Local` (encrypted files, `Media:Local:RootPath` + `Media:Local:EncryptionKey`) or `Azure` (private Blob container, `Media:Azure:ServiceUri` with managed identity or `Media:Azure:ConnectionString`). `docs/MESSAGING.md`, "Media"; `docs/DOCKER.md`. |
+| `Media:RetentionDays` | API | `90` | Platform default of how long stored media is kept (a company may get its own from the administrator). |
+| `Webhooks:Processing:MaxHistoryMessagesPerDelivery` | API | `5000` | Bound of a shared-history delivery (coexistence; `docs/WEBHOOKS.md`, "History import"). |
 | `Inbox:PollIntervalSeconds` | Web | `5` | How often `/bandeja` and an open conversation poll for changes (2 to 300). |
 | `Inbox:PollRateLimitPerMinute` | API, Web | `60` | Requests per user and minute to each polled endpoint (inbox, conversation version, template lists; the Web's `/bandeja/lista`, `/version`, `/escribiendo`, `/leido`). |
 | `Messaging:PresenceRateLimitPerMinute` | API | `30` | Read receipts and typing indicators per user and minute. |
@@ -361,6 +364,10 @@ policy in their own tenant.
 | PUT | `/api/conversations/{id}/advisor` | `ConversationsManage` | `200` conversation (`{"advisorId": null}` unassigns); records who did it (`advisorAssignedBy`, `advisorAssignedAt`) | `400` unknown/other-tenant/inactive advisor or one from another branch, `401`, `403`, `404` |
 | PUT | `/api/conversations/{id}/opportunity` | `ConversationsManage` | `200` opportunity; a manual `Won`, `Lost` (needs `lossReason`) or `InFollowUp`, which the classifier never overwrites; records who decided (`stageChangedBy`) | `400`, `401`, `403`, `404` |
 | GET | `/api/inbox` | `ConversationsView` | `200` the open conversations by priority (awaiting reply first) with window badges, `ETag`/`304`; `?since=` only what changed (`docs/MESSAGING.md`, "Inbox") | `400`, `401`, `403` |
+| POST | `/api/conversations/{id}/media-messages` | `ConversationsManage` | `201` the stored Outbound image or document; multipart `file` and `caption`, checked, stored, uploaded to 360dialog and sent by id (`docs/MESSAGING.md`, "Sending media") | `400`, `401`, `403`, `404`, `409` as a text send, `413` `media_too_large`, `415` `media_type_not_allowed`, `429`, `503` `media_storage_unavailable` / outcome unknown |
+| GET | `/api/conversations/{id}/messages/{messageId}/media` | `ConversationsView` | `200`/`206` the stored file of the message, streamed (`nosniff`, `private`, documents as attachment) | `401`, `403`, `404` |
+| PUT | `/api/channels/{id}/history-import` | owner only | `200` channel; turns the history import on (`legalBasisConfirmed` required) or off (`docs/MESSAGING.md`, "History import") | `400`, `401`, `403`, `404` |
+| PUT | `/api/admin/tenants/{id}/media-retention` | platform admin | `200` company; its own media retention in days (`null` = default) with a reason, audited | `400`, `401`, `404` |
 | POST | `/api/conversations/{id}/template-messages` | `ConversationsManage` | `201` the stored template message; an approved template of the channel with its values (`docs/MESSAGING.md`, "Templates") | `400`, `401`, `403`, `404`, `409` `template_unavailable` and the codes of a text send, `422`, `429`, `500`, `503` |
 | GET, POST | `/api/channels/{id}/templates`, `/api/channels/{id}/templates/sync` | `OrganizationView`, `OrganizationManage` | The channel's synced templates; the sync reads them from 360dialog with the channel's key | `401`, `403`, `404`, `409`, `429`, `503` |
 | POST | `/api/conversations/{id}/read`, `/api/conversations/{id}/typing` | `ConversationsManage` | `200` an `outcome`: read receipt / typing indicator when the company has them on (`GET`/`PUT /api/tenant/messaging-settings`, off by default) | `401`, `403`, `404` |
@@ -402,7 +409,7 @@ Docker smoke test.
 
 - `docs/PLATFORM_ADMIN.md` — the platform administrator: company approval, per-company limits (lines, AI, sends), the 360dialog licence inventory, monitoring without private content, admin API and Web area, sessions, bootstrap, security model, runbook.
 - `docs/WEBHOOKS.md` — the 360dialog webhook: endpoint, mapping, retries, closing of conversations.
-- `docs/MESSAGING.md` — sending a message by hand through 360dialog: endpoints, per-channel encrypted keys, errors, sandbox limits.
+- `docs/MESSAGING.md` — sending a message by hand through 360dialog: endpoints, per-channel encrypted keys, errors, sandbox limits; media (storage, download job, serving, attachments, retention), coexistence and the history import.
 - `docs/SANDBOX.md` — the internal sandbox mode: how it is switched, what is simulated and what is real, the data rules, and how it differs from the 360dialog sandbox and the webhook simulator.
 - `docs/METRICS.md` — the exact definition of every dashboard metric, the alerts and their settings.
 - `docs/CLASSIFICATION.md` — the rule-based classifier and how to plug in another one.

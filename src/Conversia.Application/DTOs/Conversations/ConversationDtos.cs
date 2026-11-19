@@ -222,6 +222,12 @@ public class MessageResponse
     /// <summary><c>Marketing</c>, <c>Utility</c> or <c>Authentication</c> for a template message: Meta charges it by this category.</summary>
     public string? TemplateCategory { get; set; }
 
+    /// <summary>The message's media file, when it has one (docs/MESSAGING.md, "Media"): its state and type, never the provider's id nor the store's key.</summary>
+    public MessageAttachmentResponse? Attachment { get; set; }
+
+    /// <summary>The message came from an imported chat history (coexistence onboarding).</summary>
+    public bool Imported { get; set; }
+
     public static MessageResponse From(Message message) => new()
     {
         Id = message.Id,
@@ -231,7 +237,63 @@ public class MessageResponse
         SentAt = message.SentAt,
         TemplateName = message.TemplateName,
         TemplateCategory = message.TemplateCategory?.ToString(),
+        Attachment = MessageAttachmentResponse.From(message),
+        Imported = message.IsImported,
     };
+}
+
+/// <summary>The media file of a message. Served by <c>GET /api/conversations/{id}/messages/{messageId}/media</c> once <see cref="Status"/> is <c>stored</c>.</summary>
+public class MessageAttachmentResponse
+{
+    /// <summary><c>pending</c>, <c>stored</c>, <c>too_large</c>, <c>blocked</c>, <c>expired</c>, <c>failed</c> or <c>purged</c>.</summary>
+    public string Status { get; set; } = string.Empty;
+
+    /// <summary><c>image</c>, <c>audio</c>, <c>video</c>, <c>document</c> or <c>sticker</c>.</summary>
+    public string Kind { get; set; } = string.Empty;
+
+    /// <summary>The type it is served with (checked against its content); null until stored.</summary>
+    public string? ContentType { get; set; }
+
+    public long? SizeBytes { get; set; }
+
+    public static MessageAttachmentResponse? From(Message message)
+        => message.MediaStatus is not { } status
+            ? null
+            : new MessageAttachmentResponse
+            {
+                Status = StatusName(status),
+                Kind = message.Type,
+                ContentType = status == MediaStatus.Stored ? message.MediaContentType : null,
+                SizeBytes = status == MediaStatus.Stored ? message.MediaSizeBytes : null,
+            };
+
+    public static string StatusName(MediaStatus status) => status switch
+    {
+        MediaStatus.TooLarge => "too_large",
+        _ => status.ToString().ToLowerInvariant(),
+    };
+}
+
+/// <summary>
+/// An attachment to send (<c>POST /api/conversations/{id}/media-messages</c>, multipart <c>file</c> and <c>caption</c>). The file's name is never
+/// read: it can carry personal data and nothing needs it.
+/// </summary>
+public sealed class SendMediaMessageRequest
+{
+    /// <summary>WhatsApp's limit of a media caption.</summary>
+    public const int CaptionMaxLength = 1024;
+
+    public static readonly string CaptionRuleMessage = $"El texto del adjunto {Domain.Common.TextRules.RuleText(CaptionMaxLength, required: false)}.";
+
+    /// <summary>The file, seekable (the API's buffered form file): it is read from here, never copied whole into memory.</summary>
+    public Stream Content { get; init; } = Stream.Null;
+
+    /// <summary>The type the browser declared: a hint only, the content decides.</summary>
+    public string? DeclaredContentType { get; init; }
+
+    public string? Caption { get; init; }
+
+    public override string ToString() => $"SendMediaMessageRequest {{ Length = {(Content.CanSeek ? Content.Length : -1)}, HasCaption = {!string.IsNullOrWhiteSpace(Caption)} }}";
 }
 
 /// <summary>

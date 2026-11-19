@@ -73,6 +73,30 @@ public class Message : BaseEntity
     /// <summary>The category of <see cref="TemplateName"/> when it was sent: Meta charges a template message by it.</summary>
     public TemplateCategory? TemplateCategory { get; private set; }
 
+    /// <summary>Where the stored copy of the media stands; null for a message without media (docs/MESSAGING.md, "Media").</summary>
+    public MediaStatus? MediaStatus { get; private set; }
+
+    /// <summary>The key of the stored copy in the media store (random, under the company's prefix); never the file's name. Never in an API answer.</summary>
+    public string? MediaObjectKey { get; private set; }
+
+    /// <summary>The size of the stored copy.</summary>
+    public long? MediaSizeBytes { get; private set; }
+
+    /// <summary>The type the stored copy is served with: checked against its content, from the allow-list.</summary>
+    public string? MediaContentType { get; private set; }
+
+    /// <summary>Download attempts that failed and are to be retried.</summary>
+    public int MediaAttempts { get; private set; }
+
+    /// <summary>When the download job may try next; null once the media reached a final state.</summary>
+    public DateTime? MediaNextAttemptAt { get; private set; }
+
+    /// <summary>When the copy was stored (the media retention counts from here).</summary>
+    public DateTime? MediaStoredAt { get; private set; }
+
+    /// <summary>The message came from a shared chat history (coexistence onboarding), not live (docs/WEBHOOKS.md, "History import").</summary>
+    public bool IsImported { get; private set; }
+
     // Required by EF Core for materialization.
     private Message()
     {
@@ -82,7 +106,7 @@ public class Message : BaseEntity
         Guid tenantId, Guid conversationId, Guid channelId, string providerMessageId,
         MessageDirection direction, string type, string? text, DateTime sentAt,
         MessageSender? sender = null, Guid? sentByUserId = null, Guid? sentByAdvisorId = null, MessageMedia? media = null,
-        Guid? assignedAdvisorIdAtReceipt = null, MessageTemplateUse? template = null)
+        Guid? assignedAdvisorIdAtReceipt = null, MessageTemplateUse? template = null, bool imported = false, StoredMediaObject? storedMedia = null)
     {
         if (!Enum.IsDefined(direction))
         {
@@ -123,6 +147,18 @@ public class Message : BaseEntity
             throw new DomainException(MediaRuleMessage);
         }
 
+        // A stored copy comes only with a send from Conversia (the file was stored before it was sent); anything received waits for the job.
+        if (storedMedia is not null && (media is null || who != MessageSender.Conversia || !storedMedia.IsValid))
+        {
+            throw new DomainException(MediaRuleMessage);
+        }
+
+        var sent = UtcTime.Normalize(sentAt);
+        var mediaStatus = media is null ? (MediaStatus?)null
+            : storedMedia is not null ? Enums.MediaStatus.Stored
+            : media.ProviderMediaId is null ? Enums.MediaStatus.Failed
+            : Enums.MediaStatus.Pending;
+
         return new Message
         {
             TenantId = TextRules.RequiredId(tenantId, "El identificador de la empresa es obligatorio."),
@@ -133,7 +169,7 @@ public class Message : BaseEntity
             Type = type,
             // The text is kept as received (leading and trailing spaces can matter); only NUL and the length are refused.
             Text = text is null ? null : IsValidText(text) ? text : throw new DomainException(TextRuleMessage),
-            SentAt = UtcTime.Normalize(sentAt),
+            SentAt = sent,
             Sender = who,
             SentByUserId = OptionalId(sentByUserId),
             SentByAdvisorId = OptionalId(sentByAdvisorId),
@@ -143,6 +179,13 @@ public class Message : BaseEntity
             HasCaption = media?.HasCaption ?? false,
             TemplateName = template?.Name,
             TemplateCategory = template?.Category,
+            MediaStatus = mediaStatus,
+            MediaNextAttemptAt = mediaStatus == Enums.MediaStatus.Pending ? sent : null,
+            MediaObjectKey = storedMedia?.ObjectKey,
+            MediaSizeBytes = storedMedia?.SizeBytes,
+            MediaContentType = storedMedia?.ContentType,
+            MediaStoredAt = storedMedia is null ? null : sent,
+            IsImported = imported,
         };
     }
 
@@ -161,6 +204,130 @@ public class Message : BaseEntity
         SentByUserId = OptionalId(userId);
         SentByAdvisorId = OptionalId(advisorId);
         AssignedAdvisorIdAtReceipt = null; // it was not an echo of the phone app after all
+    }
+
+    /// <summary>The download job stored a copy of the media.</summary>
+    public void MarkMediaStored(StoredMediaObject stored, DateTime at)
+    {
+        RequirePendingMedia();
+        if (!stored.IsValid)
+        {
+            throw new DomainException(MediaRuleMessage);
+        }
+
+        MediaStatus = Enums.MediaStatus.Stored;
+        MediaObjectKey = stored.ObjectKey;
+        MediaSizeBytes = stored.SizeBytes;
+        MediaContentType = stored.ContentType;
+        MediaStoredAt = UtcTime.Normalize(at);
+        MediaNextAttemptAt = null;
+    }
+
+    /// <summary>An attempt failed in a way that may pass (the provider was unavailable): counted, and tried again at <paramref name="nextAttemptAt"/>.</summary>
+    public void ScheduleMediaRetry(DateTime nextAttemptAt)
+    {
+        RequirePendingMedia();
+        MediaAttempts++;
+        MediaNextAttemptAt = UtcTime.Normalize(nextAttemptAt);
+    }
+
+    /// <summary>Moves the next download attempt without counting one (the attempt was counted when it started).</summary>
+    public void PostponeMedia(DateTime nextAttemptAt)
+    {
+        RequirePendingMedia();
+        MediaNextAttemptAt = UtcTime.Normalize(nextAttemptAt);
+    }
+
+    /// <summary>
+    /// The attempt failed on Conversia's side (the media store was unavailable), not the provider's: it is given back and the next one moved,
+    /// so an outage of the store never uses up the attempts while the provider still has the file.
+    /// </summary>
+    public void ReleaseMediaAttempt(DateTime nextAttemptAt)
+    {
+        RequirePendingMedia();
+        MediaAttempts = Math.Max(0, MediaAttempts - 1);
+        MediaNextAttemptAt = UtcTime.Normalize(nextAttemptAt);
+    }
+
+    /// <summary>The media will never be stored: too large, blocked, expired at the provider, or every attempt failed.</summary>
+    public void MarkMediaUnavailable(MediaStatus status)
+    {
+        if (status is not (Enums.MediaStatus.TooLarge or Enums.MediaStatus.Blocked or Enums.MediaStatus.Expired or Enums.MediaStatus.Failed))
+        {
+            throw new DomainException(MediaRuleMessage);
+        }
+
+        RequirePendingMedia();
+        MediaStatus = status;
+        MediaNextAttemptAt = null;
+    }
+
+    /// <summary>The company's media retention ran out: the copy is forgotten. Returns its key, for the store to delete.</summary>
+    public string PurgeMedia()
+    {
+        if (MediaStatus != Enums.MediaStatus.Stored || MediaObjectKey is not { } key)
+        {
+            throw new DomainException(MediaRuleMessage);
+        }
+
+        MediaStatus = Enums.MediaStatus.Purged;
+        MediaObjectKey = null;
+        return key;
+    }
+
+    /// <summary>
+    /// The follow-up of a history <c>media_placeholder</c> brings the media's type and id (Meta's <c>history</c> reference): the stored
+    /// placeholder becomes that media message and waits for its download from <paramref name="at"/> (when the follow-up arrived).
+    /// </summary>
+    public void CompleteHistoryPlaceholder(string type, MessageMedia media, DateTime at)
+    {
+        if (!IsImported || Type != HistoryPlaceholderType || !IsValidType(type) || !media.IsValid)
+        {
+            throw new DomainException(MediaRuleMessage);
+        }
+
+        Type = type;
+        MediaId = media.ProviderMediaId;
+        MediaMimeType = media.MimeType;
+        HasCaption = media.HasCaption;
+        MediaStatus = media.ProviderMediaId is null ? Enums.MediaStatus.Failed : Enums.MediaStatus.Pending;
+        MediaNextAttemptAt = media.ProviderMediaId is null ? null : UtcTime.Normalize(at);
+    }
+
+    /// <summary>
+    /// The send path found this message stored first (its echo arrived before the record): it takes the copy the send stored, unless it already
+    /// has one. Returns false when it keeps its own (the caller deletes the other copy).
+    /// </summary>
+    public bool AdoptStoredCopy(StoredMediaObject stored, DateTime at)
+    {
+        if (!stored.IsValid)
+        {
+            throw new DomainException(MediaRuleMessage);
+        }
+
+        if (MediaStatus is Enums.MediaStatus.Stored or Enums.MediaStatus.Purged)
+        {
+            return false;
+        }
+
+        MediaStatus = Enums.MediaStatus.Stored;
+        MediaObjectKey = stored.ObjectKey;
+        MediaSizeBytes = stored.SizeBytes;
+        MediaContentType = stored.ContentType;
+        MediaStoredAt = UtcTime.Normalize(at);
+        MediaNextAttemptAt = null;
+        return true;
+    }
+
+    /// <summary>The type of a history message whose media is announced later (Meta's <c>history</c> reference).</summary>
+    public const string HistoryPlaceholderType = "media_placeholder";
+
+    private void RequirePendingMedia()
+    {
+        if (MediaStatus != Enums.MediaStatus.Pending)
+        {
+            throw new DomainException(MediaRuleMessage);
+        }
     }
 
     private static Guid? OptionalId(Guid? id) => id == Guid.Empty ? throw new DomainException("El identificador no es válido.") : id;
@@ -191,4 +358,19 @@ public sealed record MessageMedia(string? ProviderMediaId, string? MimeType, boo
         => mime is { Length: >= 3 and <= MaxMimeTypeLength }
            && mime.Count(c => c == '/') == 1 && mime[0] != '/' && mime[^1] != '/'
            && mime.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '/' or '.' or '+' or '-' or '_');
+}
+
+/// <summary>A copy of a message's media in the media store: its key, its size and the type it is served with.</summary>
+public sealed record StoredMediaObject(string ObjectKey, long SizeBytes, string ContentType)
+{
+    public const int MaxKeyLength = 200;
+
+    /// <summary>A key is lower-case letters, digits, '-' and '/' (segments never empty, never "." or ".."); the size positive; the type a MIME type.</summary>
+    public bool IsValid
+        => IsValidKey(ObjectKey) && SizeBytes > 0 && MessageMedia.IsValidMimeType(ContentType);
+
+    public static bool IsValidKey(string? key)
+        => key is { Length: >= 1 and <= MaxKeyLength }
+           && key.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '-' or '/')
+           && key.Split('/').All(segment => segment.Length > 0);
 }

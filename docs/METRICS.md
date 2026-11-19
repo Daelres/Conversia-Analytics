@@ -213,3 +213,11 @@ conversations. The tenant predicate is written into the SQL (percentiles need ra
 check that no number of one tenant ever depends on another's data. Indexes: `Conversations (TenantId, StartedAt)` and
 `Conversations (TenantId, Status, LastMessageAt)` for the cohort and the open conversations, `Opportunities (TenantId, Stage, ClosedAt)`,
 `Messages (TenantId, SentAt)` for the message volume.
+
+## Imported conversations
+
+Conversations built from a shared chat history (coexistence onboarding, docs/MESSAGING.md "History import", `Conversations.IsImported`) are
+**excluded from every metric**: the cohort (conversion, first response, losses, closing point) and the message volume filter them out in the same
+place as the sandbox mark (`MetricsQueries.ConversationFilters`). They were not handled through the line as it is today, and importing up to
+180 days at once would move every rate of those dates. They stay visible in the conversation list and page. Test:
+`CoexistenceIngestionTests.ImportedConversations_AreOutsideTheMetrics`.

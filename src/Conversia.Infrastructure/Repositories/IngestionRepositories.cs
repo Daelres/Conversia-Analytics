@@ -76,6 +76,20 @@ public class ConversationRepository(ApplicationDbContext dbContext, MessageSendi
         return found.FirstOrDefault();
     }
 
+    public async Task<Conversation?> FindImportedAsync(Guid contactId, Guid channelId, CancellationToken cancellationToken = default)
+    {
+        var found = await dbContext.Conversations
+            .FromSql($"""
+                SELECT * FROM "Conversations"
+                WHERE "ContactId" = {contactId} AND "ChannelId" = {channelId} AND "IsImported"
+                ORDER BY "StartedAt" DESC
+                LIMIT 1
+                FOR UPDATE
+                """)
+            .ToListAsync(cancellationToken);
+        return found.FirstOrDefault();
+    }
+
     public async Task AddAsync(Conversation conversation, Opportunity opportunity, CancellationToken cancellationToken = default)
     {
         await dbContext.Conversations.AddAsync(conversation, cancellationToken);
@@ -151,6 +165,9 @@ public class MessageRepository(ApplicationDbContext dbContext) : IMessageReposit
     public Task<Message?> FindAsync(Guid channelId, string providerMessageId, CancellationToken cancellationToken = default)
         => dbContext.Messages.AsNoTracking()
             .FirstOrDefaultAsync(m => m.ChannelId == channelId && m.ProviderMessageId == providerMessageId, cancellationToken);
+
+    public Task<Message?> GetInConversationAsync(Guid conversationId, Guid messageId, CancellationToken cancellationToken = default)
+        => dbContext.Messages.AsNoTracking().FirstOrDefaultAsync(m => m.Id == messageId && m.ConversationId == conversationId, cancellationToken);
 
     public async Task AddAsync(Message message, CancellationToken cancellationToken = default)
     {

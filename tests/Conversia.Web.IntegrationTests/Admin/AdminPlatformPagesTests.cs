@@ -101,6 +101,7 @@ public class AdminPlatformPagesTests
     [Theory]
     [InlineData("ai-quota-form", "MonthlyConversations", "1200", "monthlyConversations", "cupo-ia", "ai-quota")]
     [InlineData("send-limit-form", "PerMinute", " 30 ", "perMinute", "limite-envios", "send-rate-limit")]
+    [InlineData("media-retention-form", "Days", " 45 ", "days", "retencion-archivos", "media-retention")]
     public async Task Saving_a_limit_sends_the_number_and_confirms(string form, string field, string value, string json, string notice, string endpoint)
     {
         using var harness = AdminHarness.Create();
@@ -120,6 +121,7 @@ public class AdminPlatformPagesTests
     [Theory]
     [InlineData("ai-quota-form", "MonthlyConversations", "800")]
     [InlineData("send-limit-form", "PerMinute", "30")]
+    [InlineData("media-retention-form", "Days", "45")]
     public async Task A_limit_without_a_reason_is_refused_on_the_page_and_nothing_is_sent(string form, string field, string value)
     {
         using var harness = AdminHarness.Create();

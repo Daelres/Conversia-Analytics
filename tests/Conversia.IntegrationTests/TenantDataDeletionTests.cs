@@ -89,6 +89,8 @@ public class TenantDataDeletionTests
             await db.Database.ExecuteSqlAsync($"""
                 INSERT INTO "MessageSendOutcomes" ("TenantId", "Day", "IsSandbox", "Outcome", "Count") VALUES ({f.TenantId}, DATE '2026-10-01', false, 'sent', 3)
                 """);
+            // A stored media object waiting to be deleted (docs/MESSAGING.md, "Media").
+            db.MediaObjectDeletions.Add(MediaObjectDeletion.Create(f.TenantId, $"{f.TenantId:N}/2026/10/0123456789abcdef0123456789abcdef", DateTime.UtcNow));
             // A synced template of the line (docs/MESSAGING.md, "Templates"): the business's own text, deleted with the company.
             db.MessageTemplates.Add(MessageTemplate.Create(
                 f.TenantId, f.Channel.Id, "recordatorio_cita", "es", TemplateCategory.Utility, TemplateStatus.Approved, "Hola {{1}}", true, DateTime.UtcNow));

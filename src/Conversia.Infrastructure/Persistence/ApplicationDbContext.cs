@@ -96,6 +96,9 @@ public class ApplicationDbContext : DbContext
     /// <summary>Operations table: not tenant-filtered, see <c>ErrorLogConfiguration</c>.</summary>
     public DbSet<ErrorLog> ErrorLogs => Set<ErrorLog>();
 
+    /// <summary>Stored media objects whose messages are gone, waiting to be deleted from the media store (docs/MESSAGING.md, "Media").</summary>
+    public DbSet<MediaObjectDeletion> MediaObjectDeletions => Set<MediaObjectDeletion>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
@@ -135,6 +138,7 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<AiQuotaGrant>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<AiAnalysisRun>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<LlmBatchRequest>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<MediaObjectDeletion>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
 
         base.OnModelCreating(modelBuilder);
     }

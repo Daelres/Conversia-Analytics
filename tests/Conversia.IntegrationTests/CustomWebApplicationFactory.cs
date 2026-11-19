@@ -107,6 +107,12 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         builder.UseSetting("Webhooks:ChannelRateLimitPerMinute", "1000000");
         // Every metrics and list call of a test comes from one user; the rate-limit tests use a derived host with a small budget.
         builder.UseSetting("Metrics:RateLimitPerMinute", "100000");
+        // Media (docs/MESSAGING.md, "Media"): the local encrypted store in a throw-away directory; the download and retention jobs are run by hand.
+        builder.UseSetting("Media:Store", "Local");
+        builder.UseSetting("Media:Local:RootPath", MediaRoot);
+        builder.UseSetting("Media:Local:EncryptionKey", Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)));
+        builder.UseSetting("Media:JobsEnabled", "false");
+        builder.UseSetting("Media:Local:AllowOutsideDevelopment", "true");
 
         builder.ConfigureServices(services =>
         {
@@ -124,8 +130,15 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         });
     }
 
+    /// <summary>The throw-away directory of the shared host's media store.</summary>
+    internal string MediaRoot { get; } = Path.Combine(Path.GetTempPath(), "conversia-media-it", Guid.NewGuid().ToString("N"));
+
     async Task IAsyncLifetime.DisposeAsync()
     {
         await _postgres.DisposeAsync();
+        if (Directory.Exists(MediaRoot))
+        {
+            Directory.Delete(MediaRoot, recursive: true);
+        }
     }
 }

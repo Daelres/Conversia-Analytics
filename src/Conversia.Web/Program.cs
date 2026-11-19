@@ -64,6 +64,7 @@ app.MapHealthChecks("/health");
 app.MapLogout();
 app.MapPermissionEndpoints();
 app.MapInboxEndpoints();
+app.MapMediaEndpoints();
 app.MapRazorComponents<App>();
 
 app.Run();

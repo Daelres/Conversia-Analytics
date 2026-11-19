@@ -36,7 +36,8 @@ public sealed record TenantAdminSummary(
     string? BillingPlanCode = null,
     AiAnalysisMode AiAnalysisMode = AiAnalysisMode.Nightly,
     int? AiAnalysisNightlyHour = null,
-    int? AiAnalysisIntervalHours = null);
+    int? AiAnalysisIntervalHours = null,
+    int? MediaRetentionDays = null);
 
 /// <summary>A WhatsApp line of a company: the number, its branch and whether it is switched on. No customer data.</summary>
 public sealed record TenantAdminLine(Guid ChannelId, string DisplayPhoneNumber, string? BranchName, bool IsActive);

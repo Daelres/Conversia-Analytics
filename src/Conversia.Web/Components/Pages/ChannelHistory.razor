@@ -1,0 +1,180 @@
+@page "/organizacion/canales/{Id:guid}/historial"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Organization
+@using Conversia.Web.Time
+@inherits AuthenticatedPageBase
+@inject Conversia.Application.Time.TenantTimeZone TimeZone
+
+<PageTitle>Historial del número - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (_notFound)
+{
+    <ChannelNotFoundView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="channel-history">
+        <PageHeader Eyebrow="Organización" EyebrowIcon="building" Title="Importar el historial de chats"
+                    Description="Conversaciones anteriores de la aplicación WhatsApp Business (coexistencia), compartidas al conectar el número.">
+            <a class="btn btn--secondary" href="/organizacion"><Icon Name="arrow-left" />Volver a organización</a>
+        </PageHeader>
+
+        @if (Notice == SavedNotice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">Configuración guardada.</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_channel is not null)
+        {
+            <Card Title="@_channel.DisplayPhoneNumber" IconName="clock" data-testid="history-card">
+                <div class="stack">
+                    <p data-testid="history-state">Ahora: <strong>@(_channel.HistoryImportEnabled ? "activada" : "desactivada")</strong>@(_channel.HistoryImportEnabled && _channel.HistoryAiAnalysisEnabled ? ", con análisis de IA" : string.Empty).</p>
+                    @if (_channel.HistoryImportConsentedAt is { } at)
+                    {
+                        <p class="muted" data-testid="history-consent">Última confirmación de la base legal: @MetricsFormat.Moment(TimeZone.ToLocal(at)), por el usuario @ConversationFormat.ShortId(_channel.HistoryImportConsentedBy ?? Guid.Empty).</p>
+                    }
+
+                    <p class="muted">
+                        Al conectar el número en 360dialog (registro integrado con coexistencia), Meta puede compartir hasta 180 días de chats una sola vez,
+                        dentro de las 24 horas siguientes. Desactivada (lo predeterminado), Conversia descarta ese historial y no guarda nada de él.
+                        Activada, cada chat se guarda como una conversación importada y cerrada, en la fecha en que ocurrió: no cuenta como conversación nueva
+                        de hoy y se clasifica con reglas; la IA solo la lee si lo eliges abajo, porque cada conversación tiene un costo.
+                    </p>
+
+                    @if (!_isOwner)
+                    {
+                        <Alert Kind="AlertKind.Info" data-testid="history-owner-only">Solo el propietario de la empresa puede activar o desactivar la importación del historial.</Alert>
+                    }
+
+
+                </div>
+            </Card>
+        }
+
+        @* Always rendered: a POST can only be dispatched to a form that exists in the render tree; the API refuses anyone but the owner. *@
+        <EditForm Model="Input" FormName="history-import" OnSubmit="SaveAsync" method="post" class="form" data-testid="history-form">
+            @if (Enabled)
+            {
+                <input type="hidden" name="@($"{nameof(Input)}.{nameof(HistoryInput.Enable)}")" value="false" />
+            }
+            else
+            {
+                <input type="hidden" name="@($"{nameof(Input)}.{nameof(HistoryInput.Enable)}")" value="true" />
+                <div class="field">
+                    <label class="checkbox">
+                        <input type="checkbox" name="@($"{nameof(Input)}.{nameof(HistoryInput.LegalBasisConfirmed)}")" value="true" />
+                        Confirmo que la empresa tiene la base legal para tratar estas conversaciones anteriores (autorización de los clientes o
+                        finalidad informada, según la Ley 1581 de 2012) y que su política de tratamiento de datos lo contempla.
+                    </label>
+                </div>
+                <div class="field">
+                    <label class="checkbox">
+                        <input type="checkbox" name="@($"{nameof(Input)}.{nameof(HistoryInput.AnalyzeWithAi)}")" value="true" />
+                        Analizar también las conversaciones importadas con IA (tiene costo por conversación; sin esto se leen solo con reglas).
+                    </label>
+                </div>
+            }
+
+            <div class="form-actions" hidden="@(!_isOwner)">
+                <button type="submit" class="@(Enabled ? "btn btn--secondary" : "btn btn--primary")" data-testid="history-submit" hidden="@(!_isOwner)">
+                    <Icon Name="power" />@(Enabled ? "Desactivar la importación" : "Activar la importación")
+                </button>
+            </div>
+        </EditForm>
+    </div>
+}
+
+@code {
+    public const string SavedNotice = "guardado";
+
+    private ChannelResponse? _channel;
+
+    private bool Enabled => _channel?.HistoryImportEnabled == true;
+    private bool _isOwner;
+    private bool _notFound;
+    private HistoryInput? _input;
+
+    public sealed class HistoryInput
+    {
+        public string? Enable { get; set; }
+
+        public string? LegalBasisConfirmed { get; set; }
+
+        public string? AnalyzeWithAi { get; set; }
+    }
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [SupplyParameterFromForm(FormName = "history-import")]
+    private HistoryInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    [SupplyParameterFromQuery(Name = "aviso")]
+    public string? Notice { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var channelTask = Api.GetChannelAsync(Token!, Id);
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        await Task.WhenAll(channelTask, profileTask);
+        if (channelTask.Result.Status == ApiResultStatus.NotFound)
+        {
+            _notFound = true;
+            return;
+        }
+
+        if (await TryFailAsync(channelTask.Result, profileTask.Result))
+        {
+            return;
+        }
+
+        Shell.Remember(profileTask.Result.Value!);
+        _channel = channelTask.Result.Value;
+        _isOwner = profileTask.Result.Value!.IsOwner;
+    }
+
+    private async Task SaveAsync()
+    {
+        var request = new SetHistoryImportRequest
+        {
+            Enabled = Input.Enable == "true",
+            LegalBasisConfirmed = Input.LegalBasisConfirmed == "true",
+            AnalyzeWithAi = Input.AnalyzeWithAi == "true",
+        };
+        var result = await Api.SetHistoryImportAsync(Token!, Id, request);
+        if (result.IsSuccess)
+        {
+            RedirectTo($"/organizacion/canales/{Id}/historial?aviso={SavedNotice}");
+            return;
+        }
+
+        await TryFailAsync(result);
+        if (!Redirected && !Denied)
+        {
+            await LoadAsync();
+        }
+    }
+}

@@ -186,6 +186,28 @@ public sealed class AiScheduleInput : IValidatableObject
 }
 
 /// <summary>The send rate limit form: empty resets to the default.</summary>
+/// <summary>The company's own media retention in days (empty for the platform default) and the reason (docs/PLATFORM_ADMIN.md, "Media retention").</summary>
+public sealed class MediaRetentionInput : IValidatableObject
+{
+    [Display(Name = "Retención de archivos (días)")]
+    public string? Days { get; set; }
+
+    [Display(Name = "Motivo")]
+    [Conversia.Application.Validation.TrimmedText(Tenant.AiChangeReasonMaxLength)]
+    public string? Reason { get; set; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (!OptionalWholeNumber.TryParse(Days, 1, Tenant.MaxMediaRetentionDays, out _))
+        {
+            yield return new ValidationResult(Tenant.MediaRetentionRuleMessage, [nameof(Days)]);
+        }
+    }
+
+    public SetMediaRetentionRequest ToRequest()
+        => new() { Days = OptionalWholeNumber.TryParse(Days, 1, Tenant.MaxMediaRetentionDays, out var value) ? value : null, Reason = Reason?.Trim() };
+}
+
 public sealed class SendLimitInput : IValidatableObject
 {
     [Display(Name = "Límite de envíos por minuto")]

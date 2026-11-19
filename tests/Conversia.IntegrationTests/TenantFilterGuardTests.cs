@@ -20,6 +20,7 @@ public class TenantFilterGuardTests
         "Conversia.Infrastructure/Classification/LlmAnalysisScheduler.cs", // which companies are due: every company's pending conversations and window counts
         "Conversia.Infrastructure/Classification/Usage/AiUsageMeter.cs", // the deployment USD cap sums every company; the recorder has no company set
         "Conversia.Infrastructure/Conversations/ConversationAutoCloser.cs", // the worker claims across companies
+        "Conversia.Infrastructure/Media/MediaJobs.cs", // the media download and retention jobs claim across companies; each write names its row's company
         "Conversia.Infrastructure/Messaging/MessageSendOutcomeRecorder.cs", // retention of the send counters across companies
         "Conversia.Infrastructure/Messaging/TemplateSyncService.cs", // the periodic template sync lists the channels of every company, then syncs each in its own company
         "Conversia.Infrastructure/Monitoring/PlatformMonitoringQueries.cs", // the platform administrator's monitoring counts

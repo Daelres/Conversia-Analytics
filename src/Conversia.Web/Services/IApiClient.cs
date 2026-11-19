@@ -253,6 +253,21 @@ public interface IApiClient
 
     Task<ApiResult<MessagingSettingsResponse>> SetMessagingSettingsAsync(string token, SetMessagingSettingsRequest request, CancellationToken cancellationToken = default);
 
+    // ---- media and coexistence (docs/MESSAGING.md, "Media", "Coexistence") ----
+
+    /// <summary>
+    /// Opens the stored file of a message as a stream from the API (the browser never sees the store): the caller copies it to the browser and
+    /// disposes the result. <paramref name="range"/> is the browser's <c>Range</c> header, passed as is.
+    /// </summary>
+    Task<MediaProxyResponse> OpenMessageMediaAsync(string token, Guid conversationId, Guid messageId, string? range, CancellationToken cancellationToken = default);
+
+    /// <summary>Sends an attachment (multipart to <c>POST api/conversations/{id}/media-messages</c>). The file's name is not forwarded.</summary>
+    Task<ApiResult<MessageResponse>> SendMediaMessageAsync(string token, Guid conversationId, Stream content, string? contentType, string? caption, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ChannelResponse>> SetHistoryImportAsync(string token, Guid channelId, SetHistoryImportRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<TenantSummaryResponse>> SetAdminMediaRetentionAsync(string token, Guid tenantId, SetMediaRetentionRequest request, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// The inbox for a page that polls: <paramref name="ifNoneMatch"/> is passed to the API, whose <c>304</c> comes back as
     /// <see cref="InboxPage.NotModified"/> (the API then built no list).
@@ -262,3 +277,13 @@ public interface IApiClient
 
 /// <summary>An inbox answer with the API's <c>ETag</c>; <see cref="NotModified"/> means the caller's version is still current.</summary>
 public sealed record InboxPage(ApiResult<Application.DTOs.Inbox.InboxResponse> Result, string? ETag, bool NotModified);
+
+/// <summary>The API's answer to a media request, still open: its status, the headers worth passing on, and the body. Dispose it.</summary>
+public sealed class MediaProxyResponse(int status, HttpResponseMessage? response) : IDisposable
+{
+    public int Status { get; } = status;
+
+    public HttpResponseMessage? Response { get; } = response;
+
+    public void Dispose() => Response?.Dispose();
+}

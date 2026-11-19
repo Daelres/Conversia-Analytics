@@ -32,6 +32,11 @@ public static class SecurityHeadersMiddleware
     public static string PolicyFor(PathString path, string nonce)
     {
         var common = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
+        if (Services.MediaLinks.IsFilePath(path.Value))
+        {
+            // A customer's file opened on its own (docs/MESSAGING.md, "Serving media"): nothing in it may run, load or submit anything.
+            return "default-src 'none'; sandbox";
+        }
         if (path.Equals(PaymentMethodPath, StringComparison.OrdinalIgnoreCase))
         {
             return $"default-src 'self'; script-src 'self' 'nonce-{nonce}'; connect-src 'self' {string.Join(' ', WompiApiHosts)}; "

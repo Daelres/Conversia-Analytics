@@ -28,4 +28,8 @@
     <ProjectReference Include="..\..\src\Conversia.Domain\Conversia.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Shared\MediaStoreContract.cs" Link="Shared\MediaStoreContract.cs" />
+  </ItemGroup>
+
 </Project>

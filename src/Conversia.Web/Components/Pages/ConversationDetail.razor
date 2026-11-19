@@ -75,7 +75,7 @@ else if (!Redirected)
                     <Card Title="Chat" Subtitle="@ChatSubtitle" IconName="message" data-testid="chat-card"
                           data-version-url="@($"/conversaciones/{Id}/version")" data-version="@ConversationVersion.Of(_conversation.MessageCount, _conversation.Status, _conversation.WindowOpen)"
                           data-read-url="@(_readReceipts && CanManage && _conversation.AwaitingReply ? $"/conversaciones/{Id}/leido" : null)">
-                        <ChatThread Messages="_conversation.Messages" ToLocal="TimeZone.ToLocal" />
+                        <ChatThread Messages="_conversation.Messages" ToLocal="TimeZone.ToLocal" ConversationId="Id" />
                         @if (_conversation.MessageCount > _conversation.Messages.Count)
                         {
                             <p class="muted" data-testid="chat-truncated">Se muestran los primeros @MetricsFormat.Whole(_conversation.Messages.Count) de @MetricsFormat.Whole(_conversation.MessageCount) mensajes.</p>
@@ -85,6 +85,8 @@ else if (!Redirected)
 
                 <MessageComposer State="_composer" SubmissionId="@_submissionId" Error="@_sendError" ApiErrors="_sendErrors" OnSend="SendAsync" OnInvalid="LoadAsync"
                                  NowUtc="_nowUtc" TypingUrl="@(_readReceipts && _composer.CanSend ? $"/conversaciones/{Id}/escribiendo" : null)" />
+
+                <AttachmentComposer ConversationId="Id" Offered="@(_composer.CanSend)" CustomerOffered="@(_customerComposer.CanSend)" NoticeCode="@Adjunto" />
 
                 <TemplateComposer ConversationId="Id" Offered="@(_composer.CanSendTemplate && _composer.WindowClosed)" Templates="_templates" SelectedKey="@Plantilla"
                                   SubmissionId="@_templateSubmissionId" Error="@_templateError" ApiErrors="_templateErrors" OnSend="SendTemplateAsync" />
@@ -239,6 +241,10 @@ else if (!Redirected)
     private bool _readReceipts;
 
     /// <summary>The template picked in the template composer: <c>name|language</c>.</summary>
+    /// <summary>The notice of the attachment composer after a send (<c>enviado</c>, <c>simulado</c> or a refusal's code).</summary>
+    [SupplyParameterFromQuery(Name = "adjunto")]
+    public string? Adjunto { get; set; }
+
     [SupplyParameterFromQuery(Name = "plantilla")]
     public string? Plantilla { get; set; }
 

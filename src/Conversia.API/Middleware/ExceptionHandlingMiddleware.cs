@@ -199,7 +199,9 @@ public class ExceptionHandlingMiddleware
                 or MessagingProblem.TemplateUnavailable => StatusCodes.Status409Conflict,
             MessagingProblem.RecipientNotAllowed or MessagingProblem.Rejected => StatusCodes.Status422UnprocessableEntity,
             MessagingProblem.LimitReached => StatusCodes.Status429TooManyRequests,
-            MessagingProblem.ProviderUnavailable => StatusCodes.Status503ServiceUnavailable,
+            MessagingProblem.ProviderUnavailable or MessagingProblem.MediaStorageUnavailable => StatusCodes.Status503ServiceUnavailable,
+            MessagingProblem.MediaTypeNotAllowed => StatusCodes.Status415UnsupportedMediaType,
+            MessagingProblem.MediaTooLarge => StatusCodes.Status413PayloadTooLarge,
             _ => StatusCodes.Status500InternalServerError,
         };
 

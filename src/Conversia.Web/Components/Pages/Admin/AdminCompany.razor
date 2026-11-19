@@ -188,6 +188,10 @@ else if (!Redirected)
                             <dd data-testid="limit-send-rate" data-default="@(_company.Limits.SendRateLimitIsDefault ? "true" : "false")">@MetricsFormat.Whole(_company.Limits.SendRateLimitPerMinute) (@AdminFormat.Origin(_company.Limits.SendRateLimitIsDefault))</dd>
                         </div>
                         <div>
+                            <dt>Retención de archivos</dt>
+                            <dd data-testid="limit-media-retention" data-default="@(_company.Limits.FileRetentionIsDefault ? "true" : "false")">@MetricsFormat.Whole(_company.Limits.FileRetentionDays) días (@AdminFormat.Origin(_company.Limits.FileRetentionIsDefault))</dd>
+                        </div>
+                        <div>
                             <dt>Análisis con IA</dt>
                             <dd data-testid="ai-schedule" data-mode="@_company.Limits.AiAnalysisMode">@AdminFormat.AiSchedule(_company.Limits.AiAnalysisMode, _company.Limits.AiAnalysisNightlyHour, _company.Limits.AiAnalysisIntervalHours)@(_company.Limits.AiAnalysisMode == "Nightly" ? $" ({AdminFormat.Origin(_company.Limits.AiAnalysisNightlyHourIsDefault)})" : string.Empty)</dd>
                         </div>
@@ -263,6 +267,23 @@ else if (!Redirected)
                     <ApiFieldErrors Errors="_sendLimitErrors" KnownFields="@(["PerMinute", "Reason"])" />
                     <div class="form-actions">
                         <button type="submit" class="btn btn--secondary"><Icon Name="check" />Guardar límite de envíos</button>
+                    </div>
+                </EditForm>
+
+                <EditForm Model="MediaRetention" FormName="set-media-retention" OnValidSubmit="SaveMediaRetentionAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="media-retention-form">
+                    <DataAnnotationsValidator />
+                    <FormField TValue="string" For="() => MediaRetention.Days" Id="media-retention" Label="Retención de archivos (días)" IconName="clock"
+                               Hint="@MediaRetentionHint" ApiErrors="_mediaRetentionErrors" Context="field">
+                        <input id="media-retention" name="@($"{nameof(MediaRetention)}.{nameof(MediaRetentionInput.Days)}")" type="number" inputmode="numeric" min="1" max="@Conversia.Domain.Entities.Tenant.MaxMediaRetentionDays" step="1"
+                               class="input input--num" autocomplete="off" value="@(MediaRetention.Days ?? OwnMediaRetention)" @attributes="field" />
+                    </FormField>
+                    <FormField TValue="string" For="() => MediaRetention.Reason" Id="media-retention-reason" Label="Motivo"
+                               Hint="Obligatorio. Queda en la auditoría. No incluyas datos personales de clientes. Hasta 200 caracteres." ApiErrors="_mediaRetentionErrors" Context="field">
+                        <input id="media-retention-reason" name="@($"{nameof(MediaRetention)}.{nameof(MediaRetentionInput.Reason)}")" class="input" maxlength="@Conversia.Domain.Entities.Tenant.AiChangeReasonMaxLength" autocomplete="off" value="@MediaRetention.Reason" @attributes="field" />
+                    </FormField>
+                    <ApiFieldErrors Errors="_mediaRetentionErrors" KnownFields="@(["Days", "Reason"])" />
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn--secondary"><Icon Name="check" />Guardar retención de archivos</button>
                     </div>
                 </EditForm>
             </div>
@@ -482,6 +503,27 @@ else if (!Redirected)
     private SendLimitInput? _sendLimit;
     private IReadOnlyDictionary<string, string[]>? _aiQuotaErrors;
     private IReadOnlyDictionary<string, string[]>? _sendLimitErrors;
+    private MediaRetentionInput? _mediaRetention;
+    private IReadOnlyDictionary<string, string[]>? _mediaRetentionErrors;
+
+    [SupplyParameterFromForm(FormName = "set-media-retention")]
+    private MediaRetentionInput MediaRetention
+    {
+        get => _mediaRetention ??= new();
+        set => _mediaRetention = value;
+    }
+
+    private string? OwnMediaRetention => _company is { Limits.FileRetentionIsDefault: false } c ? c.Limits.FileRetentionDays.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
+
+    private string MediaRetentionHint => _company is null
+        ? "Días que se guardan los archivos recibidos y enviados; vacío para el valor de la plataforma."
+        : $"Un número entero de 1 a {MetricsFormat.Whole(Conversia.Domain.Entities.Tenant.MaxMediaRetentionDays)}; vacío para el valor de la plataforma ({MetricsFormat.Whole(_company.Limits.DefaultFileRetentionDays)} días). Al cumplirse, la copia del archivo se borra; el mensaje queda.";
+
+    private async Task SaveMediaRetentionAsync()
+    {
+        var result = await Api.SetAdminMediaRetentionAsync(Token!, Id, MediaRetention.ToRequest());
+        await AfterLimitAsync(result, AdminNotice.MediaRetentionSaved, errors => _mediaRetentionErrors = errors);
+    }
     private AiScheduleInput? _aiSchedule;
     private IReadOnlyDictionary<string, string[]>? _aiScheduleErrors;
 

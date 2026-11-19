@@ -48,7 +48,7 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
             .Where(m => m.ConversationId == id)
             .OrderBy(m => m.SentAt).ThenBy(m => m.CreatedAt).ThenBy(m => m.Id)
             .Take(ConversationDetailResponse.MaxMessages)
-            .Select(m => new { m.Id, m.Direction, m.Type, m.Text, m.SentAt, m.TemplateName, m.TemplateCategory })
+            .Select(m => new { m.Id, m.Direction, m.Type, m.Text, m.SentAt, m.TemplateName, m.TemplateCategory, m.MediaStatus, m.MediaContentType, m.MediaSizeBytes, m.IsImported })
             .ToListAsync(cancellationToken);
         var messages = rows.Select(m => new MessageResponse
         {
@@ -59,6 +59,17 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
             SentAt = m.SentAt,
             TemplateName = m.TemplateName,
             TemplateCategory = m.TemplateCategory?.ToString(),
+            // The file's state and type only: never the provider's media id nor the store's key (docs/MESSAGING.md, "Media").
+            Attachment = m.MediaStatus is { } status
+                ? new MessageAttachmentResponse
+                {
+                    Status = MessageAttachmentResponse.StatusName(status),
+                    Kind = m.Type,
+                    ContentType = status == Domain.Enums.MediaStatus.Stored ? m.MediaContentType : null,
+                    SizeBytes = status == Domain.Enums.MediaStatus.Stored ? m.MediaSizeBytes : null,
+                }
+                : null,
+            Imported = m.IsImported,
         }).ToList();
 
         // Only what tells whether a message can leave through the channel: the key is reduced to "there is one" in the query itself, so

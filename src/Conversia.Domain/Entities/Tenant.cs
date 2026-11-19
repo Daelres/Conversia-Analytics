@@ -150,6 +150,25 @@ public class Tenant : BaseEntity
     /// <summary>Messages the company's users may send per minute, all together. Null: the deployment default (<c>Messaging:TenantSendRateLimitPerMinute</c>).</summary>
     public int? SendRateLimitPerMinute { get; private set; }
 
+    /// <summary>The longest media retention an administrator can give a company (ten years).</summary>
+    public const int MaxMediaRetentionDays = 3650;
+
+    public static readonly string MediaRetentionRuleMessage = $"La retención de archivos debe estar entre 1 y {MaxMediaRetentionDays} días.";
+
+    /// <summary>The company's own retention of stored media, in days; null for the platform default (<c>Media:RetentionDays</c>).</summary>
+    public int? MediaRetentionDays { get; private set; }
+
+    /// <summary>Sets the company's own media retention (null: back to the platform default).</summary>
+    public void SetMediaRetentionDays(int? days)
+    {
+        if (days is not null and (< 1 or > MaxMediaRetentionDays))
+        {
+            throw new DomainException(MediaRetentionRuleMessage);
+        }
+
+        MediaRetentionDays = days;
+    }
+
     /// <summary>
     /// Switches the AI on or off. Returns false, and changes nothing, when it already was that way. Switching on needs the terms version
     /// (validated before anything is assigned); switching off keeps the last version accepted.

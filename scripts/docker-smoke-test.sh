@@ -105,6 +105,7 @@ postgres_password="$(openssl rand -hex 16)"
 jwt_key="$(openssl rand -hex 32)"
 report_key="$(openssl rand -hex 24)"
 privacy_key="$(openssl rand -base64 32)"
+media_key="$(openssl rand -base64 32)"
 owner_password="Aa1-$(openssl rand -hex 12)"
 owner_email="owner-$suffix@smoke.test"
 admin_password="Zz9-$(openssl rand -hex 12)"
@@ -125,9 +126,12 @@ POSTGRES_PORT=$postgres_port
 CONVERSIA_TAG=$tag
 PLATFORM_ADMIN_EMAIL=$admin_email
 PLATFORM_ADMIN_PASSWORD=$admin_password
+MEDIA_STORE=Local
+MEDIA_ENCRYPTION_KEY=$media_key
+MEDIA_LOCAL_ALLOW_OUTSIDE_DEVELOPMENT=true
 EOF
 # The values that must never appear in an image, a container definition or a log.
-printf '%s\n' "$postgres_password" "$jwt_key" "$report_key" "$privacy_key" "$owner_password" "$admin_password" >"$secrets"
+printf '%s\n' "$postgres_password" "$jwt_key" "$report_key" "$privacy_key" "$owner_password" "$admin_password" "$media_key" >"$secrets"
 
 # Everything is published on loopback only, so the throwaway stack is not reachable from the network.
 cat >"$override" <<'EOF'

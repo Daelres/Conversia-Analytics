@@ -19,7 +19,8 @@ public sealed record ParsedMessage(
     string? Text,
     DateTime SentAt,
     ParsedReferral? Referral,
-    MessageMedia? Media = null);
+    MessageMedia? Media = null,
+    bool Imported = false);
 
 /// <summary>
 /// The click-to-WhatsApp ad referral of a message. <see cref="Reference"/> is what identifies the ad (headline, URL or id); <see cref="Ad"/>
@@ -41,7 +42,23 @@ public sealed record ParsedWebhook(
     public static ParsedWebhook Empty { get; } = new([], 0, 0, 0);
 
     public IReadOnlyList<ParsedTemplateStatus> TemplateStatuses { get; init; } = TemplateStatuses ?? [];
+
+    /// <summary>The chunks of a shared chat history (<c>history</c> field), with their phase and progress; their messages are in <see cref="Messages"/>, marked imported.</summary>
+    public IReadOnlyList<ParsedHistoryChunk> HistoryChunks { get; init; } = [];
+
+    /// <summary>Address-book entries of the WhatsApp Business app (<c>smb_app_state_sync</c>): counted, never kept.</summary>
+    public int AppStateSyncIgnored { get; init; }
+
+    /// <summary>Coexistence notifications of the number (<c>account_update</c>): partner removed, offboarded, reconnected.</summary>
+    public IReadOnlyList<ParsedAccountUpdate> AccountUpdates { get; init; } = [];
 }
+
+/// <summary>One chunk of a shared chat history: phase 0 (day 0-1), 1 (day 1-90) or 2 (day 90-180), its order and the overall progress (0-100).</summary>
+/// <param name="Declined">The business turned history sharing off (Meta's error 2593109): no messages come.</param>
+public sealed record ParsedHistoryChunk(int? Phase, int? ChunkOrder, int? Progress, int MessageCount, bool Declined);
+
+/// <summary>A coexistence <c>account_update</c>: the event as Meta names it and, for <c>PARTNER_REMOVED</c>, the disconnection reason.</summary>
+public sealed record ParsedAccountUpdate(string Event, string? Reason, DateTime? OccurredAt);
 
 /// <summary>
 /// A template status notification, in Meta's words (<c>event</c> as given: <c>APPROVED</c>, <c>PAUSED</c>, ...). The template is named by
@@ -92,25 +109,117 @@ public static class Dialog360PayloadParser
 
             var messages = new List<ParsedMessage>();
             var templates = new List<ParsedTemplateStatus>();
+            var chunks = new List<ParsedHistoryChunk>();
+            var accountUpdates = new List<ParsedAccountUpdate>();
             var counts = new Counts();
 
             foreach (var (field, value, time) in Values(document.RootElement))
             {
-                if (field == TemplateStatusField)
+                switch (field)
                 {
-                    ParseTemplateStatus(value, time, templates, counts);
-                    continue;
+                    case TemplateStatusField:
+                        ParseTemplateStatus(value, time, templates, counts);
+                        break;
+                    case HistoryField:
+                        // The shared chat history of a coexistence number: its messages are marked imported, so ingestion stores them only
+                        // when the channel opted in (docs/WEBHOOKS.md, "History import"). A media follow-up comes as messages[] here too.
+                        ParseHistory(value, latest, messages, chunks, counts);
+                        ParseValue(value, latest, messages, counts, imported: true);
+                        break;
+                    case AppStateSyncField:
+                        // The phone's address book: never stored (minimisation, docs/decisiones.md); only counted.
+                        counts.AppStateSync += Array(value, "state_sync").Count()
+                                               + (value.TryGetProperty("count", out var redacted) && redacted.ValueKind == JsonValueKind.Number && redacted.TryGetInt32(out var n) && n > 0 ? n : 0);
+                        break;
+                    case AccountUpdateField:
+                        ParseAccountUpdate(value, time, accountUpdates);
+                        break;
+                    default:
+                        ParseValue(value, latest, messages, counts, imported: false);
+                        break;
                 }
-
-                ParseValue(value, latest, messages, counts);
             }
 
-            return new ParsedWebhook(messages, counts.Statuses, counts.Skipped, counts.Ignored, templates);
+            return new ParsedWebhook(messages, counts.Statuses, counts.Skipped, counts.Ignored, templates)
+            {
+                HistoryChunks = chunks,
+                AppStateSyncIgnored = counts.AppStateSync,
+                AccountUpdates = accountUpdates,
+            };
         }
     }
 
     /// <summary>The <c>field</c> of a template status notification in Meta's webhook envelope.</summary>
     public const string TemplateStatusField = "message_template_status_update";
+
+    /// <summary>The <c>field</c> of a shared chat history chunk (coexistence onboarding).</summary>
+    public const string HistoryField = "history";
+
+    /// <summary>The <c>field</c> of the WhatsApp Business app's contact sync (coexistence). Never stored.</summary>
+    public const string AppStateSyncField = "smb_app_state_sync";
+
+    /// <summary>The <c>field</c> of account notifications, among them the coexistence disconnections.</summary>
+    public const string AccountUpdateField = "account_update";
+
+    /// <summary>The <c>account_update</c> events that say something about a coexistence number (Meta's reference).</summary>
+    public static readonly IReadOnlySet<string> CoexistenceEvents = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "PARTNER_REMOVED", "ACCOUNT_OFFBOARDED", "ACCOUNT_RECONNECTED",
+    };
+
+    // Echo types that change an earlier message rather than being one (Meta's smb_message_echoes reference): not stored.
+    private static readonly HashSet<string> IgnoredTypes = ["reaction", "system", "revoke", "edit"];
+
+    private static void ParseAccountUpdate(JsonElement value, DateTime? occurredAt, List<ParsedAccountUpdate> updates)
+    {
+        var accountEvent = String(value, "event");
+        if (accountEvent is null || !CoexistenceEvents.Contains(accountEvent))
+        {
+            return;
+        }
+
+        // An upper-case word only (PRIMARY_INACTIVITY, ...): anything else is dropped, the event stays.
+        var reason = String(Object(value, "disconnection_info"), "reason");
+        if (reason is not { Length: >= 1 and <= 50 } || !reason.All(c => char.IsAsciiLetterUpper(c) || c == '_'))
+        {
+            reason = null;
+        }
+
+        updates.Add(new ParsedAccountUpdate(accountEvent, reason, occurredAt));
+    }
+
+    // history[]: chunks with their metadata and threads; or an errors[] entry when the business declined sharing (code 2593109). Each
+    // thread is one customer (id or context.wa_id); a message from the business number is outbound, any other inbound. There is no "to".
+    private static void ParseHistory(JsonElement value, DateTime latest, List<ParsedMessage> messages, List<ParsedHistoryChunk> chunks, Counts counts)
+    {
+        var phoneNumberId = String(Object(value, "metadata"), "phone_number_id");
+        var businessDigits = Digits(String(Object(value, "metadata"), "display_phone_number"));
+        foreach (var chunk in Array(value, "history"))
+        {
+            var metadata = Object(chunk, "metadata");
+            var declined = Array(chunk, "errors").Any();
+            var before = messages.Count;
+            foreach (var thread in Array(chunk, "threads"))
+            {
+                var customer = String(Object(thread, "context"), "wa_id") ?? String(thread, "id");
+                foreach (var raw in Array(thread, "messages"))
+                {
+                    var from = String(raw, "from");
+                    var byBusiness = businessDigits.Length >= Contact.MinWaIdLength && Digits(from) == businessDigits;
+                    Add(raw, byBusiness ? MessageDirection.Outbound : MessageDirection.Inbound, customer, phoneNumberId, latest,
+                        new Dictionary<string, string?>(), messages, counts, imported: true);
+                }
+            }
+
+            chunks.Add(new ParsedHistoryChunk(Int(metadata, "phase"), Int(metadata, "chunk_order"), Int(metadata, "progress"), messages.Count - before, declined));
+        }
+    }
+
+    private static int? Int(JsonElement element, string name)
+        => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var child) && child.ValueKind == JsonValueKind.Number
+           && child.TryGetInt32(out var value)
+            ? value
+            : null;
 
     private static void ParseTemplateStatus(JsonElement value, DateTime? occurredAt, List<ParsedTemplateStatus> templates, Counts counts)
     {
@@ -164,9 +273,10 @@ public static class Dialog360PayloadParser
         public int Statuses;
         public int Skipped;
         public int Ignored;
+        public int AppStateSync;
     }
 
-    private static void ParseValue(JsonElement value, DateTime latest, List<ParsedMessage> messages, Counts counts)
+    private static void ParseValue(JsonElement value, DateTime latest, List<ParsedMessage> messages, Counts counts, bool imported)
     {
         var metadata = Object(value, "metadata");
         var phoneNumberId = String(metadata, "phone_number_id");
@@ -184,21 +294,21 @@ public static class Dialog360PayloadParser
             // Fallback for an echo delivered as a plain message: the sender is the business number, the customer is the recipient.
             var sentByBusiness = businessDigits.Length >= Contact.MinWaIdLength && Digits(from) == businessDigits;
             Add(raw, sentByBusiness ? MessageDirection.Outbound : MessageDirection.Inbound,
-                sentByBusiness ? String(raw, "to") ?? onlyContact : from, phoneNumberId, latest, names, messages, counts);
+                sentByBusiness ? String(raw, "to") ?? onlyContact : from, phoneNumberId, latest, names, messages, counts, imported);
         }
 
         foreach (var echo in Array(value, "message_echoes"))
         {
-            Add(echo, MessageDirection.Outbound, String(echo, "to") ?? onlyContact, phoneNumberId, latest, names, messages, counts);
+            Add(echo, MessageDirection.Outbound, String(echo, "to") ?? onlyContact, phoneNumberId, latest, names, messages, counts, imported);
         }
     }
 
     private static void Add(
         JsonElement raw, MessageDirection direction, string? contactWaId, string? phoneNumberId, DateTime latest,
-        IReadOnlyDictionary<string, string?> names, List<ParsedMessage> messages, Counts counts)
+        IReadOnlyDictionary<string, string?> names, List<ParsedMessage> messages, Counts counts, bool imported)
     {
         var type = (String(raw, "type") ?? "unknown").ToLowerInvariant();
-        if (type is "reaction" or "system")
+        if (IgnoredTypes.Contains(type))
         {
             counts.Ignored++;
             return;
@@ -230,8 +340,9 @@ public static class Dialog360PayloadParser
             type,
             Clean(Text(raw, type), Message.TextMaxLength),
             sentAt.Value,
-            direction == MessageDirection.Inbound ? Referral(raw) : null,
-            Media(raw, type)));
+            direction == MessageDirection.Inbound && !imported ? Referral(raw) : null,
+            Media(raw, type),
+            imported));
     }
 
     // The media types of the Cloud API, each with its object under the type's name.

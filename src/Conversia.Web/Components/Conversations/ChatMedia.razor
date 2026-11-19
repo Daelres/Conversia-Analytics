@@ -1,0 +1,37 @@
+@using Conversia.Application.DTOs.Conversations
+@* The file of a message (docs/MESSAGING.md, "Media"). A stored image is shown inline (bounded size, lazy), audio and video get a player that loads
+   nothing until played, a document is only a link to download it. The address is the Web's own: it streams the file from the API with the
+   session, so the browser never sees the API or the store. A file that is not stored says why and links to nothing. *@
+<div class="chat__media" data-testid="chat-media" data-status="@Attachment.Status" data-kind="@Attachment.Kind">
+    @if (Attachment.Status == "stored")
+    {
+        @switch (Attachment.Kind)
+        {
+            case "image":
+            case "sticker":
+                <a href="@Url" target="_blank" rel="noopener noreferrer"><img class="chat__image" src="@Url" alt="Imagen enviada en la conversación" loading="lazy" decoding="async" /></a>
+                break;
+            case "audio":
+                <audio class="chat__player" controls preload="none"><source src="@Url" type="@Attachment.ContentType" />Tu navegador no puede reproducir este audio.</audio>
+                break;
+            case "video":
+                <video class="chat__player chat__video" controls preload="none"><source src="@Url" type="@Attachment.ContentType" />Tu navegador no puede reproducir este video.</video>
+                break;
+            default:
+                <a class="chat__document" href="@Url" download><Icon Name="link" Class="icon--sm" />Descargar documento @MediaLinks.DocumentLabel(Attachment.ContentType)@MediaLinks.Size(Attachment.SizeBytes)</a>
+                break;
+        }
+    }
+    else
+    {
+        <p class="chat__text chat__text--empty"><Icon Name="info" Class="icon--sm" />@MediaLinks.StatusText(Attachment.Status, Attachment.Kind)</p>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public MessageAttachmentResponse Attachment { get; set; } = new();
+
+    [Parameter, EditorRequired]
+    public string Url { get; set; } = string.Empty;
+}

@@ -22,4 +22,11 @@ public interface IMessageSendingService
     /// cannot be sent.
     /// </summary>
     Task<MessageResponse> SendTemplateAsync(Guid conversationId, SendTemplateMessageRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sends an image (JPEG, PNG) or a document attached by a person (docs/MESSAGING.md, "Sending media"): the content is checked against the
+    /// allow-list and Meta's limits, a copy is stored, the file is uploaded to the provider and sent by its media id with the optional
+    /// caption, and the message is recorded with the stored copy. Same checks, window, attribution and record as a text.
+    /// </summary>
+    Task<MessageResponse> SendMediaAsync(Guid conversationId, SendMediaMessageRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default);
 }

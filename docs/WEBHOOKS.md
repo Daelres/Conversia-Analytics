@@ -195,16 +195,19 @@ shape, with `contacts`, `messages` and `statuses` at the root, is read too.
 | `messages[].type` | `Message.Type` in lower case (`text`, `image`, `audio`, ...); an odd value becomes `unknown`. |
 | `text.body`, or `button.text`, or the title of an `interactive` reply, or the `caption` of a media message | `Message.Text` (4096 characters at most, NUL removed). Null for media without caption. |
 | `messages[].referral` (click-to-WhatsApp ad) | `Conversation.Source = Ads`; `SourceReference` is the first *non-blank* of `headline`, `source_url`, `source_id`, `body`; a later referral fills a reference the ad conversation lacked. The ad's data is kept too, see "Ad referral". |
-| `messages[].{image,audio,video,document,sticker}` | Media metadata, see "Media metadata". The file is never downloaded. |
+| `messages[].{image,audio,video,document,sticker}` | Media metadata, see "Media metadata". The file is downloaded afterwards by the media job (docs/MESSAGING.md, "Media"), never by ingestion. |
 | Who sent it | Inbound: `Messages.Sender = Customer`. An echo (outbound): `PhoneApp`, no author (`SentByAdvisorId` null); `AssignedAdvisorIdAtReceipt` records the advisor assigned to the conversation when it arrived, as context, not authorship (docs/MESSAGING.md "Who sent it"). |
 | `value.statuses[]` | Ignored (delivery receipts); counted in `WebhookEvents.StatusCount`. |
 | `messages[]` with a `group_id` (or `recipient_type: group`) | Skipped and counted: group chats are not customer conversations. |
-| `messages[]` of type `reaction` or `system` | Ignored: they never create a conversation nor set `FirstInboundAt`/`FirstResponseAt`. |
-| `value.message_echoes[]` (`field: smb_message_echoes`) | An **Outbound** message; the customer is `to`. **Unverified**, see below. |
+| `messages[]` of type `reaction` or `system`, echoes of type `revoke` or `edit` | Ignored: they never create a conversation nor set `FirstInboundAt`/`FirstResponseAt`. |
+| `value.message_echoes[]` (`field: smb_message_echoes`) | An **Outbound** `PhoneApp` message; the customer is `to`. Shape checked against Meta's reference, see "Coexistence". |
+| `field: history` | The shared chat history: imported messages, stored only when the channel opted in. See "History import". |
+| `field: smb_app_state_sync` | The app's address book: **never stored**, only counted (`Ignored`). |
+| `field: account_update` | `PARTNER_REMOVED`, `ACCOUNT_OFFBOARDED`, `ACCOUNT_RECONNECTED` flag or clear the channel; other events change nothing. See "Coexistence". |
 | A `messages[]` entry whose `from` is the business number (`metadata.display_phone_number`, compared by its digits) | Also **Outbound**, customer = `to`. Defensive fallback, **unverified**. |
 | An outbound entry with no `to` | Belongs to `contacts[0]` only when the delivery has exactly one contact; otherwise skipped and counted (never a guess). |
 | `metadata.phone_number_id` | Not used to find the channel (the URL does). If the channel has a `ProviderPhoneNumberId` and the delivery names another one, its messages are ignored. |
-| Anything else (templates, history sync, unknown fields) | Ignored. |
+| Anything else (unknown fields) | Ignored. |
 
 ### Ad referral
 
@@ -233,21 +236,64 @@ Checked on 2026-11-13 against Meta's image message reference
 
 | Field | Stored |
 |---|---|
-| `id` | `Messages.MediaId` (200 characters; blank or longer: null). Kept **only** so roadmap stage 3 can download the file within Meta's retention window of received media (reported as 7 days; to be verified in stage 3); it must never appear in an API answer or a log line (`TenantDtoGuardTests`, `AdminDtoGuardTests`) until stage 3 decides how media is shown |
+| `id` | `Messages.MediaId` (200 characters; blank or longer: null). Used **only** by the media job to download the file within Meta's 7 days (verified, docs/MESSAGING.md); it never appears in an API answer or a log line (`TenantDtoGuardTests`, `AdminDtoGuardTests`). A message with an id starts `MediaStatus = Pending`, one without is `Failed` |
 | `mime_type` | `Messages.MediaMimeType`, lower case, parameters dropped (`audio/ogg; codecs=opus` is `audio/ogg`); a malformed value is null |
 | `caption` present | `Messages.HasCaption` (the caption itself is `Messages.Text`, as before) |
-| file size, `sha256`, `url`, a document's `filename` | Not kept. The size needs the media endpoint (download is roadmap stage 3); a file name can carry personal data |
+| file size, `sha256`, `url`, a document's `filename` | Not kept. The size comes from the stored copy; the `url` is not used (the job asks `GET /{media-id}`); a file name can carry personal data |
 
 Templates: neither the message webhook nor the `smb_message_echoes` reference documents a template name or category, so none is stored.
 
-### The unverified part: messages sent from the phone
+### Coexistence
+
+Checked on 2026-11-17 against Meta's references (links in docs/MESSAGING.md, "Verified provider facts"); the samples in
+`tests/Shared/Dialog360Samples.cs` follow them (`EchoImageDocShaped`, `HistoryChunk`, `HistoryMediaFollowUp`, `HistoryDeclined`,
+`AppStateSync`, `AccountUpdate`). Still **not verified against a live 360dialog delivery**.
+
+- **Echoes** (`smb_message_echoes`): the delivery's `contacts[]` carries `wa_id` and `user_id`, each echo `to` and `to_user_id`. `to` is the
+  customer; an echo without `to` (a username-only customer) follows the one-contact rule below or is skipped. `revoke` and `edit` are ignored.
+- **`account_update`:** only `PARTNER_REMOVED` (with `disconnection_info.reason`, kept when it is an upper-case word), `ACCOUNT_OFFBOARDED`
+  and `ACCOUNT_RECONNECTED` are read, with the entry's `time`; the channel whose URL received the delivery is the one flagged
+  (`WhatsAppChannels.ProviderDisconnection*`). Logged at Warning with ids, the event and the reason word.
+- **`smb_app_state_sync`:** counted in `Ignored`; names and numbers are never read into anything.
+
+### What is kept of a raw delivery
+
+`WebhookEvents.RawPayload` keeps the delivery as received (for the retention of the queue), **except**, rewritten before it is stored
+(`WebhookPayloadRewriter`, Application):
+
+- `smb_app_state_sync` changes become `{"redacted": "smb_app_state_sync", "count": n}`: no name and no number of the phone's address book is
+  ever kept, not even raw;
+- `history` changes of a channel that does not import its history become `{"redacted": "history", "messages": n}`;
+- a `history` change the channel imports, with more than 500 messages, is split into one stored delivery per 500 messages (each with the
+  chunk's metadata and the thread's context), each processed in its own transaction.
+
+A delivery with none of these keeps its bytes and its hash. Tests: `CoexistenceIngestionTests` (no contact name or number, no history message
+remains in any stored row; the 5,000-message chunk is ten deliveries, processed quickly and once).
+
+### History import
+
+A change with `field: history` (Meta's `history` reference): `history[]` chunks, each with `metadata` (`phase`, `chunk_order`, `progress`) and
+`threads[]` (one per customer: `context.wa_id` or `id`) of `messages[]`; a message from the business number is Outbound (`PhoneApp`), any
+other Inbound. There is no `to`. A thread without a phone number is skipped and counted. `errors[]` (code `2593109`) means the business
+declined: logged, nothing stored. A media follow-up comes as `messages[]` under the same field and completes the stored `media_placeholder`
+of the same message id.
+
+- The parser marks these messages **imported**; the processor stores them **only when the channel's `HistoryImportEnabled`** is on
+  (docs/MESSAGING.md, "History import"); otherwise they are counted and dropped, and the delivery is `Processed`.
+- Imported messages go to the contact's imported conversation (closed, `IsImported`), never to a live one; the AI reads it only with the
+  channel's `HistoryAiAnalysisEnabled`.
+- Bound: `Webhooks:Processing:MaxHistoryMessagesPerDelivery` (5000) for a delivery with history chunks, `MaxMessagesPerDelivery` (500) otherwise.
+- **Unverified:** that 360dialog forwards the `history` field to the channel's webhook URL, and the envelope of the declined variant (Meta's
+  page shows it without `entry`; the parser reads both shapes).
+
+### The (formerly) unverified part: messages sent from the phone
 
 Advisors keep answering from the WhatsApp Business app, so the product depends on
 receiving those outgoing messages (coexistence "echoes"). The format implemented
 follows the public documentation (360dialog "Coexistence Webhooks" and Meta's
 `smb_message_echoes` reference: `message_echoes[]` with `from`, `to`, `id`,
-`timestamp`, `type` and a type-named object) but **has not been verified against a
-real 360dialog sandbox**. Until it is, treat first-response metrics as unproven.
+`timestamp`, `type` and a type-named object; checked again on 2026-11-17, see "Coexistence") but **has not been verified against a
+real 360dialog delivery**. Until it is, treat first-response metrics as unproven.
 If the real shape differs, only `Dialog360PayloadParser` has to change; the tests
 build their payloads from `tests/Shared/Dialog360Samples.cs`. Also open: newer API
 versions may identify users by a business-scoped id (BSUID) and omit the phone

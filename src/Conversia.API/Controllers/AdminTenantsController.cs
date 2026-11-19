@@ -71,6 +71,11 @@ public class AdminTenantsController : ControllerBase
     public async Task<ActionResult<TenantSummaryResponse>> SetSendRateLimit(Guid id, SetSendRateLimitRequest request, CancellationToken cancellationToken)
         => Ok(await _admin.SetSendRateLimitAsync(AdminId, id, request, cancellationToken));
 
+    /// <summary>How long the company's stored media is kept, in days; null resets it to <c>Media:RetentionDays</c>.</summary>
+    [HttpPut("tenants/{id:guid}/media-retention")]
+    public async Task<ActionResult<TenantSummaryResponse>> SetMediaRetention(Guid id, SetMediaRetentionRequest request, CancellationToken cancellationToken)
+        => Ok(await _admin.SetMediaRetentionAsync(AdminId, id, request, cancellationToken));
+
     /// <summary>Forces a line off whatever the company wants. Idempotent.</summary>
     [HttpPost("tenants/{id:guid}/channels/{channelId:guid}/deactivate")]
     public async Task<ActionResult<TenantLineResponse>> DeactivateChannel(Guid id, Guid channelId, CancellationToken cancellationToken)

@@ -113,6 +113,10 @@ public sealed class TenantDataDeleter(IServiceScopeFactory scopeFactory, TenantD
                 }
             }
 
+            // The stored media objects of the company (its whole prefix of the media store), before its row goes: idempotent, so a
+            // resumed run deletes what a previous one left. A failure stops the run; the next one resumes.
+            await DeleteStoredMediaAsync(tenantId, cancellationToken);
+
             var finished = await FinishAsync(tenantId, cancellationToken);
             if (finished is not null)
             {
@@ -123,6 +127,19 @@ public sealed class TenantDataDeleter(IServiceScopeFactory scopeFactory, TenantD
         await MarkStuckAsync(tenantId, cancellationToken);
         logger.LogError("The data deletion of tenant {TenantId} still found rows after {Passes} passes; it is marked stuck and will be tried again at the next run.", tenantId, MaxPasses);
         return TenantDeletionRun.Stuck;
+    }
+
+    private async Task DeleteStoredMediaAsync(Guid tenantId, CancellationToken cancellationToken)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        if (scope.ServiceProvider.GetService<Application.Media.IMediaStore>() is { } store)
+        {
+            var deleted = await store.DeleteAllAsync(tenantId, cancellationToken);
+            if (deleted > 0)
+            {
+                logger.LogInformation("The data deletion of tenant {TenantId} deleted {Count} stored media objects.", tenantId, deleted);
+            }
+        }
     }
 
     private async Task<bool> IsStartedAsync(Guid tenantId, CancellationToken cancellationToken)

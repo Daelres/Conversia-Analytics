@@ -29,7 +29,8 @@ public sealed record DeliveryWindows(DeliveryCounts Real24h, DeliveryCounts Sand
 public sealed record BacklogCounts(
     int WebhookPending, DateTime? OldestPendingAt, int ClassificationWaiting, DateTime? OldestClassificationAt, int ClassificationStopped, int StuckDeletions = 0,
     int BillingPastDue = 0, int BillingSuspended = 0, int BillingEventsFailed = 0, int BillingAttemptsStuck = 0,
-    int BillingNeedsReview = 0);
+    int BillingNeedsReview = 0, int DisconnectedChannels = 0, int MediaPending = 0, int MediaFailed24h = 0,
+    int FileDeletionsQueued = 0, DateTime? OldestFileDeletionAt = null);
 
 /// <summary>AI usage of one month, real or sandbox (summed over companies on the platform view).</summary>
 public sealed record AiUsageTotals(

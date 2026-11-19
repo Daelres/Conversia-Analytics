@@ -49,6 +49,19 @@ public class SetSendRateLimitRequest
     public string? Reason { get; set; }
 }
 
+/// <summary>Body of <c>PUT /api/admin/tenants/{id}/media-retention</c>: the company's own retention of stored media; null resets it to <c>Media:RetentionDays</c>.</summary>
+public class SetMediaRetentionRequest
+{
+    [Display(Name = "Retención de archivos (días)")]
+    [Range(1, Tenant.MaxMediaRetentionDays, ErrorMessage = ValidationMessages.Range)]
+    public int? Days { get; set; }
+
+    /// <summary>Why it changes: required and audited.</summary>
+    [Display(Name = "Motivo")]
+    [TrimmedText(Tenant.AiChangeReasonMaxLength)]
+    public string? Reason { get; set; }
+}
+
 /// <summary>The limits of a company as they apply now: each effective value and whether it is the deployment default.</summary>
 public class TenantLimitsResponse
 {
@@ -81,6 +94,13 @@ public class TenantLimitsResponse
 
     /// <summary>The most a company's own send limit may be (<c>Messaging:TenantSendRateLimitMaxPerMinute</c>).</summary>
     public int MaxSendRateLimitPerMinute { get; set; }
+
+    /// <summary>How long the company's stored media is kept (docs/PLATFORM_ADMIN.md, "Media retention").</summary>
+    public int FileRetentionDays { get; set; }
+
+    public bool FileRetentionIsDefault { get; set; }
+
+    public int DefaultFileRetentionDays { get; set; }
 
     /// <summary>When the LLM reads the company: <c>Nightly</c>, <c>EveryHours</c> or <c>NearRealTime</c> (docs/CLASSIFICATION.md).</summary>
     public string AiAnalysisMode { get; set; } = string.Empty;

@@ -110,6 +110,23 @@ public class ChannelsController : ControllerBase
     public async Task<ActionResult<ChannelResponse>> ClearProviderCredentials(Guid id, CancellationToken cancellationToken)
         => Ok(await _organization.ClearChannelProviderCredentialsAsync(id, cancellationToken));
 
+    /// <summary>
+    /// Turns the import of the shared chat history (coexistence onboarding) on or off. Only the company owner, and turning it on requires
+    /// <c>legalBasisConfirmed</c> (docs/MESSAGING.md, "History import"). <c>403</c> for anyone else, even with <c>OrganizationManage</c>.
+    /// </summary>
+    [HttpPut("{id:guid}/history-import")]
+    [Authorize(Policy = nameof(Permission.OrganizationManage))]
+    public async Task<ActionResult<ChannelResponse>> SetHistoryImport(
+        Guid id, SetHistoryImportRequest request, [FromServices] Application.Services.IChannelHistoryImportService history, CancellationToken cancellationToken)
+    {
+        if (User.FindFirst("is_owner")?.Value != "true" || User.GetUserId() is not { } userId)
+        {
+            return Forbid();
+        }
+
+        return Ok(await history.SetAsync(id, request, userId, cancellationToken));
+    }
+
     private async Task<bool> CanManageAsync()
         => (await _authorization.AuthorizeAsync(User, resource: null, nameof(Permission.OrganizationManage))).Succeeded;
 }

@@ -45,7 +45,9 @@ public static class WebhookServiceCollectionExtensions
         services.AddScoped<IMessageRepository, MessageRepository>();
         services.AddScoped<IWebhookIngestionService, WebhookIngestionService>();
         services.AddScoped<IWebhookEventProcessor, WebhookEventProcessor>();
-        services.AddSingleton(new WebhookIngestionLimits(processing.MaxMessagesPerDelivery));
+        services.AddSingleton(new WebhookIngestionLimits(
+            processing.MaxMessagesPerDelivery,
+            ConfigurationReader.ReadInt(configuration, "Webhooks:Processing:MaxHistoryMessagesPerDelivery", 5000, 1, 100_000)));
         services.AddSingleton<WebhookEventRunner>();
         services.AddScoped<IWebhookEventMaintenance, WebhookEventMaintenance>();
         services.AddSingleton<IWebhookQueueMonitor, WebhookQueueMonitor>();

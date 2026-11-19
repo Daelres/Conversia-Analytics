@@ -324,6 +324,84 @@ public sealed class ApiClient : IApiClient
     public Task<ApiResult<MessagingSettingsResponse>> SetMessagingSettingsAsync(string token, SetMessagingSettingsRequest request, CancellationToken cancellationToken = default)
         => SendAsync<MessagingSettingsResponse>(HttpMethod.Put, "api/tenant/messaging-settings", token, request, isUsable: null, cancellationToken);
 
+    public async Task<MediaProxyResponse> OpenMessageMediaAsync(string token, Guid conversationId, Guid messageId, string? range, CancellationToken cancellationToken = default)
+    {
+        var path = $"api/conversations/{conversationId}/messages/{messageId}/media";
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, path);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            if (!string.IsNullOrEmpty(range))
+            {
+                request.Headers.TryAddWithoutValidation("Range", range);
+            }
+
+            // Headers only: the body streams through to the browser. The send timeout bounds the wait for the headers.
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            if ((_sendTimeout ?? _timeout) is { } allowed)
+            {
+                limit.CancelAfter(allowed);
+            }
+
+            var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, limit.Token);
+            return new MediaProxyResponse((int)response.StatusCode, response);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            await ReportAsync(HttpMethod.Get, path, exception);
+            return new MediaProxyResponse(StatusCodes.Status503ServiceUnavailable, null);
+        }
+    }
+
+    public async Task<ApiResult<MessageResponse>> SendMediaMessageAsync(
+        string token, Guid conversationId, Stream content, string? contentType, string? caption, CancellationToken cancellationToken = default)
+    {
+        var path = $"api/conversations/{conversationId}/media-messages";
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if ((_sendTimeout ?? _timeout) is { } allowed)
+        {
+            limit.CancelAfter(allowed);
+        }
+
+        try
+        {
+            using var file = new StreamContent(content);
+            if (!string.IsNullOrWhiteSpace(contentType) && System.Net.Http.Headers.MediaTypeHeaderValue.TryParse(contentType, out var type))
+            {
+                file.Headers.ContentType = type;
+            }
+
+            using var form = new MultipartFormDataContent { { file, "file", "adjunto" } };
+            if (!string.IsNullOrWhiteSpace(caption))
+            {
+                form.Add(new StringContent(caption), "caption");
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = form };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using var response = await _http.SendAsync(request, limit.Token);
+            return Carry(await ApiResponseReader.ReadAsync<MessageResponse>(response, JsonOptions, null, limit.Token, SendFailure.MediaSendCodes), HttpMethod.Post, path);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return Carry(ApiResult<MessageResponse>.Unavailable(await ReportAsync(HttpMethod.Post, path, exception)), HttpMethod.Post, path);
+        }
+    }
+
+    public Task<ApiResult<ChannelResponse>> SetHistoryImportAsync(string token, Guid channelId, SetHistoryImportRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<ChannelResponse>(HttpMethod.Put, $"api/channels/{channelId}/history-import", token, request, isUsable: null, cancellationToken);
+
+    public Task<ApiResult<TenantSummaryResponse>> SetAdminMediaRetentionAsync(string token, Guid tenantId, SetMediaRetentionRequest request, CancellationToken cancellationToken = default)
+        => SendAsync<TenantSummaryResponse>(HttpMethod.Put, $"api/admin/tenants/{tenantId}/media-retention", token, request, isUsable: null, cancellationToken);
+
     private static bool HasToken(AuthResponse response) => !string.IsNullOrWhiteSpace(response.Token);
 
     /// <param name="expectedCodes">The refusals this call knows how to word (see <see cref="ApiResponseReader"/>); none by default.</param>

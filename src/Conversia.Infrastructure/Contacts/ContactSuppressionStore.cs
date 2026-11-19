@@ -60,6 +60,12 @@ public sealed class ContactSuppressionStore(ApplicationDbContext db, PrivacyHash
             SELECT "Id" AS "Value" FROM "Conversations" WHERE "TenantId" = {tenantId} AND "ContactId" = {contactId}
             """).ToListAsync(cancellationToken);
 
+        // The stored media copies go with the messages: queued in the same transaction, deleted from the store by the media job (docs/MESSAGING.md, "Media").
+        await db.Database.ExecuteSqlAsync($"""
+            INSERT INTO "MediaObjectDeletions" ("Id", "TenantId", "ObjectKey", "CreatedAt")
+            SELECT gen_random_uuid(), "TenantId", "MediaObjectKey", {now} FROM "Messages"
+            WHERE "TenantId" = {tenantId} AND "ConversationId" = ANY({conversations}) AND "MediaObjectKey" IS NOT NULL
+            """, cancellationToken);
         var messages = await db.Database.ExecuteSqlAsync(
             $"""DELETE FROM "Messages" WHERE "TenantId" = {tenantId} AND "ConversationId" = ANY({conversations})""", cancellationToken);
         var opportunities = await db.Database.ExecuteSqlAsync(

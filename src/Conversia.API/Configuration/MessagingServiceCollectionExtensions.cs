@@ -76,6 +76,7 @@ public static class MessagingServiceCollectionExtensions
         services.AddScoped<IInboxQueries, InboxQueries>();
         services.AddScoped<IInboxService, InboxService>();
         services.AddScoped<IMessagingSettingsService, MessagingSettingsService>();
+        services.AddScoped<IChannelHistoryImportService, ChannelHistoryImportService>();
 
         var templateSync = GetValidatedTemplateSyncOptions(configuration);
         services.AddSingleton(templateSync);

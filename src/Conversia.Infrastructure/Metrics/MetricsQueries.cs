@@ -32,8 +32,11 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
     // The first line is not a request's choice (docs/METRICS.md, "Sandbox data"): every number counts real conversations only, unless the
     // company is in sandbox mode, and then sandbox conversations only. It is here, and read from the company's row by the statement itself,
     // so that no aggregation can forget it or be handed the wrong value.
+    // Imported history (coexistence onboarding, docs/METRICS.md "Imported conversations") is never in a number: it was not answered through the
+    // line as it is today, and it would move every rate of its dates at once.
     private const string ConversationFilters = """
         AND c."IsSandbox" = (SELECT t."SandboxMode" FROM "Tenants" t WHERE t."Id" = @tenant)
+        AND NOT c."IsImported"
         AND (@branch IS NULL OR c."BranchId" = @branch)
         AND (@advisor IS NULL OR c."AdvisorId" = @advisor)
         AND (NOT @unassigned OR c."AdvisorId" IS NULL)

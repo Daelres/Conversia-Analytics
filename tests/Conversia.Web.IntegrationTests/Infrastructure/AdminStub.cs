@@ -134,6 +134,7 @@ internal sealed class AdminStub
             ("PUT", _) when TenantId(path, "/ai-quota") is { } id => FakeBackend.Answer(HttpStatusCode.OK, Summary(Companies.First(c => c.Id == id))),
             ("PUT", _) when TenantId(path, "/ai-schedule") is { } id => FakeBackend.Answer(HttpStatusCode.OK, Summary(Companies.First(c => c.Id == id))),
             ("PUT", _) when TenantId(path, "/send-rate-limit") is { } id => FakeBackend.Answer(HttpStatusCode.OK, Summary(Companies.First(c => c.Id == id))),
+            ("PUT", _) when TenantId(path, "/media-retention") is { } id => FakeBackend.Answer(HttpStatusCode.OK, Summary(Companies.First(c => c.Id == id))),
             ("GET", "/api/admin/licenses") => FakeBackend.Answer(HttpStatusCode.OK, Page(Licenses, 1, 20)),
             ("POST", "/api/admin/licenses") => CreateLicense(request),
             ("GET", _) when LicenseId(path, "") is { } id => Licenses.FirstOrDefault(l => l.Id == id) is { } l

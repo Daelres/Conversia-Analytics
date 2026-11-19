@@ -87,6 +87,22 @@ services:
       PlatformAdmin__Password: ${PLATFORM_ADMIN_PASSWORD:-}
       # Alternative to the password above: the path, inside the container, of a file that holds it (a Docker secret mounted by you). Use one or the other.
       PlatformAdmin__PasswordFile: ${PLATFORM_ADMIN_PASSWORD_FILE:-}
+      # Optional. Where WhatsApp media is kept (docs/DOCKER.md, "Media storage"): None (default: received files are not downloaded and
+      # attachments cannot be sent), Local (encrypted files in the api-media volume, for development) or Azure (a private Blob container).
+      Media__Store: ${MEDIA_STORE:-None}
+      Media__Local__RootPath: /var/lib/conversia/media
+      # Local only: base64 of 32 random bytes (openssl rand -base64 32). Losing it makes the stored files unreadable.
+      Media__Local__EncryptionKey: ${MEDIA_ENCRYPTION_KEY:-}
+      # Local outside Development needs this yes: the local store is for one instance only (this compose stack).
+      Media__Local__AllowOutsideDevelopment: ${MEDIA_LOCAL_ALLOW_OUTSIDE_DEVELOPMENT:-false}
+      # Azure only: exactly one of the connection string or the service URL (https://<account>.blob.core.windows.net, managed identity).
+      Media__Azure__ConnectionString: ${MEDIA_AZURE_CONNECTION_STRING:-}
+      Media__Azure__ServiceUri: ${MEDIA_AZURE_SERVICE_URI:-}
+      Media__Azure__ManagedIdentityClientId: ${MEDIA_AZURE_MANAGED_IDENTITY_CLIENT_ID:-}
+      Media__Azure__Container: ${MEDIA_AZURE_CONTAINER:-conversia-media}
+      Media__RetentionDays: ${MEDIA_RETENTION_DAYS:-90}
+    volumes:
+      - api-media:/var/lib/conversia/media
     ports:
       - "${API_PORT:-5030}:8080"
     depends_on:
@@ -125,3 +141,4 @@ services:
 volumes:
   postgres-data:
   web-keys:
+  api-media:

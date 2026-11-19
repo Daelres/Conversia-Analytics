@@ -161,6 +161,15 @@ default.
 | When the AI reads (`aiAnalysisMode`, `aiAnalysisNightlyHour`, `aiAnalysisIntervalHours`, `nextAiAnalysisWindowAt`) | **`Nightly`** from `Classification:Schedule:DefaultNightlyHour` (01:00 America/Bogota) | `Nightly` with an optional local start hour (0 to 23), `EveryHours` with an interval (1 to 24), or `NearRealTime` (special cases); a reason is required (`PUT .../ai-schedule`) | The LLM scheduler (docs/CLASSIFICATION.md, "When the AI reads"): the rules keep reading every conversation near real time whatever the mode. Takes effect from the next window. |
 | Sends per minute (`sendRateLimitPerMinute`) | `Messaging:TenantSendRateLimitPerMinute` (120) | 1 to `Messaging:TenantSendRateLimitMaxPerMinute` (default 10 times the deployment limit, 1,200; at most 1,000,000), all its users together; `null` = default; a reason is required (`PUT .../send-rate-limit`) | The company send limiter (docs/MESSAGING.md). The instance that saved it applies it on the next send; every other instance reloads the company values every 30 s. A new value starts a fresh one-minute window. |
 
+| Media retention (`fileRetentionDays`, `fileRetentionIsDefault`, `defaultFileRetentionDays`) | `Media:RetentionDays` (90) | 1 to 3650 days; `null` = default; a reason is required (`PUT .../media-retention`, audited as `tenant.media_retention_changed` with from, to and the reason) | The media retention job (docs/MESSAGING.md, "Media retention"): stored copies older than this are deleted from the store; the messages stay. Applies at the job's next run (hourly). |
+
+### Media retention
+
+How long a company's stored WhatsApp files (received and sent) are kept. The platform default is `Media:RetentionDays` (90); the
+administrator sets a company's own value in `/admin/empresas/{id}` ("Retención de archivos"). A shorter value deletes the older copies at the
+next run; a longer one keeps future copies longer (already purged copies do not come back). Deleting a company's data deletes every stored
+object of it (its whole prefix of the store), and a contact suppression deletes the contact's objects (docs/MESSAGING.md).
+
 A company's **sandbox** conversations (docs/SANDBOX.md) are outside its quota and ceiling but have their own bound,
 `Classification:Quota:SandboxMonthlyUsdPerCompany` (2 USD a month by default): one company's tests cannot spend the deployment cap.
 
@@ -235,6 +244,8 @@ administrator looks at `/admin/monitoreo`. Thresholds are configuration (`Platfo
 | `ai_usage_lost` | The answering instance could not write a usage record since it started (critical): the cost is only in its log, event id 4101 `AiUsageNotRecorded` (Error). Alert on that event. | |
 | `tenant_deletion_stuck` | A company's data deletion was marked stuck, or started more than a day ago and has not finished (critical). | |
 | `llm_breaker_open` | The LLM circuit breaker of the answering instance is open or probing. | |
+| `coexistence_disconnected` | A line of an Active company was disconnected from the API by a coexistence notification (`PARTNER_REMOVED`, `ACCOUNT_OFFBOARDED`; for example the WhatsApp Business app not opened for about 14 days). The message reminds the 13-day rule. Count in `backlog.disconnectedChannels` (platform and per company). | |
+| `media_failures` | Received media whose every download attempt failed in the last 24 hours. Counts in `backlog.filesPending` and `backlog.fileFailures24h`; the deletion queue of stored objects in `backlog.fileDeletionsQueued` and `backlog.oldestFileDeletionSeconds` (counts only). | |
 | `llm_batches_failed` | A Message Batch of the night analysis failed in the last 24 hours (could not be sent, abandoned, or unreadable after its expiry): its conversations take the synchronous path. | |
 
 Every monitoring statement runs with a 10-second command timeout, and each list (silent companies, companies with the AI used up, errors)

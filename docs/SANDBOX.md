@@ -240,3 +240,13 @@ conversations (design D24); the sandbox monthly totals (`AiUsageMonths` with `Is
 - **Inbox:** `/bandeja` shows only the sandbox conversations while the mode is on, and only real ones otherwise.
 - **Read receipts and typing:** with the company setting on, the internal sender accepts them and the API logs a line; nothing reaches a
   phone.
+
+## Media (stage 3b)
+
+- The simulated customer can send a **synthetic attachment** (`POST /api/sandbox/conversations/{id}/customer-messages` with
+  `"attachment": "image"` or `"document"`, the text then an optional caption; in the Web, "Adjunto de prueba del cliente" on a sandbox
+  conversation). The delivery carries a media id starting with `sandbox`; the download job asks the internal media client
+  (`SandboxMediaClient`), which makes up an 8x8 PNG or a one-page PDF: no provider is called and no real file exists.
+- An attachment sent by the advisor in sandbox mode is stored in the media store (when one is configured) and recorded in the sandbox
+  conversation; nothing is uploaded or sent.
+- Deleting the sandbox data deletes the stored copies of its messages too (docs/MESSAGING.md, "Media retention and deletion").

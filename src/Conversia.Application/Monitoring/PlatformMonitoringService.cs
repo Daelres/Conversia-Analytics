@@ -152,7 +152,9 @@ public sealed class PlatformMonitoringService : IPlatformMonitoringService
                 activity.Backlog.BillingEventsFailed,
                 activity.Backlog.BillingAttemptsStuck,
                 activity.Backlog.BillingNeedsReview,
-                activity.Batches?.FailedLast24h ?? 0),
+                activity.Batches?.FailedLast24h ?? 0,
+                activity.Backlog.DisconnectedChannels,
+                activity.Backlog.MediaFailed24h),
             _thresholds);
 
         return new PlatformOverviewResponse
@@ -325,6 +327,11 @@ public sealed class PlatformMonitoringService : IPlatformMonitoringService
         BillingEventsFailed = b.BillingEventsFailed,
         BillingAttemptsStuck = b.BillingAttemptsStuck,
         BillingNeedsReview = b.BillingNeedsReview,
+        DisconnectedChannels = b.DisconnectedChannels,
+        FilesPending = b.MediaPending,
+        FileFailures24h = b.MediaFailed24h,
+        FileDeletionsQueued = b.FileDeletionsQueued,
+        OldestFileDeletionSeconds = Seconds(Age(now, b.OldestFileDeletionAt)),
     };
 
     private static TimeSpan? Age(DateTime now, DateTime? since) => since is { } at ? (now > at ? now - at : TimeSpan.Zero) : null;

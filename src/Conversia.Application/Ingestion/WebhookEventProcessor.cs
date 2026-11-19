@@ -43,11 +43,23 @@ public class WebhookEventProcessor : IWebhookEventProcessor
 
         var parsed = Dialog360PayloadParser.Parse(webhookEvent.RawPayload, _timeProvider.GetUtcNow().UtcDateTime);
 
+        // The shared chat history (coexistence onboarding) is stored only when the channel opted in (docs/WEBHOOKS.md, "History import"):
+        // otherwise its messages are dropped here, counted, and the delivery is processed as "nothing to do".
+        var historyIgnored = 0;
+        var messagesToStore = parsed.Messages;
+        if (!channel.HistoryImportEnabled && parsed.Messages.Any(m => m.Imported))
+        {
+            historyIgnored = parsed.Messages.Count(m => m.Imported);
+            messagesToStore = parsed.Messages.Where(m => !m.Imported).ToList();
+        }
+
         // Bounded work per delivery: a bigger one would hold the tenant's queue (and a transaction) for too long, and no retry changes its size.
-        if (parsed.Messages.Count + parsed.SkippedCount > _limits.MaxMessagesPerDelivery)
+        // A history chunk has its own, larger bound.
+        var limit = parsed.HistoryChunks.Count > 0 ? _limits.MaxHistoryMessagesPerDelivery : _limits.MaxMessagesPerDelivery;
+        if (messagesToStore.Count + parsed.SkippedCount > limit)
         {
             throw new WebhookPermanentFailureException(
-                $"The delivery holds {parsed.Messages.Count + parsed.SkippedCount} messages, more than the {_limits.MaxMessagesPerDelivery} allowed per delivery.");
+                $"The delivery holds {messagesToStore.Count + parsed.SkippedCount} messages, more than the {limit} allowed per delivery.");
         }
 
         var crossedTheWall = new HashSet<Guid>(); // contacts whose messages were refused because their mark is not the delivery's
@@ -57,11 +69,11 @@ public class WebhookEventProcessor : IWebhookEventProcessor
         var alreadyStored = 0;
         var skipped = parsed.SkippedCount;
         var contacts = new Dictionary<string, Contact>();
-        var conversations = new Dictionary<Guid, Conversation>(); // by contact: one open conversation per contact on this channel
+        var conversations = new Dictionary<(Guid Contact, bool Imported), Conversation>(); // one open (or imported) conversation per contact on this channel
 
         // Oldest first, so the message that opens a conversation is the first one in time. Arrival order never decides anything
         // that matters: the conversation's markers are recomputed from the stored message times once all its messages are in.
-        foreach (var message in parsed.Messages.OrderBy(m => m.SentAt).ThenBy(m => m.ProviderMessageId, StringComparer.Ordinal))
+        foreach (var message in messagesToStore.OrderBy(m => m.SentAt).ThenBy(m => m.ProviderMessageId, StringComparer.Ordinal))
         {
             if (IsAnotherNumber(message, channel))
             {
@@ -74,9 +86,10 @@ public class WebhookEventProcessor : IWebhookEventProcessor
                 skipped++;
                 suppressed++;
             }
-            else if (await _messages.ExistsAsync(channel.Id, message.ProviderMessageId, cancellationToken))
+            else if (await _messages.FindAsync(channel.Id, message.ProviderMessageId, cancellationToken) is { } existing)
             {
                 alreadyStored++;
+                await CompletePlaceholderAsync(existing, message, cancellationToken);
             }
             else if (await StoreAsync(channel, message, webhookEvent.IsSandbox, contacts, conversations, cancellationToken))
             {
@@ -96,8 +109,38 @@ public class WebhookEventProcessor : IWebhookEventProcessor
         {
             var times = await _messages.ListTimesAsync(conversation.Id, cancellationToken);
             conversation.ApplyTimeline(ConversationTimeline.From(times)!);
-            conversation.RequestClassification(now);
+            // Imported history is read by the rules; by the AI only when the company opted in (each conversation costs, docs/decisiones.md).
+            conversation.RequestClassification(now, includeLlm: !conversation.IsImported || channel.HistoryAiAnalysisEnabled);
             await _conversations.UpdateAsync(conversation, cancellationToken);
+        }
+
+        var accountUpdates = 0;
+        if (parsed.AccountUpdates.Count > 0 && await _channels.GetForUpdateAsync(channel.Id, cancellationToken) is { } tracked)
+        {
+            foreach (var update in parsed.AccountUpdates)
+            {
+                // Coexistence notifications (docs/WEBHOOKS.md, "Coexistence"): the delivery came on this channel's URL, so they are this number's.
+                if (tracked.ApplyAccountUpdate(update.Event, update.Reason, update.OccurredAt ?? now))
+                {
+                    accountUpdates++;
+                    _logger.LogWarning(
+                        "Channel {ChannelId} of tenant {TenantId} received the coexistence notification {Event} ({Reason}).",
+                        tracked.Id, tracked.TenantId, update.Event, tracked.ProviderDisconnectionReason ?? "no reason");
+                }
+            }
+
+            if (accountUpdates > 0)
+            {
+                await _channels.UpdateAsync(tracked, cancellationToken);
+            }
+        }
+
+        if (historyIgnored > 0 || parsed.HistoryChunks.Any(c => c.Declined) || parsed.AppStateSyncIgnored > 0)
+        {
+            // Counts only: no number, no name, no text.
+            _logger.LogInformation(
+                "Webhook event {EventId} of channel {ChannelId}: {HistoryStored} history messages handled, {HistoryIgnored} ignored (import off), history declined: {Declined}, {AddressBook} address-book entries not stored.",
+                webhookEvent.Id, channel.Id, messagesToStore.Count(m => m.Imported), historyIgnored, parsed.HistoryChunks.Any(c => c.Declined), parsed.AppStateSyncIgnored);
         }
 
         if (crossedTheWall.Count > 0)
@@ -118,7 +161,19 @@ public class WebhookEventProcessor : IWebhookEventProcessor
 
         var templateStatuses = await ApplyTemplateStatusesAsync(webhookEvent, channel, parsed.TemplateStatuses, cancellationToken);
 
-        return new WebhookProcessingResult(stored, alreadyStored, skipped, parsed.IgnoredCount, parsed.StatusCount, suppressed, templateStatuses);
+        return new WebhookProcessingResult(
+            stored, alreadyStored, skipped, parsed.IgnoredCount + parsed.AppStateSyncIgnored, parsed.StatusCount, suppressed, templateStatuses, historyIgnored, accountUpdates);
+    }
+
+    // A history media_placeholder is followed by a delivery that carries the media under the same message id (Meta's history reference).
+    private async Task CompletePlaceholderAsync(Message existing, ParsedMessage message, CancellationToken cancellationToken)
+    {
+        if (message.Imported && existing.IsImported && existing.Type == Message.HistoryPlaceholderType && message.Media is { } media
+            && message.Type != Message.HistoryPlaceholderType)
+        {
+            existing.CompleteHistoryPlaceholder(message.Type, media, _timeProvider.GetUtcNow().UtcDateTime);
+            await _messages.UpdateAsync(existing, cancellationToken);
+        }
     }
 
     // A template's status changed at Meta (docs/WEBHOOKS.md, "Template status"): the channel's copy follows, so a paused or disabled template
@@ -175,7 +230,7 @@ public class WebhookEventProcessor : IWebhookEventProcessor
     // touches a real contact, and a real delivery never touches a simulated one. The mark comes from the delivery, never from the number.
     private async Task<bool> StoreAsync(
         WhatsAppChannel channel, ParsedMessage message, bool isSandbox, Dictionary<string, Contact> contacts,
-        Dictionary<Guid, Conversation> conversations, CancellationToken cancellationToken)
+        Dictionary<(Guid Contact, bool Imported), Conversation> conversations, CancellationToken cancellationToken)
     {
         var contact = await GetOrCreateContactAsync(channel.TenantId, message, isSandbox, contacts, cancellationToken);
         if (contact is null)
@@ -194,7 +249,7 @@ public class WebhookEventProcessor : IWebhookEventProcessor
             Message.Create(
                 channel.TenantId, conversation.Id, channel.Id, message.ProviderMessageId, message.Direction, message.Type, message.Text, message.SentAt,
                 echo ? MessageSender.PhoneApp : MessageSender.Customer, media: message.Media,
-                assignedAdvisorIdAtReceipt: echo ? conversation.AdvisorId : null),
+                assignedAdvisorIdAtReceipt: echo && !message.Imported ? conversation.AdvisorId : null, imported: message.Imported),
             cancellationToken);
 
         if (message.Referral is not null)
@@ -246,14 +301,18 @@ public class WebhookEventProcessor : IWebhookEventProcessor
     // A conversation is sandbox data exactly when its contact is: both marks come from the delivery that created the contact.
     // Reuse the contact's open conversation on this channel, otherwise open one (with its opportunity) at the time of the message.
     private async Task<Conversation> GetOrCreateConversationAsync(
-        WhatsAppChannel channel, Contact contact, ParsedMessage message, Dictionary<Guid, Conversation> conversations, CancellationToken cancellationToken)
+        WhatsAppChannel channel, Contact contact, ParsedMessage message, Dictionary<(Guid Contact, bool Imported), Conversation> conversations,
+        CancellationToken cancellationToken)
     {
-        if (conversations.TryGetValue(contact.Id, out var known))
+        if (conversations.TryGetValue((contact.Id, message.Imported), out var known))
         {
             return known;
         }
 
-        var conversation = await _conversations.FindOpenAsync(contact.Id, channel.Id, cancellationToken);
+        // A history message never joins a live conversation, and a live one never joins the imported (closed) conversation of the contact.
+        var conversation = message.Imported
+            ? await _conversations.FindImportedAsync(contact.Id, channel.Id, cancellationToken)
+            : await _conversations.FindOpenAsync(contact.Id, channel.Id, cancellationToken);
         if (conversation is null)
         {
             conversation = Conversation.Start(
@@ -261,11 +320,12 @@ public class WebhookEventProcessor : IWebhookEventProcessor
                 message.Referral is null ? ConversationSource.Organic : ConversationSource.Ads,
                 message.Referral?.Reference,
                 contact.IsSandbox,
-                message.Referral?.Ad);
+                message.Referral?.Ad,
+                isImported: message.Imported);
             await _conversations.AddAsync(conversation, Opportunity.Open(channel.TenantId, conversation.Id), cancellationToken);
         }
 
-        conversations[contact.Id] = conversation;
+        conversations[(contact.Id, message.Imported)] = conversation;
         return conversation;
     }
 }

@@ -189,4 +189,25 @@ public class PlatformAdminLimitsTests
         Assert.Equal(HttpStatusCode.OK, (await adminOnHost.PutAsJsonAsync(Url(f.TenantId, "send-rate-limit"), new { perMinute = (int?)null, reason = "Vuelve al valor por defecto" })).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await SendMessageAsync(owner, seeded.ConversationId)).StatusCode);
     }
+
+    [Fact]
+    public async Task TheMediaRetention_IsThePlatformDefault_UntilTheAdministratorSetsTheCompanysOwn_WithAReason_Audited()
+    {
+        using var admin = await StartAdminAsync(_factory, _client);
+        using var tenant = await StartTenantAsync(_factory, _client);
+
+        var limits = (await DetailAsync(admin, tenant.TenantId)).Limits;
+        Assert.Equal((90, true, 90), (limits.FileRetentionDays, limits.FileRetentionIsDefault, limits.DefaultFileRetentionDays));
+
+        Assert.Equal(HttpStatusCode.OK, (await admin.Client.PutAsJsonAsync(Url(tenant.TenantId, "media-retention"), new { days = 30, reason = "Política del cliente" })).StatusCode);
+        limits = (await DetailAsync(admin, tenant.TenantId)).Limits;
+        Assert.Equal((30, false), (limits.FileRetentionDays, limits.FileRetentionIsDefault));
+
+        Assert.Equal(HttpStatusCode.OK, (await admin.Client.PutAsJsonAsync(Url(tenant.TenantId, "media-retention"), new { days = (int?)null, reason = "Vuelve al valor de la plataforma" })).StatusCode);
+        Assert.True((await DetailAsync(admin, tenant.TenantId)).Limits.FileRetentionIsDefault);
+
+        await AssertValidationErrorUnderAsync(await admin.Client.PutAsJsonAsync(Url(tenant.TenantId, "media-retention"), new { days = 0, reason = "x" }), "Days");
+        await AssertValidationErrorUnderAsync(await admin.Client.PutAsJsonAsync(Url(tenant.TenantId, "media-retention"), new { days = 10 }), "Reason");
+        Assert.Equal(2, (await AuditAsync(admin, tenant.TenantId)).Count(e => e.Action == "tenant.media_retention_changed"));
+    }
 }

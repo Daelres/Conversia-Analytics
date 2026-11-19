@@ -35,6 +35,9 @@ internal static class ApiResponseReader
             HttpStatusCode.NotFound => ApiResult<T>.Failure(ApiResultStatus.NotFound),
             HttpStatusCode.Conflict => await ReadConflictAsync<T>(response, expectedCodes, cancellationToken),
             HttpStatusCode.UnprocessableEntity => await ReadNamedProblemAsync<T>(response, ApiResultStatus.Unprocessable, expectedCodes, cancellationToken),
+            // An attachment the API refused for its type or size (docs/MESSAGING.md, "Sending media"): named like any other refusal.
+            HttpStatusCode.UnsupportedMediaType or HttpStatusCode.RequestEntityTooLarge
+                => await ReadNamedProblemAsync<T>(response, ApiResultStatus.Unprocessable, expectedCodes, cancellationToken),
             HttpStatusCode.TooManyRequests => ApiResult<T>.RateLimited(ReadRetryAfterSeconds(response), ExpectedCode(await ReadBodyAsync(response, cancellationToken), expectedCodes)),
             HttpStatusCode.ServiceUnavailable => await ReadNamedProblemAsync<T>(response, ApiResultStatus.Unavailable, expectedCodes, cancellationToken),
             HttpStatusCode.InternalServerError => await ReadServerErrorAsync<T>(response, expectedCodes, cancellationToken),

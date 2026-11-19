@@ -239,8 +239,33 @@ public sealed class PlatformMonitoringQueries : IPlatformMonitoringQueries
             attemptsStuck = await _db.BillingPaymentAttempts.IgnoreQueryFilters().CountAsync(a => a.Status == PaymentAttemptStatus.Pending && a.AttemptedAt < dayAgo, cancellationToken);
         }
 
+        // Coexistence and media (docs/PLATFORM_ADMIN.md, "Monitoring"): counts only, no number and no file.
+        var channels = _db.WhatsAppChannels.IgnoreQueryFilters().AsNoTracking().Where(c => c.ProviderDisconnectedAt != null);
+        var media = _db.Messages.IgnoreQueryFilters().AsNoTracking();
+        if (tenantId is { } only)
+        {
+            channels = channels.Where(c => c.TenantId == only);
+            media = media.Where(m => m.TenantId == only);
+        }
+        else
+        {
+            channels = channels.Where(c => _db.Tenants.Any(t => t.Id == c.TenantId && t.Status == TenantStatus.Active));
+        }
+
+        var disconnected = await channels.CountAsync(cancellationToken);
+        var mediaPending = await media.CountAsync(m => m.MediaStatus == MediaStatus.Pending, cancellationToken);
+        var since = DateTime.UtcNow.AddHours(-24);
+        var mediaFailed = await media.CountAsync(m => m.MediaStatus == MediaStatus.Failed && m.UpdatedAt >= since, cancellationToken);
+        var deletions = _db.MediaObjectDeletions.IgnoreQueryFilters().AsNoTracking();
+        if (tenantId is { } owner)
+        {
+            deletions = deletions.Where(d => d.TenantId == owner);
+        }
+
+        var queue = await deletions.GroupBy(_ => 1).Select(g => new { Count = g.Count(), Oldest = g.Min(d => (DateTime?)d.CreatedAt) }).FirstOrDefaultAsync(cancellationToken);
+
         return new BacklogCounts(pending?.Count ?? 0, pending?.Oldest, classification?.Waiting ?? 0, classification?.Oldest, classification?.Stopped ?? 0, stuck,
-            pastDue, suspended, eventsFailed, attemptsStuck, needsReview);
+            pastDue, suspended, eventsFailed, attemptsStuck, needsReview, disconnected, mediaPending, mediaFailed, queue?.Count ?? 0, queue?.Oldest);
     }
 
     private async Task<DeliveryWindows> DeliveriesAsync(Guid? tenantId, DateTime now, CancellationToken cancellationToken)

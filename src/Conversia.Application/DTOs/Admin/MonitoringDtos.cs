@@ -84,6 +84,20 @@ public class BacklogResponse
 
     /// <summary>Attempts flagged for a person (money that may have moved without the charge showing it).</summary>
     public int BillingNeedsReview { get; set; }
+
+    /// <summary>Lines disconnected from the API by a coexistence notification (the app not opened for about 14 days, the partner removed).</summary>
+    public int DisconnectedChannels { get; set; }
+
+    /// <summary>Received media waiting for the download job.</summary>
+    public int FilesPending { get; set; }
+
+    /// <summary>Received media whose every download attempt failed in the last 24 hours.</summary>
+    public int FileFailures24h { get; set; }
+
+    /// <summary>Stored media objects waiting in the deletion queue (suppressions, sandbox clean-ups, retention), and how long the oldest has waited.</summary>
+    public int FileDeletionsQueued { get; set; }
+
+    public long? OldestFileDeletionSeconds { get; set; }
 }
 
 /// <summary>AI usage of a month, real or sandbox. Sandbox usage never counts against a company's quota.</summary>

@@ -25,6 +25,14 @@ public sealed class SandboxDataStore(ApplicationDbContext db) : ISandboxDataStor
         // delivery is deleted here before the worker can turn it into new rows.
         await TenantIngestionLock.AcquireAsync(db, tenantId, cancellationToken);
 
+        // The stored media copies of the sandbox messages (synthetic files) are queued for the media job in the same transaction.
+        await db.Database.ExecuteSqlAsync($"""
+            INSERT INTO "MediaObjectDeletions" ("Id", "TenantId", "ObjectKey", "CreatedAt")
+            SELECT gen_random_uuid(), m."TenantId", m."MediaObjectKey", now() FROM "Messages" m
+            JOIN "Conversations" c ON c."Id" = m."ConversationId"
+            WHERE m."TenantId" = {tenantId} AND c."TenantId" = {tenantId} AND c."IsSandbox" AND m."MediaObjectKey" IS NOT NULL
+            """, cancellationToken);
+
         var messages = await db.Database.ExecuteSqlAsync($"""
             DELETE FROM "Messages" m
             USING "Conversations" c

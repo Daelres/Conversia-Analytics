@@ -22,6 +22,9 @@ public static class SendFailure
     public const string SandboxDataDeleted = "sandbox_data_deleted";
     public const string WindowClosed = "customer_service_window_closed";
     public const string TemplateUnavailable = "template_unavailable";
+    public const string MediaTypeNotAllowed = "media_type_not_allowed";
+    public const string MediaTooLarge = "media_too_large";
+    public const string MediaStorageUnavailable = "media_storage_unavailable";
 
     public const string CredentialsUnavailableMessage =
         "Las credenciales del proveedor no están disponibles en este momento. No depende de tu cuenta: contacta al equipo de Conversia.";
@@ -33,13 +36,19 @@ public static class SendFailure
     public const string OutcomeUnknown =
         "No se recibió una respuesta del servicio y no se sabe si el mensaje salió. Verifica en el teléfono de la línea si el mensaje llegó antes de enviarlo de nuevo.";
 
-    /// <summary>The codes <c>POST /api/conversations/{id}/messages</c> may answer with. The API client carries these and no other.</summary>
+    /// <summary>
+    /// The codes a send (<c>POST /api/conversations/{id}/messages</c>, <c>/template-messages</c>, <c>/media-messages</c>) may answer with: every
+    /// messaging problem (an attachment's own three only come from a media send). The API client carries these and no other.
+    /// </summary>
     public static readonly IReadOnlySet<string> SendCodes = new HashSet<string>(StringComparer.Ordinal)
     {
         ConversationClosed, ChannelInactive, CredentialsMissing, CredentialsInvalid, RecipientNotAllowed, ProviderRejected,
         ProviderLimitReached, ProviderUnavailable, CredentialsUnavailable, SentNotRecorded, SandboxConversation, SandboxModeActive,
-        SandboxDataDeleted, WindowClosed, TemplateUnavailable,
+        SandboxDataDeleted, WindowClosed, TemplateUnavailable, MediaTypeNotAllowed, MediaTooLarge, MediaStorageUnavailable,
     };
+
+    /// <summary>The codes <c>POST /api/conversations/{id}/media-messages</c> may answer with: those of a send and the attachment's own.</summary>
+    public static readonly IReadOnlySet<string> MediaSendCodes = SendCodes;
 
     /// <summary>The codes <c>POST /api/channels/{id}/templates/sync</c> may answer with.</summary>
     public static readonly IReadOnlySet<string> TemplateSyncCodes = new HashSet<string>(StringComparer.Ordinal)
@@ -71,6 +80,9 @@ public static class SendFailure
         WindowClosed => "Pasaron más de 24 horas desde el último mensaje del cliente, así que WhatsApp no permite enviarle texto libre. Elige una plantilla aprobada para retomar la conversación; tu texto quedó guardado.",
         TemplateUnavailable => "La plantilla elegida ya no está disponible: no existe para este número, no está aprobada o Conversia aún no puede enviarla. Sincroniza las plantillas en Organización y elige otra.",
         SandboxModeActive => "Tu empresa está en modo sandbox y no se envían mensajes reales. Esta conversación es real: podrás escribir en ella cuando el modo sandbox se desactive.",
+        MediaTypeNotAllowed => "Ese archivo no se puede enviar: solo se admiten imágenes JPEG o PNG y documentos PDF, de Office o de texto, y su contenido debe corresponder a su tipo.",
+        MediaTooLarge => "El archivo es demasiado grande para WhatsApp: hasta 5 MB para imágenes y 100 MB para documentos.",
+        MediaStorageUnavailable => "El almacenamiento de archivos no está configurado, así que no se pueden enviar adjuntos. No depende de tu cuenta: contacta al equipo de Conversia.",
         _ => null,
     };
 

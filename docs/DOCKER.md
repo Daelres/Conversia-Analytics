@@ -77,6 +77,11 @@ Nothing secret is baked into an image; everything below is supplied at run time.
 | `Messaging__CredentialEncryptionKey` | api | no | Master key (base64 of 32 random bytes) of the stored 360dialog keys; unset, sending answers `503`; malformed, the API does not start (`docs/MESSAGING.md`). |
 | `PlatformAdmin__Email`, `PlatformAdmin__Password` | api | no | Both set: the API creates this platform administrator at startup when no one has the email (never overwrites). Empty = none. Password: at least 12 characters, not a placeholder, or the API will not start. Compose passes them from `PLATFORM_ADMIN_EMAIL` / `PLATFORM_ADMIN_PASSWORD`; add those two to your `.env` (they are not in `.env.example` yet) and **remove `PLATFORM_ADMIN_PASSWORD` once the account exists**: the API forgets the password in memory after the bootstrap, but the container's environment keeps it for as long as the variable is set. `docs/PLATFORM_ADMIN.md`. |
 | `PlatformAdmin__PasswordFile` | api | no | Instead of `PlatformAdmin__Password`: the path, inside the container, of a file that holds the bootstrap password (a Docker secret you mount; a trailing newline is dropped). Both set, or a file that is unreadable or empty, stop the API at startup with an error that names the key. Compose passes it from `PLATFORM_ADMIN_PASSWORD_FILE`. |
+| `Media__Store` | api | no | `None` (default: received media is not downloaded, attachments cannot be sent), `Local` or `Azure`. See "Media storage" below and docs/MESSAGING.md. Compose passes `MEDIA_STORE`. |
+| `Media__Local__RootPath`, `Media__Local__EncryptionKey` | api | with `Local` | The image creates `/var/lib/conversia/media` for the non-root user; compose mounts the `api-media` volume there. The key is base64 of 32 random bytes (`MEDIA_ENCRYPTION_KEY`); a malformed or missing one stops the API. |
+| `Media__Azure__ServiceUri` or `Media__Azure__ConnectionString`, `Media__Azure__ManagedIdentityClientId`, `Media__Azure__Container` | api | with `Azure` | Exactly one of the service URL (`https://<account>.blob.core.windows.net`, the app's managed identity) or the connection string (a secret). Container name default `conversia-media`. |
+| `Media__RetentionDays` | api | no | Platform default of the media retention (90). |
+| `Media__Local__AllowOutsideDevelopment` | api | with `Local` outside Development | `true` to accept the local store in Production (one instance only: the compose stack). Compose passes `MEDIA_LOCAL_ALLOW_OUTSIDE_DEVELOPMENT` (default `false`); the smoke test sets it. |
 | `Api__BaseUrl` | web | yes | Base URL of the API as seen from the Web container. |
 | `ErrorReporting__ApiKey` | web | no | See `ErrorLogging__ReportKey`. |
 | `Support__ContactText` | web | no | One line of plain text (up to 300 characters) shown on the pending/suspended page so the person knows how to reach the team, for example `Escríbenos a soporte@empresa.co o al +57 300 000 0000`. Empty = no contact card. Too long or with control characters stops the Web at startup. Compose passes it from `SUPPORT_CONTACT_TEXT`; `.env.example` does not list it yet, add `SUPPORT_CONTACT_TEXT=` to your `.env` by hand. |
@@ -85,7 +90,7 @@ Nothing secret is baked into an image; everything below is supplied at run time.
 | `ASPNETCORE_HTTP_PORTS` | api, web | no | Defaults to 8080 in the images. |
 | `--connection` (argument) | migrator | yes | Same connection string as the API. |
 
-Compose-level variables (`.env`, see `.env.example`): `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ERROR_REPORT_KEY`, `D360_API_KEY`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `PLATFORM_ADMIN_PASSWORD_FILE`, `SUPPORT_CONTACT_TEXT`, `API_PORT`, `WEB_PORT`, `POSTGRES_PORT`, `CONVERSIA_TAG`, `CONVERSIA_VERSION`, `CONVERSIA_GIT_SHA`, `CONVERSIA_BUILD_DATE`.
+Compose-level variables (`.env`, see `.env.example`): `MEDIA_STORE`, `MEDIA_ENCRYPTION_KEY`, `MEDIA_AZURE_CONNECTION_STRING`, `MEDIA_AZURE_SERVICE_URI`, `MEDIA_AZURE_MANAGED_IDENTITY_CLIENT_ID`, `MEDIA_AZURE_CONTAINER`, `MEDIA_RETENTION_DAYS`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ERROR_REPORT_KEY`, `D360_API_KEY`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `PLATFORM_ADMIN_PASSWORD_FILE`, `SUPPORT_CONTACT_TEXT`, `API_PORT`, `WEB_PORT`, `POSTGRES_PORT`, `CONVERSIA_TAG`, `CONVERSIA_VERSION`, `CONVERSIA_GIT_SHA`, `CONVERSIA_BUILD_DATE`.
 
 ### Volumes
 
@@ -93,6 +98,21 @@ Compose-level variables (`.env`, see `.env.example`): `POSTGRES_DB`, `POSTGRES_U
 |---|---|---|
 | `postgres-data` | `/var/lib/postgresql/data` (postgres) | The database. The password is fixed here when the volume is first created. |
 | `web-keys` | `/keys` (web) | The Web's ASP.NET Core Data Protection keys. |
+| `api-media` | `/var/lib/conversia/media` (api) | The local media store (`Media__Store=Local`): every file encrypted with `Media__Local__EncryptionKey`. Empty with `None` or `Azure`. |
+
+### Media storage
+
+- **Development and this compose:** `MEDIA_STORE=Local`, `MEDIA_LOCAL_ALLOW_OUTSIDE_DEVELOPMENT=true` (the images run as Production) and
+  `MEDIA_ENCRYPTION_KEY=$(openssl rand -base64 32)` in `.env` (all new; add
+  them by hand, `.env.example` does not list them yet). Losing the key makes the stored files unreadable (the messages stay). The smoke test
+  runs with `Local` and a throw-away key.
+- **Production (Azure):** a Storage account with a **private** container (no anonymous access; the API refuses a public one), "Secure transfer
+  required", and preferably the App Service's managed identity with the role *Storage Blob Data Contributor* on the container
+  (`Media__Azure__ServiceUri`), so no secret is configured. Azure encrypts blobs at rest by default (Microsoft-managed keys; customer-managed
+  keys in Key Vault are an option of the account). Lifecycle rules are not needed: the API purges by the companies' retention.
+- **Azurite** (the Azure Storage emulator) is what the integration tests use, in a Testcontainers container
+  (`mcr.microsoft.com/azure-storage/azurite`); to try the Azure adapter by hand, run it and point `Media__Azure__ConnectionString` at
+  `UseDevelopmentStorage=true`-style settings of the emulator.
 
 The Web uses Data Protection to protect the sign-in cookie and the antiforgery tokens of every form. Without persisted keys, each container restart or recreate (`docker compose up --build` included) generates a new key ring, so every cookie and every form that was open before the restart is rejected. The `web-keys` volume keeps the ring across restarts; the application name is fixed (`Conversia.Web`) so the keys belong to this app only. The Dockerfile creates `/keys` owned by the non-root app user before dropping privileges, so a fresh named volume inherits a writable directory.
 

@@ -49,17 +49,27 @@ public class WebhookIngestionService : IWebhookIngestionService
             return WebhookStoreResult.InvalidPayload;
         }
 
-        var webhookEvent = WebhookEvent.Receive(
-            channel.TenantId,
-            channel.ChannelId,
-            SHA256.HashData(body.Span),
-            Encoding.UTF8.GetString(body.Span),
-            _timeProvider.GetUtcNow().UtcDateTime,
-            channel.IsSandbox);
+        // What may be kept of the raw body (docs/WEBHOOKS.md, "Coexistence"): the address book and a history the channel does not import are
+        // reduced to counts, and an imported history is split into bounded deliveries. Untouched deliveries keep their bytes and hash.
+        var text = Encoding.UTF8.GetString(body.Span);
+        var importsHistory = text.Contains("\"history\"", StringComparison.Ordinal)
+                             && (await _channels.GetByIdAsync(channel.ChannelId, cancellationToken))?.HistoryImportEnabled == true;
+        var parts = text.Contains("\"smb_app_state_sync\"", StringComparison.Ordinal) || text.Contains("\"history\"", StringComparison.Ordinal)
+            ? Ingestion.WebhookPayloadRewriter.Rewrite(text, importsHistory)
+            : [text];
 
+        var stored = false;
         try
         {
-            return await _events.AddIfNewAsync(webhookEvent, cancellationToken) ? WebhookStoreResult.Stored : WebhookStoreResult.Duplicate;
+            foreach (var part in parts)
+            {
+                var bytes = ReferenceEquals(part, text) ? body.ToArray() : Encoding.UTF8.GetBytes(part);
+                var webhookEvent = WebhookEvent.Receive(
+                    channel.TenantId, channel.ChannelId, SHA256.HashData(bytes), part, _timeProvider.GetUtcNow().UtcDateTime, channel.IsSandbox);
+                stored |= await _events.AddIfNewAsync(webhookEvent, cancellationToken);
+            }
+
+            return stored ? WebhookStoreResult.Stored : WebhookStoreResult.Duplicate;
         }
         catch (InvalidWebhookPayloadException)
         {

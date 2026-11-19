@@ -1,0 +1,74 @@
+@using Conversia.Web.Services
+@* Sends an image or a document (docs/MESSAGING.md, "Sending media"). A plain multipart form posted to the Web (/conversaciones/{id}/adjuntar),
+   which forwards the file to the API without its name and redirects back here with a notice: no script is needed. Offered only while free text
+   is (the composer is available and the 24-hour window open); the API checks everything again. In a sandbox conversation a second form lets the
+   simulated customer send a synthetic image or document (docs/SANDBOX.md). *@
+@if (Offered || CustomerOffered || Notice is not null)
+{
+    <Card Title="Adjuntar un archivo" Subtitle="Imagen JPEG o PNG (hasta 5 MB) o documento PDF, de Office o de texto (hasta 100 MB)." IconName="link" id="adjuntar" data-testid="attachment-composer">
+        <div class="stack">
+            @if (Notice is { } notice)
+            {
+                <Alert Kind="@(Sent ? AlertKind.Success : AlertKind.Danger)" data-testid="attachment-notice">@notice</Alert>
+            }
+
+            @if (Offered)
+            {
+                <form method="post" action="@($"/conversaciones/{ConversationId}/adjuntar")" enctype="multipart/form-data" class="form" data-testid="attachment-form" data-submit-once>
+                    <AntiforgeryToken />
+                    <div class="field">
+                        <label class="field__label" for="attachment-file">Archivo</label>
+                        <input id="attachment-file" class="input" type="file" name="file" accept="@MediaLinks.Accept" required />
+                        <p class="field__hint">Se revisa el contenido del archivo: los ejecutables, los scripts y los tipos que WhatsApp no admite se rechazan. El nombre del archivo no se envía.</p>
+                    </div>
+                    <div class="field">
+                        <label class="field__label" for="attachment-caption">Texto que acompaña el archivo (opcional)</label>
+                        <input id="attachment-caption" class="input" type="text" name="caption" maxlength="1024" />
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn--primary" data-testid="attachment-submit"><Icon Name="link" />Enviar archivo</button>
+                    </div>
+                </form>
+            }
+
+            @if (CustomerOffered)
+            {
+                <form method="post" action="@($"/conversaciones/{ConversationId}/adjunto-de-prueba")" class="form" data-testid="customer-attachment-form" data-submit-once>
+                    <AntiforgeryToken />
+                    <div class="field">
+                        <label class="field__label" for="customer-attachment-kind">Adjunto de prueba del cliente</label>
+                        <select id="customer-attachment-kind" class="input" name="attachment">
+                            <option value="image">Imagen de prueba</option>
+                            <option value="document">Documento PDF de prueba</option>
+                        </select>
+                        <p class="field__hint">Un archivo sintético que entra como si el cliente lo hubiera enviado por WhatsApp.</p>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn--secondary" data-testid="customer-attachment-submit"><Icon Name="user" />Enviar como cliente</button>
+                    </div>
+                </form>
+            }
+        </div>
+    </Card>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public Guid ConversationId { get; set; }
+
+    /// <summary>The advisor may send a file now (the composer is available and the window open).</summary>
+    [Parameter]
+    public bool Offered { get; set; }
+
+    /// <summary>The simulated customer of a sandbox conversation may send a synthetic file.</summary>
+    [Parameter]
+    public bool CustomerOffered { get; set; }
+
+    /// <summary>The <c>adjunto</c> of the address after a send.</summary>
+    [Parameter]
+    public string? NoticeCode { get; set; }
+
+    private string? Notice => MediaLinks.Notice(NoticeCode);
+
+    private bool Sent => NoticeCode is "enviado" or "simulado";
+}

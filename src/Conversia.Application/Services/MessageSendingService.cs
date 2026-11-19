@@ -1,6 +1,7 @@
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.Exceptions;
 using Conversia.Application.Interfaces;
+using Conversia.Application.Media;
 using Conversia.Application.Messaging;
 using Conversia.Application.Sandbox;
 using Conversia.Domain.Common;
@@ -41,13 +42,18 @@ public class MessageSendingService : IMessageSendingService
     private readonly IMessageSendOutcomeRecorder? _outcomes;
     private readonly IAdvisorRepository? _advisors;
     private readonly IMessageTemplateRepository? _templates;
+    private readonly IMediaStore? _mediaStore;
+    private readonly IWhatsAppMediaClientResolver? _mediaClients;
 
     /// <param name="outcomes">Counts how each send ended, for the platform's monitoring (docs/PLATFORM_ADMIN.md, "Monitoring").</param>
     public MessageSendingService(
         IConversationRepository conversations, IWhatsAppChannelRepository channels, IContactRepository contacts, IMessageRepository messages,
         ITenantRepository tenants, IWhatsAppMessageSenderResolver senders, TimeProvider timeProvider, ILogger<MessageSendingService> logger,
-        IMessageSendOutcomeRecorder? outcomes = null, IAdvisorRepository? advisors = null, IMessageTemplateRepository? templates = null)
+        IMessageSendOutcomeRecorder? outcomes = null, IAdvisorRepository? advisors = null, IMessageTemplateRepository? templates = null,
+        IMediaStore? mediaStore = null, IWhatsAppMediaClientResolver? mediaClients = null, MediaSettings? mediaSettings = null)
     {
+        _mediaStore = mediaSettings is { Enabled: true } ? mediaStore : null;
+        _mediaClients = mediaClients;
         _templates = templates;
         _advisors = advisors;
         _logger = logger;
@@ -75,8 +81,42 @@ public class MessageSendingService : IMessageSendingService
         return await CountedAsync(conversationId, actingUserId, new TemplatePayload(name, language, request.Parameters ?? []), cancellationToken);
     }
 
-    /// <summary>What a send carries: a free-form text, or a template with its values. Everything around it is the same path.</summary>
+    public async Task<MessageResponse> SendMediaAsync(
+        Guid conversationId, SendMediaMessageRequest request, Guid? actingUserId = null, CancellationToken cancellationToken = default)
+    {
+        var caption = TextRules.Optional(request.Caption, SendMediaMessageRequest.CaptionMaxLength, SendMediaMessageRequest.CaptionRuleMessage);
+        var content = request.Content;
+        if (!content.CanSeek)
+        {
+            throw new ArgumentException("The attachment must be seekable.", nameof(request));
+        }
+
+        var upload = MediaPolicy.InspectUpload(request.DeclaredContentType, MediaPolicy.ReadHead(content));
+        if (content.Length == 0 || !upload.Allowed || (MediaPolicy.IsOfficeDocument(upload.ContentType) && MediaPolicy.ContainsMacros(content)))
+        {
+            throw new MessagingException(MessagingProblem.MediaTypeNotAllowed);
+        }
+
+        if (content.Length > MediaPolicy.MaxBytes(upload.Kind))
+        {
+            throw new MessagingException(MessagingProblem.MediaTooLarge);
+        }
+
+        if (_mediaStore is null || _mediaClients is null)
+        {
+            throw new MessagingException(MessagingProblem.MediaStorageUnavailable);
+        }
+
+        return await CountedAsync(conversationId, actingUserId, new MediaPayload(content, upload.Kind, upload.ContentType!, caption), cancellationToken);
+    }
+
+    /// <summary>What a send carries: a free-form text, a template with its values, or an attachment. Everything around it is the same path.</summary>
     private abstract record Payload;
+
+    private sealed record MediaPayload(Stream Content, MediaKind Kind, string ContentType, string? Caption) : Payload
+    {
+        public override string ToString() => $"MediaPayload {{ Kind = {Kind} }}";
+    }
 
     private sealed record TextPayload(string Text) : Payload;
 
@@ -149,7 +189,7 @@ public class MessageSendingService : IMessageSendingService
         // window"); outside it the provider refuses it anyway (and a sandbox key counts the refusal), so it is refused here first. The same
         // rule in sandbox mode, so that what a person practices there is what happens for real. A template is what the window allows.
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        if (payload is TextPayload && !CustomerServiceWindow.IsOpen(conversation.LastInboundAt, now))
+        if (payload is TextPayload or MediaPayload && !CustomerServiceWindow.IsOpen(conversation.LastInboundAt, now))
         {
             throw new MessagingException(MessagingProblem.WindowClosed);
         }
@@ -182,6 +222,8 @@ public class MessageSendingService : IMessageSendingService
         string text;
         string type;
         MessageTemplateUse? templateUse = null;
+        MessageMedia? media = null;
+        StoredMediaObject? storedMedia = null;
         switch (payload)
         {
             case TextPayload plain:
@@ -200,6 +242,11 @@ public class MessageSendingService : IMessageSendingService
                     .ToList();
                 result = await sender.SendTemplateAsync(new WhatsAppTemplateMessage(channel, contact.WaId, template.Name, template.Language, parameters), cancellationToken);
                 break;
+            case MediaPayload attachment:
+                (result, media, storedMedia) = await SendAttachmentAsync(conversation, channel, contact.WaId, attachment, sandboxMode, cancellationToken);
+                text = attachment.Caption!;
+                type = MediaPolicy.TypeOf(attachment.Kind);
+                break;
             default:
                 throw new InvalidOperationException($"Unexpected payload {payload.GetType().Name}.");
         }
@@ -212,10 +259,13 @@ public class MessageSendingService : IMessageSendingService
         var sentAt = _timeProvider.GetUtcNow().UtcDateTime;
         var providerMessageId = result.ProviderMessageId ?? $"{LocalMessageIdPrefix}{Guid.NewGuid():N}";
 
+        var kept = false;
         try
         {
             // The customer already has the message: the record must not be abandoned because the caller went away.
-            return await RecordAsync(conversation, providerMessageId, type, text, sentAt, actingUserId, advisorId, templateUse);
+            var response = await RecordAsync(conversation, providerMessageId, type, text, sentAt, actingUserId, advisorId, templateUse, media, storedMedia,
+                adopted => kept = adopted);
+            return response;
         }
         catch (Exception ex) when (ex is not MessagingException)
         {
@@ -228,6 +278,27 @@ public class MessageSendingService : IMessageSendingService
             }
 
             throw new MessagingException(MessagingProblem.SentNotRecorded, ex);
+        }
+        finally
+        {
+            // A stored copy that no message holds (the record failed, or the echo stored first already had its own) is deleted at once.
+            if (storedMedia is not null && !kept)
+            {
+                await DeleteCopyAsync(conversation.TenantId, storedMedia.ObjectKey);
+            }
+        }
+    }
+
+    // Best effort, whatever the caller's token: a copy that cannot be deleted now is left to the orphan sweep (docs/MESSAGING.md).
+    private async Task DeleteCopyAsync(Guid tenantId, string objectKey)
+    {
+        try
+        {
+            await _mediaStore!.DeleteAsync(tenantId, objectKey, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("A stored media copy of tenant {TenantId} could not be deleted after a send ({ErrorType}); the orphan sweep removes it.", tenantId, ex.GetType().Name);
         }
     }
 
@@ -250,9 +321,11 @@ public class MessageSendingService : IMessageSendingService
     // The same writes ingestion makes for a message it stores (WebhookEventProcessor), under the same lock, so the two never interleave:
     // if the provider echoes this message to the webhook, whichever comes second finds it stored and adds nothing.
     private async Task<MessageResponse> RecordAsync(
-        Conversation read, string providerMessageId, string type, string text, DateTime sentAt, Guid? userId, Guid? advisorId, MessageTemplateUse? template)
+        Conversation read, string providerMessageId, string type, string? text, DateTime sentAt, Guid? userId, Guid? advisorId, MessageTemplateUse? template,
+        MessageMedia? media = null, StoredMediaObject? storedMedia = null, Action<bool>? copyKept = null)
     {
         Message? recorded = null;
+        var kept = false;
         var found = await _conversations.ChangeSerializedWithIngestionAsync(
             read.TenantId,
             read.Id,
@@ -264,13 +337,16 @@ public class MessageSendingService : IMessageSendingService
                 {
                     recorded = Message.Create(
                         conversation.TenantId, conversation.Id, conversation.ChannelId, providerMessageId, MessageDirection.Outbound, type, text, sentAt,
-                        MessageSender.Conversia, userId, advisorId, template: template);
+                        MessageSender.Conversia, userId, advisorId, media: media, template: template, storedMedia: storedMedia);
                     await _messages.AddAsync(recorded, CancellationToken.None);
+                    kept = storedMedia is not null;
                 }
                 else if (recorded.Direction == MessageDirection.Outbound && recorded.Sender != MessageSender.Conversia)
                 {
-                    // Its echo arrived first and was stored as sent from the phone app: it was sent from here.
+                    // Its echo arrived first and was stored as sent from the phone app: it was sent from here, and it takes the copy the send
+                    // stored unless it already has one (then ours is deleted, never left behind).
                     recorded.AttributeToConversia(userId, advisorId);
+                    kept = storedMedia is not null && recorded.AdoptStoredCopy(storedMedia, sentAt);
                     await _messages.UpdateAsync(recorded, CancellationToken.None);
                 }
 
@@ -285,7 +361,51 @@ public class MessageSendingService : IMessageSendingService
             throw new ConversationGoneException();
         }
 
+        copyKept?.Invoke(kept);
+
         return MessageResponse.From(recorded);
+    }
+
+    // The copy is stored first (nothing is sent that could not be shown afterwards), then uploaded and sent by its media id. A refusal on the
+    // way deletes the copy again; a send whose outcome is unknown keeps it out of the conversation too.
+    private async Task<(WhatsAppSendResult Result, MessageMedia? Media, StoredMediaObject? Stored)> SendAttachmentAsync(
+        Conversation conversation, WhatsAppChannel channel, string recipient, MediaPayload attachment, bool sandboxMode, CancellationToken cancellationToken)
+    {
+        attachment.Content.Position = 0;
+        var stored = await _mediaStore!.PutAsync(conversation.TenantId, attachment.Content, attachment.ContentType, cancellationToken);
+        var handedOver = false;
+        try
+        {
+            var client = _mediaClients!.Resolve(channel, sandboxMode);
+            WhatsAppSendResult result;
+            attachment.Content.Position = 0;
+            var upload = await client.UploadAsync(channel, attachment.Content, attachment.ContentType, cancellationToken);
+            if (upload.Status != WhatsAppSendStatus.Sent || upload.ProviderMediaId is null)
+            {
+                result = WhatsAppSendResult.Failed(upload.Status == WhatsAppSendStatus.Sent ? WhatsAppSendStatus.Rejected : upload.Status);
+            }
+            else
+            {
+                result = await client.SendMediaAsync(
+                    new WhatsAppMediaMessage(channel, recipient, MediaPolicy.TypeOf(attachment.Kind), upload.ProviderMediaId, attachment.Caption), cancellationToken);
+            }
+
+            if (result.Status != WhatsAppSendStatus.Sent)
+            {
+                return (result, null, null);
+            }
+
+            handedOver = true; // the record step keeps it or deletes it
+            return (result, new MessageMedia(upload.ProviderMediaId, attachment.ContentType, attachment.Caption is not null), stored);
+        }
+        finally
+        {
+            // A refusal, an exception or a cancellation on the way: the copy must not stay behind.
+            if (!handedOver)
+            {
+                await DeleteCopyAsync(conversation.TenantId, stored.ObjectKey);
+            }
+        }
     }
 
     // The check ran before the provider was called and holds no lock, so the conversation may have been closed or its channel switched

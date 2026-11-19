@@ -85,6 +85,9 @@ WORKDIR /app
 COPY --from=publish /app/publish .
 # Liveness probe (bash /dev/tcp, no curl in the image): see docker/healthcheck.sh and docs/DOCKER.md.
 COPY --chmod=0555 docker/healthcheck.sh /usr/local/bin/healthcheck
+# The local media store (Media:Store=Local, development and compose only): created and chowned BEFORE the switch to the non-root user,
+# so a named volume mounted there stays writable. The files in it are encrypted (docs/DOCKER.md, "Media storage").
+RUN mkdir -p /var/lib/conversia/media && chown $APP_UID /var/lib/conversia/media && chmod 0700 /var/lib/conversia/media
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \

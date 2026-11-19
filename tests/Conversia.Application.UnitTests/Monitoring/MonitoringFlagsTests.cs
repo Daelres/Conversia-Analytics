@@ -107,4 +107,17 @@ public class MonitoringFlagsTests
         Assert.Equal("warning", flag.Severity);
         Assert.Contains("2", flag.Message);
     }
+
+    [Fact]
+    public void ALineDisconnectedByCoexistence_IsAWarning_WithTheAppReminder()
+    {
+        var flag = Assert.Single(MonitoringFlags.Evaluate(Calm with { DisconnectedChannels = 2 }, Thresholds));
+
+        Assert.Equal(("coexistence_disconnected", "warning"), (flag.Code, flag.Severity));
+        Assert.Contains("13 días", flag.Message);
+    }
+
+    [Fact]
+    public void MediaDownloadsThatFailed_AreAWarning()
+        => Assert.Equal(["media_failures"], Codes(Calm with { MediaFailed24h = 3 }));
 }

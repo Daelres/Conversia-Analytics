@@ -344,6 +344,31 @@ public class PlatformAdminService : IPlatformAdminService
         return await ReadSummaryAsync(tenantId, cancellationToken);
     }
 
+    public async Task<TenantSummaryResponse> SetMediaRetentionAsync(
+        Guid adminId, Guid tenantId, SetMediaRetentionRequest request, CancellationToken cancellationToken = default)
+    {
+        var reason = Tenant.LimitChangeReason(request.Reason);
+        await using (var change = await _unitOfWork.BeginAsync(tenantId, cancellationToken) ?? throw new TenantNotFoundException())
+        {
+            var tenant = change.Tenant;
+            var previous = tenant.MediaRetentionDays;
+            tenant.SetMediaRetentionDays(request.Days);
+            if (previous != request.Days)
+            {
+                // Days only: the retention job applies it at its next run (docs/PLATFORM_ADMIN.md, "Media retention").
+                change.Record(PlatformAuditLog.Record(adminId, PlatformAuditLog.Actions.TenantMediaRetentionChanged, tenantId, new Dictionary<string, object?>
+                {
+                    ["from"] = previous,
+                    ["to"] = request.Days,
+                    ["reason"] = reason,
+                }));
+                await change.CommitAsync(cancellationToken);
+            }
+        }
+
+        return await ReadSummaryAsync(tenantId, cancellationToken);
+    }
+
     private TenantLimitsResponse LimitsOf(TenantAdminSummary s)
     {
         var aiQuota = _defaults.Ai.EffectiveQuota(s.AiMonthlyConversationQuota);
@@ -362,6 +387,9 @@ public class PlatformAdminService : IPlatformAdminService
             SendRateLimitIsDefault = s.SendRateLimitPerMinute is null,
             DefaultSendRateLimitPerMinute = _defaults.TenantSendRateLimitPerMinute,
             MaxSendRateLimitPerMinute = _defaults.MaxSendRateLimitPerMinute,
+            FileRetentionDays = s.MediaRetentionDays ?? _defaults.DefaultMediaRetentionDays,
+            FileRetentionIsDefault = s.MediaRetentionDays is null,
+            DefaultFileRetentionDays = _defaults.DefaultMediaRetentionDays,
             AiAnalysisMode = s.AiAnalysisMode.ToString(),
             AiAnalysisNightlyHour = s.AiAnalysisMode == AiAnalysisMode.Nightly ? s.AiAnalysisNightlyHour ?? _defaults.ScheduleSettings.DefaultNightlyHour : null,
             AiAnalysisNightlyHourIsDefault = s.AiAnalysisMode == AiAnalysisMode.Nightly && s.AiAnalysisNightlyHour is null,

@@ -17,6 +17,7 @@ internal static class TenantDataDeletionPlan
     public static readonly IReadOnlyList<Step> Steps =
     [
         ByTenant("Messages"), // -> Conversations, WhatsAppChannels
+        ByTenant("MediaObjectDeletions"), // the queue of media objects to delete (the store itself is emptied by prefix, TenantDataDeleter)
         ByTenant("Opportunities"), // -> Conversations
         ByTenant("AiUsageConversations"), // the AI distinct conversation sets (design D24: they go with the conversations)
         ByTenant("LlmBatchRequests"), // -> Conversations, LlmBatches; ids and hashes of the batched analyses (the batch rows hold no company)

@@ -10,7 +10,7 @@ namespace Conversia.Application.UnitTests.DTOs;
 /// </summary>
 public class TenantDtoGuardTests
 {
-    private static readonly string[] NotExposed = ["MediaId", "AssignedAdvisorIdAtReceipt"];
+    private static readonly string[] NotExposed = ["MediaId", "AssignedAdvisorIdAtReceipt", "MediaObjectKey", "ObjectKey"];
 
     [Fact]
     public void NoAnswerOfTheApi_ExposesTheMediaId_NorTheEchoContext()

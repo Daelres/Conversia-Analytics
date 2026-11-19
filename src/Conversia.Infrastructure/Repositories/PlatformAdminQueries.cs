@@ -132,7 +132,8 @@ public class PlatformAdminQueries : IPlatformAdminQueries
                 .Join(_db.BillingPlans, b => b.PlanId, p => p.Id, (b, p) => p.Code).FirstOrDefault(),
             t.AiAnalysisMode,
             t.AiAnalysisNightlyHour,
-            t.AiAnalysisIntervalHours));
+            t.AiAnalysisIntervalHours,
+            t.MediaRetentionDays));
 
     private static string EscapeLike(string text)
         => text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);

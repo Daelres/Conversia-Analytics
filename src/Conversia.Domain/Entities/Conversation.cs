@@ -156,6 +156,12 @@ public class Conversation : BaseEntity
     /// </summary>
     public bool IsSandbox { get; private set; }
 
+    /// <summary>
+    /// Built from a shared chat history (coexistence onboarding, docs/WEBHOOKS.md "History import"): created closed, so a live message never
+    /// joins it (the customer's next message opens a live conversation). Set at creation, never changed.
+    /// </summary>
+    public bool IsImported { get; private set; }
+
     // Required by EF Core for materialization.
     private Conversation()
     {
@@ -163,7 +169,7 @@ public class Conversation : BaseEntity
 
     public static Conversation Start(
         Guid tenantId, Guid contactId, Guid channelId, Guid branchId, DateTime startedAt, ConversationSource source, string? sourceReference = null,
-        bool isSandbox = false, AdReferral? referral = null)
+        bool isSandbox = false, AdReferral? referral = null, bool isImported = false)
     {
         if (!Enum.IsDefined(source))
         {
@@ -182,6 +188,9 @@ public class Conversation : BaseEntity
             StartedAt = started,
             LastMessageAt = started,
             IsSandbox = isSandbox,
+            IsImported = isImported,
+            Status = isImported ? ConversationStatus.Closed : ConversationStatus.Open,
+            ClosedAt = isImported ? started : null,
         }.WithReferral(source == ConversationSource.Ads ? referral : null);
     }
 
@@ -271,14 +280,15 @@ public class Conversation : BaseEntity
     /// already dirty: a worker that is classifying the conversation right now cannot clear this request by mistake (its own write
     /// waits for the row lock this one takes, and this one lands after it).
     /// </summary>
-    public void RequestClassification(DateTime now)
+    public void RequestClassification(DateTime now, bool includeLlm = true)
     {
         ClassificationDirty = true;
         ClassificationRequestedAt = UtcTime.Normalize(now);
         ClassificationFailures = 0;
         ClassificationAttemptedAt = null;
         LlmFailures = 0;
-        LlmPending = true;
+        // Imported history is read by the AI only when the company opted in (it costs per conversation): otherwise the rules alone.
+        LlmPending = includeLlm;
     }
 
     /// <summary>
@@ -458,6 +468,12 @@ public class Conversation : BaseEntity
         FirstResponseAt = UtcTime.Normalize(timeline.FirstResponseAt);
         LastInboundAt = UtcTime.Normalize(timeline.LastInboundAt);
         LastOutboundAt = UtcTime.Normalize(timeline.LastOutboundAt);
+
+        // An imported conversation stays closed at its last message, however many history chunks it took to arrive.
+        if (IsImported && ClosedAt < LastMessageAt)
+        {
+            ClosedAt = LastMessageAt;
+        }
     }
 }
 

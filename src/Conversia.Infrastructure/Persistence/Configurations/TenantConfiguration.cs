@@ -33,6 +33,7 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
         builder.Property(t => t.AiEnabledChangedAt);
         builder.Property(t => t.AiMonthlyConversationQuota);
         builder.Property(t => t.SendRateLimitPerMinute);
+        builder.Property(t => t.MediaRetentionDays);
         // When the LLM reads the company (docs/CLASSIFICATION.md, "When the AI reads"): nightly by default.
         builder.Property(t => t.AiAnalysisMode).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength)
             .HasDefaultValue(Domain.Enums.AiAnalysisMode.Nightly).HasSentinel((Domain.Enums.AiAnalysisMode)(-1));
@@ -47,6 +48,8 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
             "CK_Tenants_AiMonthlyConversationQuota", $"\"AiMonthlyConversationQuota\" IS NULL OR \"AiMonthlyConversationQuota\" BETWEEN 0 AND {Tenant.MaxAiMonthlyConversationQuota}"));
         builder.ToTable(t => t.HasCheckConstraint(
             "CK_Tenants_SendRateLimitPerMinute", $"\"SendRateLimitPerMinute\" IS NULL OR \"SendRateLimitPerMinute\" BETWEEN 1 AND {Tenant.MaxSendRateLimitPerMinute}"));
+        builder.ToTable(t => t.HasCheckConstraint(
+            "CK_Tenants_MediaRetentionDays", $"\"MediaRetentionDays\" IS NULL OR \"MediaRetentionDays\" BETWEEN 1 AND {Tenant.MaxMediaRetentionDays}"));
 
         // The lifecycle (docs/PLATFORM_ADMIN.md, "Lifecycle of a company"): a suspension always says why, and only a cancelled company has a
         // cancellation and a deletion date. Bounded in the database too, so the workers' SQL can trust the columns.

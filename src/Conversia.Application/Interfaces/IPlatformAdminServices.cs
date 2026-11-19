@@ -55,6 +55,9 @@ public interface IPlatformAdminService
     /// <summary>Sets the company's send rate limit per minute (null: the default). Audited; the same value writes nothing.</summary>
     Task<TenantSummaryResponse> SetSendRateLimitAsync(Guid adminId, Guid tenantId, SetSendRateLimitRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>Sets the company's own media retention (null: the platform default), with a reason, audited. Throws <see cref="Exceptions.TenantNotFoundException"/>.</summary>
+    Task<TenantSummaryResponse> SetMediaRetentionAsync(Guid adminId, Guid tenantId, SetMediaRetentionRequest request, CancellationToken cancellationToken = default);
+
     /// <summary>Switches a line of the company off. Idempotent. Throws <see cref="Exceptions.TenantNotFoundException"/> or <see cref="Exceptions.ChannelNotFoundException"/>.</summary>
     Task<TenantLineResponse> DeactivateChannelAsync(Guid adminId, Guid tenantId, Guid channelId, CancellationToken cancellationToken = default);
 

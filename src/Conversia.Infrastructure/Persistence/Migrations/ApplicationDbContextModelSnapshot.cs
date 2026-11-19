@@ -1067,6 +1067,11 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("FirstResponseAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("IsImported")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("IsSandbox")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -1576,6 +1581,47 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.ToTable("LlmBatchRequests", (string)null);
                 });
 
+            modelBuilder.Entity("Conversia.Domain.Entities.MediaObjectDeletion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "CreatedAt");
+
+                    b.ToTable("MediaObjectDeletions", (string)null);
+                });
+
             modelBuilder.Entity("Conversia.Domain.Entities.Message", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1607,6 +1653,20 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<bool>("IsImported")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<int>("MediaAttempts")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("MediaContentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("MediaId")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -1614,6 +1674,23 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<string>("MediaMimeType")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("MediaNextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MediaObjectKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<long?>("MediaSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("MediaStatus")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("MediaStoredAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ProviderMessageId")
                         .IsRequired()
@@ -1670,6 +1747,12 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.HasIndex("ConversationId", "SentAt");
 
                     b.HasIndex("TenantId", "SentAt");
+
+                    b.HasIndex(new[] { "MediaNextAttemptAt" }, "IX_Messages_MediaPending")
+                        .HasFilter("\"MediaStatus\" = 'Pending'");
+
+                    b.HasIndex(new[] { "TenantId", "MediaStoredAt" }, "IX_Messages_MediaStored")
+                        .HasFilter("\"MediaStatus\" = 'Stored'");
 
                     b.ToTable("Messages", (string)null);
                 });
@@ -2110,6 +2193,9 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                     b.Property<int>("MaxActiveLines")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("MediaRetentionDays")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -2168,6 +2254,8 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_Tenants_Cancellation", "(\"Status\" = 'Cancelled') = (\"CancelledAt\" IS NOT NULL AND \"DataDeletionDueAt\" IS NOT NULL) AND (\"DataDeletionStartedAt\" IS NULL OR \"Status\" = 'Cancelled')");
 
                             t.HasCheckConstraint("CK_Tenants_MaxActiveLines", "\"MaxActiveLines\" BETWEEN 0 AND 1000");
+
+                            t.HasCheckConstraint("CK_Tenants_MediaRetentionDays", "\"MediaRetentionDays\" IS NULL OR \"MediaRetentionDays\" BETWEEN 1 AND 3650");
 
                             t.HasCheckConstraint("CK_Tenants_SendRateLimitPerMinute", "\"SendRateLimitPerMinute\" IS NULL OR \"SendRateLimitPerMinute\" BETWEEN 1 AND 1000000");
 
@@ -2409,8 +2497,27 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
 
+                    b.Property<bool>("HistoryAiAnalysisEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTime?>("HistoryImportConsentedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("HistoryImportConsentedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("HistoryImportEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("ProviderAccountEventAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ProviderApiKeyCiphertext")
                         .HasMaxLength(1024)
@@ -2418,6 +2525,17 @@ namespace Conversia.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTime?>("ProviderApiKeySetAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ProviderDisconnectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProviderDisconnectionEvent")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ProviderDisconnectionReason")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<string>("ProviderEnvironment")
                         .IsRequired()
@@ -2635,6 +2753,15 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.MediaObjectDeletion", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

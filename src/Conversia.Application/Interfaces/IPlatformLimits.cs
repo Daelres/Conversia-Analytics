@@ -18,7 +18,8 @@ public interface ITenantSendRateLimits
 /// <summary>The deployment defaults a company's own limits fall back to.</summary>
 /// <param name="MaxSendRateLimitPerMinute">The most a company's own send limit may be (<c>Messaging:TenantSendRateLimitMaxPerMinute</c>).</param>
 public sealed record PlatformLimitDefaults(
-    int TenantSendRateLimitPerMinute, AiQuotaSettings Ai, int MaxSendRateLimitPerMinute = 1200, Classification.Scheduling.AnalysisScheduleSettings? Schedule = null)
+    int TenantSendRateLimitPerMinute, AiQuotaSettings Ai, int MaxSendRateLimitPerMinute = 1200, Classification.Scheduling.AnalysisScheduleSettings? Schedule = null,
+    int DefaultMediaRetentionDays = 90)
 {
     /// <summary>The LLM schedule's deployment settings (<c>Classification:Schedule:*</c>).</summary>
     public Classification.Scheduling.AnalysisScheduleSettings ScheduleSettings => Schedule ?? Classification.Scheduling.AnalysisScheduleSettings.Default;

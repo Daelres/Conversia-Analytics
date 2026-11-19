@@ -8,7 +8,8 @@ namespace Conversia.Application.Ingestion;
 public sealed class WebhookPermanentFailureException(string message) : Exception(message);
 
 /// <summary>The most messages one delivery may hold; a bigger one is a permanent failure. The processing is bounded by it, not by hope.</summary>
-public sealed record WebhookIngestionLimits(int MaxMessagesPerDelivery);
+/// <param name="MaxHistoryMessagesPerDelivery">The bound of a shared-history delivery (Meta sends thousands of messages per chunk).</param>
+public sealed record WebhookIngestionLimits(int MaxMessagesPerDelivery, int MaxHistoryMessagesPerDelivery = 5000);
 
 /// <summary>
 /// The one description of an ingestion failure that may be stored (<c>WebhookEvents.LastError</c>, the error registry) or logged: the

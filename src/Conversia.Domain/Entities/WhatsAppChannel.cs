@@ -75,6 +75,86 @@ public class WhatsAppChannel : BaseEntity
 
     public bool HasProviderApiKey => ProviderApiKeyCiphertext is not null;
 
+    /// <summary>
+    /// The coexistence notification that disconnected the number from the API (<c>PARTNER_REMOVED</c> or <c>ACCOUNT_OFFBOARDED</c>,
+    /// Meta's <c>account_update</c>); null while it is connected. Content-free: an event and a reason word (docs/WEBHOOKS.md, "Coexistence").
+    /// </summary>
+    public string? ProviderDisconnectionEvent { get; private set; }
+
+    /// <summary>The <c>disconnection_info.reason</c> of a <c>PARTNER_REMOVED</c> (<c>PRIMARY_INACTIVITY</c>: the app was not opened for about 14 days).</summary>
+    public string? ProviderDisconnectionReason { get; private set; }
+
+    /// <summary>When the number was disconnected; null while connected.</summary>
+    public DateTime? ProviderDisconnectedAt { get; private set; }
+
+    /// <summary>The time of the last applied account notification: an older one changes nothing.</summary>
+    public DateTime? ProviderAccountEventAt { get; private set; }
+
+    public bool IsProviderDisconnected => ProviderDisconnectedAt is not null;
+
+    /// <summary>The shared chat history (coexistence onboarding) is stored. Off by default; only the owner turns it on (docs/MESSAGING.md, "History import").</summary>
+    public bool HistoryImportEnabled { get; private set; }
+
+    /// <summary>The imported conversations are read by the AI too (it costs per conversation); otherwise only by the rules.</summary>
+    public bool HistoryAiAnalysisEnabled { get; private set; }
+
+    /// <summary>The user who last confirmed the company's legal basis to import past conversations. Kept when the import is turned off.</summary>
+    public Guid? HistoryImportConsentedBy { get; private set; }
+
+    /// <summary>When <see cref="HistoryImportConsentedBy"/> confirmed it.</summary>
+    public DateTime? HistoryImportConsentedAt { get; private set; }
+
+    public const int DisconnectionWordMaxLength = 50;
+
+    /// <summary>
+    /// Applies a coexistence <c>account_update</c>: <c>PARTNER_REMOVED</c> and <c>ACCOUNT_OFFBOARDED</c> flag the number as disconnected,
+    /// <c>ACCOUNT_RECONNECTED</c> clears the flag. A notification older than the last applied one, or another event, changes nothing.
+    /// Returns whether it changed something.
+    /// </summary>
+    public bool ApplyAccountUpdate(string accountEvent, string? reason, DateTime occurredAt)
+    {
+        var at = UtcTime.Normalize(occurredAt);
+        if (ProviderAccountEventAt is { } last && at < last)
+        {
+            return false;
+        }
+
+        switch (accountEvent)
+        {
+            case "PARTNER_REMOVED" or "ACCOUNT_OFFBOARDED":
+                ProviderDisconnectionEvent = accountEvent;
+                ProviderDisconnectionReason = reason is { Length: >= 1 and <= DisconnectionWordMaxLength } && reason.All(c => char.IsAsciiLetterUpper(c) || c == '_') ? reason : null;
+                ProviderDisconnectedAt = at;
+                break;
+            case "ACCOUNT_RECONNECTED":
+                ProviderDisconnectionEvent = null;
+                ProviderDisconnectionReason = null;
+                ProviderDisconnectedAt = null;
+                break;
+            default:
+                return false;
+        }
+
+        ProviderAccountEventAt = at;
+        return true;
+    }
+
+    /// <summary>Turns the history import on; <paramref name="userId"/> confirmed the company has the legal basis to import past conversations.</summary>
+    public void EnableHistoryImport(Guid userId, DateTime at, bool analyzeWithAi)
+    {
+        HistoryImportConsentedBy = TextRules.RequiredId(userId, "El usuario que confirma la base legal es obligatorio.");
+        HistoryImportConsentedAt = UtcTime.Normalize(at);
+        HistoryImportEnabled = true;
+        HistoryAiAnalysisEnabled = analyzeWithAi;
+    }
+
+    /// <summary>Turns the history import (and its AI analysis) off. What was imported stays; the consent trail stays.</summary>
+    public void DisableHistoryImport()
+    {
+        HistoryImportEnabled = false;
+        HistoryAiAnalysisEnabled = false;
+    }
+
     // Required by EF Core for materialization.
     private WhatsAppChannel()
     {

@@ -49,7 +49,9 @@ public sealed record MonitoringFlagInput(
     int BillingEventsFailed = 0,
     int BillingAttemptsStuck = 0,
     int BillingNeedsReview = 0,
-    int FailedBatches24h = 0);
+    int FailedBatches24h = 0,
+    int DisconnectedChannels = 0,
+    int MediaFailed24h = 0);
 
 /// <param name="Code">Stable machine code (<c>webhook_backlog</c>, ...).</param>
 /// <param name="Severity"><c>warning</c> or <c>critical</c>.</param>
@@ -178,6 +180,18 @@ public static class MonitoringFlags
         {
             flags.Add(new("llm_batches_failed", Warning,
                 $"{input.FailedBatches24h} lotes del análisis nocturno fallaron en las últimas 24 horas (no se pudieron enviar o leer): sus conversaciones pasan a la llamada directa."));
+        }
+
+        if (input.DisconnectedChannels > 0)
+        {
+            flags.Add(new("coexistence_disconnected", Warning,
+                $"{input.DisconnectedChannels} {(input.DisconnectedChannels == 1 ? "línea quedó desconectada" : "líneas quedaron desconectadas")} de la API por coexistencia (por ejemplo, la aplicación WhatsApp Business no se abrió en 13 días): hay que volver a conectarlas en 360dialog."));
+        }
+
+        if (input.MediaFailed24h > 0)
+        {
+            flags.Add(new("media_failures", Warning,
+                $"{input.MediaFailed24h} archivos recibidos no se pudieron descargar en las últimas 24 horas (fallaron todos los intentos)."));
         }
 
         return flags;

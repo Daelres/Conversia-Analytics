@@ -121,6 +121,77 @@ public static class Dialog360Samples
         }
         """;
 
+    /// <summary>
+    /// An image echo of the WhatsApp Business app, shaped after Meta's <c>smb_message_echoes</c> reference
+    /// (https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/smb_message_echoes): the delivery carries
+    /// <c>contacts[]</c> with <c>wa_id</c> and <c>user_id</c>, and the echo carries <c>to_user_id</c> and a media object with <c>caption</c>,
+    /// <c>mime_type</c>, <c>sha256</c>, <c>id</c> and <c>url</c>.
+    /// </summary>
+    public static string EchoImageDocShaped(string id = "wamid.HBgM-ECHO-IMG-1", long timestamp = T0 + 90) => Envelope("smb_message_echoes", $$"""
+        "contacts": [ { "wa_id": "{{CustomerWaId}}", "user_id": "CO.13491208655302741918" } ],
+        "message_echoes": [ { "from": "{{BusinessNumber}}", "to": "{{CustomerWaId}}", "to_user_id": "CO.13491208655302741918", "id": "{{id}}",
+          "timestamp": "{{timestamp}}", "type": "image",
+          "image": { "caption": "Así queda la zona", "mime_type": "image/jpeg", "sha256": "3f9d94d399fa61c191bc1d4ca71375a035cd9b9f5b1128e1f0963a415c16b0cc", "id": "24230790383178626", "url": "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=24230790383178626" } } ]
+        """);
+
+    /// <summary>An echo of the business deleting (<c>revoke</c>) or editing (<c>edit</c>) a message it sent from the app (Meta's reference).</summary>
+    public static string EchoRevokeOrEdit(string type, string id = "wamid.HBgM-ECHO-REV-1") => Envelope("smb_message_echoes", $$"""
+        "contacts": [ { "wa_id": "{{CustomerWaId}}", "user_id": "CO.13491208655302741918" } ],
+        "message_echoes": [ { "from": "{{BusinessNumber}}", "to": "{{CustomerWaId}}", "to_user_id": "CO.13491208655302741918", "id": "{{id}}",
+          "timestamp": "{{T0 + 120}}", "type": "{{type}}",
+          "{{type}}": { "original_message_id": "wamid.HBgM-ECHO-1"{{(type == "edit" ? ", \"message\": { \"type\": \"text\", \"text\": { \"body\": \"Corregido\" } }" : "")}} } } ]
+        """);
+
+    /// <summary>
+    /// One chunk of the chat history the WhatsApp Business app shares after coexistence onboarding, shaped after Meta's <c>history</c> webhook
+    /// reference (https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/history): a business text, a
+    /// <c>media_placeholder</c> (no asset id) and a customer text, with <c>history_context.status</c>.
+    /// </summary>
+    public static string HistoryChunk(int phase = 1, int chunkOrder = 1, int progress = 55, string threadWaId = CustomerWaId, long timestamp = T0 - 86_400 * 30) => Envelope("history", $$"""
+        "history": [ { "metadata": { "phase": {{phase}}, "chunk_order": {{chunkOrder}}, "progress": {{progress}} },
+          "threads": [ { "id": "{{threadWaId}}", "context": { "wa_id": "{{threadWaId}}", "user_id": "CO.13491208655302741918" },
+            "messages": [
+              { "from": "{{BusinessNumber}}", "id": "wamid.HIST-OUT-1", "timestamp": "{{timestamp}}", "type": "text", "text": { "body": "Aquí tienes la información que pediste" }, "history_context": { "status": "READ" } },
+              { "from": "{{BusinessNumber}}", "id": "wamid.HIST-OUT-2", "timestamp": "{{timestamp + 15}}", "type": "media_placeholder", "history_context": { "status": "PLAYED" } },
+              { "from": "{{threadWaId}}", "from_user_id": "CO.13491208655302741918", "id": "wamid.HIST-IN-1", "timestamp": "{{timestamp + 15}}", "type": "text", "text": { "body": "¡Gracias!" }, "history_context": { "status": "READ" } }
+            ] } ] } ]
+        """);
+
+    /// <summary>The follow-up of a history <c>media_placeholder</c>: a <c>messages[]</c> entry under the <c>history</c> field, with the asset id.</summary>
+    public static string HistoryMediaFollowUp(string id = "wamid.HIST-IN-IMG-1", long timestamp = T0 - 86_400 * 3) => Envelope("history", $$"""
+        "messages": [ { "from": "{{CustomerWaId}}", "from_user_id": "CO.13491208655302741918", "id": "{{id}}", "timestamp": "{{timestamp}}", "type": "image",
+          "image": { "caption": "Foto de la zona", "mime_type": "image/jpeg", "sha256": "3f9d94d399fa61c191bc1d4ca71375a035cd9b9f5b1128e1f0963a415c16b0cc", "id": "24230790383178699" } } ]
+        """);
+
+    /// <summary>The business declined sharing its history (Meta's <c>history</c> reference: error <c>2593109</c>).</summary>
+    public static string HistoryDeclined() => Envelope("history", """
+        "history": [ { "errors": [ { "code": 2593109, "title": "History sync is turned off by the business from the WhatsApp Business App",
+          "message": "History sync is turned off by the business from the WhatsApp Business App", "error_data": { "details": "History sharing is turned off by the business" } } ] } ]
+        """);
+
+    /// <summary>The phone's address book synced from the WhatsApp Business app (Meta's <c>smb_app_state_sync</c> reference). Never stored.</summary>
+    public static string AppStateSync() => Envelope("smb_app_state_sync", $$"""
+        "state_sync": [
+          { "type": "contact", "contact": { "full_name": "Laura Gómez", "first_name": "Laura", "phone_number": "{{CustomerWaId}}", "user_id": "CO.13491208655302741918" }, "action": "add", "metadata": { "timestamp": "{{T0}}" } },
+          { "type": "contact", "contact": { "phone_number": "573005550102", "user_id": "CO.99" }, "action": "remove", "metadata": { "timestamp": "{{T0}}" } }
+        ]
+        """);
+
+    /// <summary>
+    /// An <c>account_update</c> notification after Meta's reference
+    /// (https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/account_update). With a
+    /// <paramref name="reason"/>, a <c>PARTNER_REMOVED</c> of a coexistence number carries <c>disconnection_info</c>.
+    /// </summary>
+    public static string AccountUpdate(string accountEvent, string? reason = null, long time = T0) => $$"""
+        {
+          "object": "whatsapp_business_account",
+          "entry": [ { "id": "2949482758682047", "time": {{time}}, "changes": [ { "field": "account_update", "value": {
+            "event": "{{accountEvent}}",
+            "waba_info": { "waba_id": "980198427658004", "owner_business_id": "2329417887457253" }{{(reason is null ? "" : $", \"disconnection_info\": {{ \"reason\": \"{reason}\", \"initiated_by\": \"SYSTEM\" }}")}}
+          } } ] } ]
+        }
+        """;
+
     public static string UnknownEvent() => """
         { "object": "whatsapp_business_account", "entry": [ { "id": "1", "changes": [ { "field": "account_update", "value": { "event": "VERIFIED_ACCOUNT", "phone_number": "573005550100" } } ] } ] }
         """;

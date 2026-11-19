@@ -53,6 +53,15 @@ public enum MessagingProblem
     /// server in sandbox mode, so there is nothing to verify and nothing to keep.
     /// </summary>
     SandboxDataDeleted,
+
+    /// <summary>The attached file is not an image (JPEG, PNG) or an allowed document, or its content does not match (docs/MESSAGING.md, "Media").</summary>
+    MediaTypeNotAllowed,
+
+    /// <summary>The attached file is larger than WhatsApp allows for its kind.</summary>
+    MediaTooLarge,
+
+    /// <summary>No media store is configured (<c>Media:Store</c>): media cannot be kept, so it is not sent either.</summary>
+    MediaStorageUnavailable,
 }
 
 /// <summary>
@@ -88,6 +97,9 @@ public class MessagingException : Exception
         MessagingProblem.SandboxDataDeleted => "sandbox_data_deleted",
         MessagingProblem.WindowClosed => "customer_service_window_closed",
         MessagingProblem.TemplateUnavailable => "template_unavailable",
+        MessagingProblem.MediaTypeNotAllowed => "media_type_not_allowed",
+        MessagingProblem.MediaTooLarge => "media_too_large",
+        MessagingProblem.MediaStorageUnavailable => "media_storage_unavailable",
         _ => throw new ArgumentOutOfRangeException(nameof(problem)),
     };
 
@@ -107,6 +119,9 @@ public class MessagingException : Exception
         MessagingProblem.WindowClosed => "Pasaron más de 24 horas desde el último mensaje del cliente: WhatsApp solo permite enviarle una plantilla aprobada.",
         MessagingProblem.TemplateUnavailable => "La plantilla no existe para este número, no está aprobada o no se puede enviar desde Conversia.",
         MessagingProblem.SandboxModeActive => "El modo sandbox está activo y no se envían mensajes reales. Esta conversación es real: no admite mensajes hasta que se desactive el modo sandbox.",
+        MessagingProblem.MediaTypeNotAllowed => "Solo se pueden enviar imágenes JPEG o PNG y documentos PDF, de Office o de texto, y el contenido del archivo debe corresponder a su tipo.",
+        MessagingProblem.MediaTooLarge => "El archivo supera el tamaño que WhatsApp permite: 5 MB para imágenes y 100 MB para documentos.",
+        MessagingProblem.MediaStorageUnavailable => "El almacenamiento de archivos no está configurado, así que no se pueden enviar adjuntos. Contacta al administrador de Conversia.",
         _ => throw new ArgumentOutOfRangeException(nameof(problem)),
     };
 }
