@@ -245,3 +245,38 @@ Formato: fecha, decisión, razón. Las decisiones abiertas se listan al final.
 - **Enlaces**: solo al dominio propio de la empresa (nunca acortadores ni sitios compartidos), comparado en su forma ASCII.
 - **Topes**: mensajes del asistente por hora por empresa y por conversación; las esperas muy atrasadas o que fallan varias veces pasan a una persona.
 - **Historial de consentimiento y ajustes** en filas que nunca se sobrescriben.
+
+### Asistente de ventas con IA: el modelo (etapa 5b, 2026-11-19)
+
+- **Modelo**: Claude Haiku 5.5 por la API oficial de Anthropic, con esfuerzo bajo y sin razonamiento extendido por defecto (más barato y
+  rápido; se puede cambiar por configuración). **Solo en Development** hasta levantar la puerta de salida, igual que el análisis; con la API
+  real solo atiende conversaciones del sandbox hasta la revisión de privacidad y el contrato de encargado.
+- **Una sola llamada estructurada para responder**, sin herramientas: la base de conocimiento seleccionada cabe en el mensaje y queda en
+  caché; las herramientas añadirían costo y demora sin información nueva.
+- **Filtro previo barato** (guardia): una llamada pequeña clasifica el último turno del cliente (en tema, fuera de tema, manipulación o abuso,
+  pide persona, queja, no se entiende) antes de responder. Las reglas deterministas de la etapa 5a deciden primero, y los saludos y preguntas
+  cortas del catálogo no pasan por la guardia. Si la guardia falla, la conversación pasa a una persona (falla cerrada).
+- **Fuera de tema**: una sola redirección amable; si el cliente insiste, pasa a una persona.
+- **Datos verificados antes de enviar**: cada precio, porcentaje, duración, hora, fecha, promoción y enlace de la respuesta debe estar en los
+  elementos de la base que la respuesta cita; además, reglas de estilo de buen vendedor (mensajes cortos, una pregunta, sin listas ni menús,
+  sin frases de robot). Si falla, se pide una sola corrección y, si vuelve a fallar, pasa a una persona.
+- **El nombre del cliente nunca sale**: el modelo escribe `{nombre}` y se llena localmente con el nombre guardado del contacto.
+- **Cerrar la venta**: el asistente da el siguiente paso (enlace de reserva, cómo pagar el abono) pero nunca dice que la cita quedó agendada ni
+  que recibió un pago; cuando el cliente se compromete, la conversación pasa a una persona para confirmar.
+- **Costos**: categoría propia de uso del asistente con tope mensual por empresa (5 USD por defecto; 1 USD para el sandbox) y el tope mensual
+  de toda la plataforma compartido con el análisis. Disyuntor propio. Costo estimado: unos 0,0002 USD por respuesta con caché (0,0006 sin
+  caché), sin medir aún contra la API real.
+- **Evaluación**: conjunto versionado de 83 chats sintéticos (depilación láser y una tienda de calzado), 40 de ellos de manipulación del
+  asistente; todos terminan en un resultado seguro sobre Replay. Antes de usarlo con clientes reales hay que correrlo contra la API real.
+
+### Revisión de la etapa 5b (2026-11-19)
+
+- **Más estricto donde importa**: los precios, porcentajes, duraciones, horas y fechas se verifican también cuando van en palabras o en jerga
+  («ochenta mil», «50k», «hora y media», «a las tres de la tarde», «mañana»); la hora que se dice para un día debe ser la de ese día (y un
+  festivo no tiene horario); un beneficio (descuento, 2x1, mitad de precio, gratis) solo si la promoción citada dice exactamente eso; ninguna
+  forma de «ya quedó agendada» o «ya vi tu pago»; nada de las instrucciones del asistente en la respuesta, ni traducido.
+- **Más natural donde importa**: un saludo o un «Claro.» no cuentan como frase (hasta 4 frases); un «no manejamos descuentos» honesto pasa;
+  un «dale» después de proponer la cita cuenta como cierre; si no entiende, pide que se lo expliquen de otra forma (dos veces, con frases
+  distintas) antes de pasar a una persona, y el conteo vuelve a cero cuando entiende.
+- **Guardia**: solo se omite para cortesía pura o preguntas del catálogo; queja o pedido de persona pasan a un asesor desde una confianza de
+  0,4 (configurable), o antes si el propio mensaje lo dice.

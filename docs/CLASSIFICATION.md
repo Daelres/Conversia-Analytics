@@ -450,6 +450,11 @@ provider until `Classification:Llm:AllowRealClientNonSandbox=true` is set, and t
 agreement (docs/decisiones.md). Sandbox text is typed by staff and may still contain real data (a real name, a real number): it goes through the
 same pseudonymizer as any conversation, so never paste real customer chats into the sandbox.
 
+**The AI sales assistant** (docs/ASSISTANT.md, "The model") reuses this hardening: the same `AnthropicLlmClient` (key and base URL explicit,
+telemetry off, no SDK retry), the same Development gate, privacy approval and sandbox-only rule (`Assistant:Llm:*`), the pseudonymizer and the
+preprocessor; it has its own usage category (`AssistantUsageMonths`, its own per-company cap) and its own circuit breaker, and its spend counts
+against `Classification:Quota:DeploymentMonthlyUsdCap` together with the analysis.
+
 **Endpoint and environment.** The SDK reads `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, profiles, federation and OpenTelemetry variables
 from the environment. The client is built with the key, the base URL (`Classification:Llm:BaseUrl`, https only, default
 `https://api.anthropic.com`) and telemetry (off) set explicitly, so no environment variable can redirect the prompts and the key, change the

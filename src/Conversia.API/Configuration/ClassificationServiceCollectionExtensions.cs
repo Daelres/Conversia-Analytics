@@ -328,7 +328,7 @@ public static partial class ClassificationServiceCollectionExtensions
         return llm;
     }
 
-    private static string ReadChoice(IConfiguration configuration, string key, string defaultValue, params string[] accepted)
+    internal static string ReadChoice(IConfiguration configuration, string key, string defaultValue, params string[] accepted)
     {
         var raw = configuration[key];
         if (string.IsNullOrWhiteSpace(raw))
@@ -341,9 +341,11 @@ public static partial class ClassificationServiceCollectionExtensions
     }
 
     // The endpoint the prompts and the key go to: only from validated configuration (never ANTHROPIC_BASE_URL), https, no credentials in it.
-    private static Uri ReadBaseUrl(IConfiguration configuration, Uri defaultValue)
+    private static Uri ReadBaseUrl(IConfiguration configuration, Uri defaultValue) => ReadBaseUrl(configuration, LlmOptions.BaseUrlKey, defaultValue);
+
+    internal static Uri ReadBaseUrl(IConfiguration configuration, string key, Uri defaultValue)
     {
-        var raw = configuration[LlmOptions.BaseUrlKey];
+        var raw = configuration[key];
         if (string.IsNullOrWhiteSpace(raw))
         {
             return defaultValue;
@@ -352,7 +354,7 @@ public static partial class ClassificationServiceCollectionExtensions
         return Uri.TryCreate(raw.Trim(), UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(uri.UserInfo)
             && string.IsNullOrEmpty(uri.Query) && string.IsNullOrEmpty(uri.Fragment)
             ? uri
-            : throw new InvalidOperationException($"{LlmOptions.BaseUrlKey} must be an absolute https URL without credentials, query or fragment.");
+            : throw new InvalidOperationException($"{key} must be an absolute https URL without credentials, query or fragment.");
     }
 
     // Optional secret of the snapshot hash (HMAC-SHA256), like Messaging:CredentialEncryptionKey: base64 of at least 32 random bytes.
@@ -392,7 +394,7 @@ public static partial class ClassificationServiceCollectionExtensions
             : throw new InvalidOperationException($"{key} must be a number between 0 and 1 (the share of the list price a batched request costs).");
     }
 
-    private static decimal ReadPrice(IConfiguration configuration, string key, decimal defaultValue)
+    internal static decimal ReadPrice(IConfiguration configuration, string key, decimal defaultValue)
     {
         var raw = configuration[key];
         if (string.IsNullOrWhiteSpace(raw))
@@ -406,7 +408,7 @@ public static partial class ClassificationServiceCollectionExtensions
     }
 
     [GeneratedRegex("^[a-z0-9][a-z0-9.-]*$")]
-    private static partial Regex ModelPattern();
+    internal static partial Regex ModelPattern();
 
     private static ClassificationRuleSet LoadRules(ClassificationOptions options)
     {

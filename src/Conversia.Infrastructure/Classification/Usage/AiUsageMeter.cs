@@ -58,7 +58,9 @@ public sealed class AiUsageMeter(IServiceScopeFactory scopeFactory, AiQuotaSetti
                 Used = db.AiUsageMonths.IgnoreQueryFilters().Where(u => u.TenantId == t.Id && u.Month == month && !u.IsSandbox).Select(u => (int?)u.ConversationsAnalyzed).FirstOrDefault(),
                 Usd = db.AiUsageMonths.IgnoreQueryFilters().Where(u => u.TenantId == t.Id && u.Month == month && !u.IsSandbox).Select(u => (decimal?)u.EstimatedUsd).FirstOrDefault(),
                 SandboxUsd = db.AiUsageMonths.IgnoreQueryFilters().Where(u => u.TenantId == t.Id && u.Month == month && u.IsSandbox).Select(u => (decimal?)u.EstimatedUsd).FirstOrDefault(),
-                Deployment = db.AiUsageMonths.IgnoreQueryFilters().Where(u => u.Month == month).Sum(u => (decimal?)u.EstimatedUsd),
+                // The deployment cap is shared with the AI sales assistant (docs/ASSISTANT.md, "Costs").
+                Deployment = (decimal?)((db.AiUsageMonths.IgnoreQueryFilters().Where(u => u.Month == month).Sum(u => (decimal?)u.EstimatedUsd) ?? 0m)
+                    + (db.AssistantUsageMonths.IgnoreQueryFilters().Where(u => u.Month == month).Sum(u => (decimal?)u.EstimatedUsd) ?? 0m)),
                 // Batched requests not resolved yet are RESERVED (review: a batch must not overshoot by its size): counted as analysed
                 // conversations and at their estimated cost, for the company and for the deployment, until each is collected.
                 ReservedConversations = db.LlmBatchRequests.IgnoreQueryFilters()

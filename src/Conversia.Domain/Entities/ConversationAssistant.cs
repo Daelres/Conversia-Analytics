@@ -43,6 +43,9 @@ public partial class ConversationAssistant : BaseEntity
     /// <summary>Answers the reply generator could not give because it did not understand (set by the generator's result, unit 5b).</summary>
     public int MisunderstandingCount { get; private set; }
 
+    /// <summary>Consecutive replies that brought an off-topic customer back to the company's topic (unit 5b): a second one in a row hands off.</summary>
+    public int OffTopicCount { get; private set; }
+
     /// <summary>Why it was handed off (a code of <see cref="AssistantHandoffReasons"/>); null otherwise.</summary>
     public string? HandoffReason { get; private set; }
 
@@ -270,6 +273,12 @@ public partial class ConversationAssistant : BaseEntity
     /// <summary>The generator could not understand the customer.</summary>
     public void RecordMisunderstanding() => MisunderstandingCount++;
 
+    /// <summary>A reply that understood the customer: the misunderstandings that count are consecutive ones.</summary>
+    public void ClearMisunderstandings() => MisunderstandingCount = 0;
+
+    /// <summary>The reply just recorded redirected an off-topic customer (<paramref name="redirect"/>) or answered on topic (the run of redirects ends).</summary>
+    public void RecordTopic(bool redirect) => OffTopicCount = redirect ? OffTopicCount + 1 : 0;
+
     private void ClearSending()
     {
         SendingStartedAt = null;
@@ -289,6 +298,7 @@ public partial class ConversationAssistant : BaseEntity
     {
         AssistantTurns = 0;
         MisunderstandingCount = 0;
+        OffTopicCount = 0;
         HandoffReason = null;
         HumanHoldUntil = null;
         TakenOverBy = null;
@@ -354,6 +364,22 @@ public static class AssistantHandoffReasons
     /// <summary>The company's or the conversation's hourly ceiling of assistant messages was reached.</summary>
     public const string RateLimited = "rate_limited";
 
+    /// <summary>The customer kept writing about something outside the company's topics after a redirect (unit 5b guard).</summary>
+    public const string OffTopic = "off_topic";
+
+    /// <summary>The guard read a complaint in the customer's message (unit 5b).</summary>
+    public const string Complaint = "complaint";
+
+    /// <summary>The model's answer failed the reply checks twice (ungrounded facts, style, links): a person answers (unit 5b).</summary>
+    public const string InvalidReply = "invalid_reply";
+
+    /// <summary>The assistant closed the sale (the customer committed): a person confirms the booking or the payment (unit 5b).</summary>
+    public const string SaleClosed = "sale_closed";
+
+    /// <summary>The model declined to answer (a safety refusal): a person answers (unit 5b).</summary>
+    public const string ModelRefused = "model_refused";
+
     public static readonly IReadOnlyList<string> All =
-        [MaxTurns, Keyword, HumanRequested, Misunderstanding, WindowClosed, InjectionSuspected, AssistantUnavailable, GeneratorFailed, GeneratorHandoff, SendFailed, QuotaExhausted, SendUnknown, TooLate, TimerFailed, MediaNotUnderstood, RateLimited];
+        [MaxTurns, Keyword, HumanRequested, Misunderstanding, WindowClosed, InjectionSuspected, AssistantUnavailable, GeneratorFailed, GeneratorHandoff, SendFailed, QuotaExhausted, SendUnknown, TooLate, TimerFailed, MediaNotUnderstood, RateLimited,
+         OffTopic, Complaint, InvalidReply, SaleClosed, ModelRefused];
 }

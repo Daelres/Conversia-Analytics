@@ -27,6 +27,7 @@ internal static class TenantDataDeletionPlan
         ByTenant("Contacts"),
         ByTenant("WebhookEvents"), // -> WhatsAppChannels; the raw payloads (numbers, texts)
         ByTenant("AiUsageMonths"),
+        ByTenant("AssistantUsageMonths"), // what the assistant's model cost per month (counts, tokens, money)
         ByTenant("AiAnalysisRuns"), // counts per analysis window
         ByTenant("MessageSendOutcomes"),
         ByTenant("AiQuotaGrants"), // -> BillingCharges

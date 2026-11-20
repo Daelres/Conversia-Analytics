@@ -93,6 +93,11 @@ public class TenantDataDeletionTests
             await db.Database.ExecuteSqlAsync($"""
                 INSERT INTO "AssistantActivityCounts" ("TenantId", "Day", "IsSandbox", "Metric", "Count") VALUES ({f.TenantId}, DATE '2026-10-01', false, 'timer_armed', 2)
                 """);
+            await db.Database.ExecuteSqlAsync($"""
+                INSERT INTO "AssistantUsageMonths" ("TenantId", "Month", "IsSandbox", "Generations", "Calls", "GuardCalls", "FailedCalls", "InputTokens", "OutputTokens",
+                    "CacheReadTokens", "CacheWriteTokens", "EstimatedUsd", "UpdatedAt")
+                VALUES ({f.TenantId}, DATE '2026-10-01', false, 1, 2, 1, 0, 100, 50, 0, 0, 0.001, now())
+                """);
             db.AssistantSettings.Add(AssistantSettings.Create(f.TenantId));
             db.AssistantKnowledgeVersions.Add(AssistantKnowledgeVersion.Create(f.TenantId, 1, "{}", null));
             db.ConversationAssistants.Add(ConversationAssistant.Create(f.TenantId, seeded.ConversationId, isSandbox: false));

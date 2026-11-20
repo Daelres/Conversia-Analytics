@@ -13,6 +13,19 @@ public sealed record AssistantOptions
 {
     public const string DefaultTermsVersion = "asistente-2026-11";
 
+    /// <summary>
+    /// What the assistant says when it did not understand (the first and second time in a row; the third goes to a person). Natural and
+    /// varied: each strike uses the next line (<c>Assistant:ClarificationLines</c>).
+    /// </summary>
+    public static readonly IReadOnlyList<string> DefaultClarificationLines =
+    [
+        "Perdona, no te entendí bien. ¿Me cuentas un poco más qué estás buscando?",
+        "Disculpa, se me escapó lo que quisiste decir. ¿Me lo escribes de otra forma?",
+        "Creo que no te entendí. ¿Qué servicio te interesa o qué te gustaría saber?",
+    ];
+
+    public IReadOnlyList<string> ClarificationLines { get; init; } = DefaultClarificationLines;
+
     /// <summary>The version of the assistant terms an owner must accept to switch it on.</summary>
     public string TermsVersion { get; init; } = DefaultTermsVersion;
 

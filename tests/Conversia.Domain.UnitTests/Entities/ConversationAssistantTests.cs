@@ -310,6 +310,44 @@ public class ConversationAssistantTests
         Assert.Equal(2, a.MisunderstandingCount);
     }
 
+    [Fact]
+    public void Redirects_AreCounted_InARow_AndAnOnTopicReply_OrANewEpisode_StartsAgain()
+    {
+        var a = Armed();
+        a.RecordTopic(redirect: true);
+        a.RecordTopic(redirect: true);
+        Assert.Equal(2, a.OffTopicCount);
+        a.RecordTopic(redirect: false);
+        Assert.Equal(0, a.OffTopicCount);
+
+        a.RecordTopic(redirect: true);
+        a.HumanWrote(T0 + Delay, TimeSpan.Zero);
+        a.CustomerWrote(T0 + Delay + TimeSpan.FromSeconds(1), Delay); // the hold is over: a new episode
+        Assert.Equal(0, a.OffTopicCount);
+    }
+
+    [Fact]
+    public void Misunderstandings_AreConsecutive_AGoodReplyClearsThem()
+    {
+        var a = Armed();
+        a.RecordMisunderstanding();
+        a.RecordMisunderstanding();
+        a.ClearMisunderstandings();
+        Assert.Equal(0, a.MisunderstandingCount);
+    }
+
+    [Fact]
+    public void TheModelsHandoffCodes_AreKnown()
+    {
+        foreach (var code in new[] { "off_topic", "complaint", "invalid_reply", "sale_closed", "model_refused" })
+        {
+            Assert.Contains(code, AssistantHandoffReasons.All);
+            var a = Armed();
+            a.HandOff(code, T0);
+            Assert.Equal(code, a.HandoffReason);
+        }
+    }
+
     // The race of docs/ASSISTANT.md: the job claimed the timer and calls the generator outside the lock; a person answers meanwhile.
     [Fact]
     public void A_person_answering_while_the_generator_runs_makes_the_claim_stale()

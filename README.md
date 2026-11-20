@@ -94,6 +94,7 @@ tests/
   Conversia.Web.IntegrationTests       the Web against the real API + PostgreSQL (Testcontainers)
   Conversia.WebhookSimulator.UnitTests the simulator's chats, plan, payloads and commands (no network)
 tools/
+  Conversia.AssistantEval              the AI sales assistant's evaluation set and runner (Replay by default; --real with a key) (docs/ASSISTANT.md)
   Conversia.WebhookSimulator           dev-only: fills a local API with believable WhatsApp conversations (docs/SIMULATOR.md)
 docs/                                    ARCHITECTURE, WEBHOOKS, METRICS, CLASSIFICATION, ASSISTANT, SIMULATOR, DOCKER, ...
 docker-compose.yml, .env.example         full local stack
@@ -243,6 +244,7 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Messaging:CredentialEncryptionKeyId` | API | `1` | Id written in front of every value the master key encrypts. 1 to 32 letters, digits, `-` or `_`. |
 | `Messaging:SendRateLimitPerMinute`, `Messaging:TenantSendRateLimitPerMinute` | API | `30`, `120` | `POST /api/conversations/{id}/messages` per minute and user, and per minute and company (sliding windows); the next one answers `429` with `Retry-After`. Whole numbers >= 1. |
 | `Assistant:TermsVersion` | API | `asistente-2026-11` | The AI sales assistant terms an owner accepts to switch it on. Other `Assistant:*` keys (job pace, lease, timeout): `docs/ASSISTANT.md`. |
+| `Assistant:Generator` | API | `None` | `Llm`: the AI sales assistant answers with Claude Haiku 5.5 (Development only; needs `Assistant:Llm:PrivacyApproved=true` and, with `Assistant:Llm:Client=Anthropic`, `Anthropic__ApiKey`; `Replay` needs no key). Real conversations only with `Assistant:Llm:AllowRealClientNonSandbox`. Caps, prompts, checks and evaluation: `docs/ASSISTANT.md`, "The model". |
 | `Licensing:RequireAssignedLicense` | API | `false` | `true`: a company can switch a line on only with a 360dialog licence assigned to it for that number, and releasing the licence switches the line off. `false`: lines work as before and licences are linked for reporting only. `docs/PLATFORM_ADMIN.md`, "Line licences". |
 | `Usage:Retention:Enabled`, `Messaging:TenantSendLimitRefresh:Enabled` | API | `true`, `true` | The purge of the AI distinct conversation sets (older than the previous month) and of the send counters (older than 90 days), every 6 hours; and the reload of the per-company send limits every 30 s. Switch them off only in tests: without the reload an instance only knows the limits saved through itself. |
 | `Privacy:HashKey` (compose: `PRIVACY_HASH_KEY`), `Privacy:HashKeyId` (`PRIVACY_HASH_KEY_ID`) | API | none, `1` | **Required outside Development**: base64 of at least 32 random bytes (`openssl rand -base64 32`) that keys the hashes kept of suppressed customers' numbers and deleted companies' names. Unset in Development: a fixed non-secret key and a startup warning. To rotate, set a new key and id and move the old one to `Privacy:RetiredHashKeys:<old id>` (docs/USERS_TENANTS_PERMISSIONS.md, "Contact suppression"). Add `PRIVACY_HASH_KEY` to your `.env` before upgrading: compose refuses to start without it. |

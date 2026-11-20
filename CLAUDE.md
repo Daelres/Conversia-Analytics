@@ -42,7 +42,7 @@ Fuera del MVP: respuestas automáticas del bot, conteo de personas o análisis d
 - **WhatsApp:** 360dialog como proveedor de la API de WhatsApp Business (por validar). Ingesta por webhook y envío manual de texto con clave de API por canal cifrada (docs/MESSAGING.md); modo sandbox interno por empresa para pruebas sin 360dialog (docs/SANDBOX.md).
 - **Infraestructura:** Azure.
 - **Frontend del dashboard:** Blazor Web.
-- **Análisis de texto / IA:** reglas en español (por defecto) y Claude Haiku 5.5 vía el SDK oficial de Anthropic (`Classification:Provider=Llm`), con seudonimización y preprocesamiento para ahorrar tokens; lee cada empresa según su horario (cada noche por defecto, configurable por el administrador; lotes de Message Batches), solo en Development hasta levantar la puerta del diseño llm-extraction (docs/CLASSIFICATION.md).
+- **Análisis de texto / IA:** reglas en español (por defecto) y Claude Haiku 5.5 vía el SDK oficial de Anthropic (`Classification:Provider=Llm`), con seudonimización y preprocesamiento para ahorrar tokens; lee cada empresa según su horario (cada noche por defecto, configurable por el administrador; lotes de Message Batches), solo en Development hasta levantar la puerta del diseño llm-extraction (docs/CLASSIFICATION.md). El asistente de ventas usa el mismo modelo con `Assistant:Generator=Llm` (también solo en Development; docs/ASSISTANT.md).
 
 ## Arquitectura propuesta (inicial, abierta a cambios)
 
@@ -104,7 +104,7 @@ docs/
   decisiones.md              # registro de decisiones del proyecto
   ARCHITECTURE.md, EXTENDING.md, WORKFLOW.md, ERRORS.md, USERS_TENANTS_PERMISSIONS.md   # arquitectura y guías técnicas del proyecto
   BILLING.md                 # cobro recurrente de la suscripción con Wompi (sin facturación electrónica): modelo, estados, calendario de cobranza, configuración, hechos verificados de Wompi con URLs, pendientes por verificar y runbook
-  ASSISTANT.md               # asistente de ventas con IA (etapa 5a, determinista): máquina de estados por conversación, temporizador durable, traspaso, ajustes, base de conocimiento versionada, aviso de asistente virtual (pendiente legal), interruptores de emergencia, políticas de Meta, costos y runbook
+  ASSISTANT.md               # asistente de ventas con IA (etapa 5a determinista y 5b con el modelo: guardia, respuesta estructurada, verificación de datos, costos y evaluación): máquina de estados por conversación, temporizador durable, traspaso, ajustes, base de conocimiento versionada, aviso de asistente virtual (pendiente legal), interruptores de emergencia, políticas de Meta, costos y runbook
   PLATFORM_ADMIN.md          # administrador de plataforma: aprobación de empresas, límites por empresa (líneas, IA, envíos), inventario de licencias de 360dialog, monitoreo sin contenido privado, API /api/admin, arranque, modelo de seguridad y runbook
   WEBHOOKS.md                # ingesta del webhook de 360dialog (endpoint, mapeo, reintentos, cierre de conversaciones, formato no verificado)
   MESSAGING.md               # envío manual de mensajes por 360dialog: endpoints, pantallas de la Web, clave de API por canal cifrada, errores y límites del sandbox; multimedia (almacén IMediaStore local cifrado o Azure Blob, descarga, entrega, adjuntos, retención), coexistencia e importación del historial
@@ -124,6 +124,7 @@ src/
 docker/healthcheck.sh        # sonda de salud de los contenedores (bash /dev/tcp; las imágenes no traen curl)
 scripts/                     # docker-build.sh (construye las tres imágenes) y docker-smoke-test.sh (prueba de aceptación de las imágenes; corre en CI)
 tools/
+  Conversia.AssistantEval/         # evaluación del asistente de ventas con IA: conjunto versionado de chats sintéticos (eval-set.v1.json) y su ejecutor sobre Replay o, con clave, la API real (docs/ASSISTANT.md, «Evaluation»)
   Conversia.WebhookSimulator/      # solo desarrollo: llena una API local con conversaciones de WhatsApp creíbles (docs/SIMULATOR.md); su proyecto de pruebas es Conversia.WebhookSimulator.UnitTests
 tests/
   Conversia.Domain.UnitTests/, Conversia.Application.UnitTests/, Conversia.Infrastructure.UnitTests/   # xUnit

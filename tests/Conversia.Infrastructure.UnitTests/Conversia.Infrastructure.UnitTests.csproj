@@ -25,6 +25,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Conversia.Infrastructure\Conversia.Infrastructure.csproj" />
+    <!-- The assistant evaluation set and its runner (tools/Conversia.AssistantEval): run over Replay as a test. -->
+    <ProjectReference Include="..\..\tools\Conversia.AssistantEval\Conversia.AssistantEval.csproj" />
     <ProjectReference Include="..\..\src\Conversia.Domain\Conversia.Domain.csproj" />
   </ItemGroup>
 

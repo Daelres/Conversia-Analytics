@@ -54,6 +54,22 @@ public class AiUsageMonthConfiguration : IEntityTypeConfiguration<AiUsageMonth>
     }
 }
 
+/// <summary>The assistant's model usage per company and month (docs/ASSISTANT.md, "Costs"), tenant-scoped like <see cref="AiUsageMonth"/>.</summary>
+public class AssistantUsageMonthConfiguration : IEntityTypeConfiguration<AssistantUsageMonth>
+{
+    public void Configure(EntityTypeBuilder<AssistantUsageMonth> builder)
+    {
+        builder.ToTable("AssistantUsageMonths");
+        builder.HasKey(u => new { u.TenantId, u.Month, u.IsSandbox });
+        builder.Property(u => u.EstimatedUsd).HasPrecision(12, 6);
+        builder.Property(u => u.UpdatedAt).IsRequired();
+
+        // The deployment cap sums a month across companies.
+        builder.HasIndex(u => u.Month);
+        builder.HasOne<Tenant>().WithMany().HasForeignKey(u => u.TenantId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
 /// <summary>The distinct conversations of a company's month: kept for the current and the previous month only.</summary>
 public class AiUsageConversationConfiguration : IEntityTypeConfiguration<AiUsageConversation>
 {

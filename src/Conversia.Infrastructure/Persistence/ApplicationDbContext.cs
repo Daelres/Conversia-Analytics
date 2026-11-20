@@ -59,6 +59,8 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<AiUsageConversation> AiUsageConversations => Set<AiUsageConversation>();
 
+    public DbSet<AssistantUsageMonth> AssistantUsageMonths => Set<AssistantUsageMonth>();
+
     public DbSet<MessageSendOutcome> MessageSendOutcomes => Set<MessageSendOutcome>();
 
     /// <summary>The marks of suppressed contacts (a per-company hash of the number): tenant-scoped.</summary>
@@ -155,6 +157,7 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<WebhookEvent>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<AiUsageMonth>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<AiUsageConversation>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AssistantUsageMonth>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<MessageSendOutcome>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<ContactSuppression>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<BillingSubscription>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);

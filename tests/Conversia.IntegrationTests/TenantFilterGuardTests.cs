@@ -17,6 +17,7 @@ public class TenantFilterGuardTests
         "Conversia.Infrastructure/Assistant/AssistantJob.cs", // the assistant job claims due timers across companies; each conversation is handled in its own company
         "Conversia.Infrastructure/Assistant/AssistantMonitoringQueries.cs", // the platform administrator's assistant counts
         "Conversia.Infrastructure/Classification/ClassificationBacklogMonitor.cs", // counts of the shared backlog (operations view)
+        "Conversia.Infrastructure/Assistant/AssistantUsageMeter.cs", // the deployment USD cap sums every company; the recorder names its company explicitly
         "Conversia.Infrastructure/Classification/ConversationClassificationRunner.cs", // the worker claims across companies
         "Conversia.Infrastructure/Classification/LlmAnalysisRunner.cs", // claims and relocks name the company explicitly; batch collection spans companies
         "Conversia.Infrastructure/Classification/LlmAnalysisScheduler.cs", // which companies are due: every company's pending conversations and window counts

@@ -1,4 +1,5 @@
 using Conversia.Application.Assistant;
+using Conversia.Application.Assistant.Llm;
 using Conversia.Application.Classification;
 using Conversia.Application.Classification.Llm;
 using Conversia.Application.Exceptions;
@@ -119,7 +120,7 @@ public sealed class AssistantRunner(
     /// <summary>What the prepare phase decided. <see cref="HandoffReason"/> with <see cref="Text"/> is a handoff line to send.</summary>
     private sealed record Plan(PlanKind Kind, AssistantReplyRequest? Request = null, string? Text = null, string? HandoffReason = null, bool Disclosed = false,
         AssistantKnowledge? Knowledge = null, string? LastInboundProviderId = null, bool Typing = false, string? HandoffLine = null, string? DisclosureText = null,
-        bool Misunderstood = false);
+        bool Misunderstood = false, bool Redirect = false, string? HandoffAfterSend = null, bool Clarification = false);
 
     /// <summary>Answers one claimed timer (the run does this for each claim; tests call it to race two instances).</summary>
     public Task HandleClaimedAsync(ClaimedTimer timer, DateTime now, CancellationToken cancellationToken = default) => HandleAsync(timer, now, cancellationToken);
@@ -282,12 +283,21 @@ public sealed class AssistantRunner(
         }
 
         var mustDisclose = settings.DisclosureMode == AssistantDisclosureMode.FirstMessage && state.DisclosedAt is null;
-        var snapshot = Pseudonymizer.Pseudonymize(await ConversationClassificationRunner.ReadSnapshotAsync(db, conversation, includeKnownValues: true, CancellationToken.None));
+        var raw = await ConversationClassificationRunner.ReadSnapshotAsync(db, conversation, includeKnownValues: true, CancellationToken.None);
+        var snapshot = Pseudonymizer.Pseudonymize(raw);
         snapshot = snapshot with { Messages = snapshot.Messages.TakeLast(options.ContextMessages).ToList() };
         var request = new AssistantReplyRequest(
             conversation.TenantId, conversation.Id, conversation.IsSandbox, snapshot, published?.Id, published?.Number,
             new AssistantReplySettings(settings.Language, settings.ToneNotes, settings.DisclosureMode, settings.DisclosureText, state.AssistantTurns, settings.MaxAssistantTurns),
-            mustDisclose);
+            mustDisclose)
+        {
+            // Unit 5b: the model's inputs. The first name is never sent to a model: the generator fills {nombre} with it locally.
+            Knowledge = knowledge,
+            BranchId = conversation.BranchId,
+            CustomerFirstName = CustomerNamePlaceholder.SafeFirstName(raw.ContactName),
+            OffTopicCount = state.OffTopicCount,
+            UtcNow = now,
+        };
         return new Plan(PlanKind.Generate, request, Knowledge: knowledge, LastInboundProviderId: unanswered.LastProviderMessageId,
             Typing: facts.ReadReceipts, HandoffLine: settings.HandoffLine, DisclosureText: mustDisclose ? settings.DisclosureText : null);
     }
@@ -378,7 +388,7 @@ public sealed class AssistantRunner(
             case AssistantReplyResult.Reply reply:
                 var text = plan.DisclosureText is { } disclosure ? disclosure + "\n\n" + reply.Text : reply.Text;
                 return AssistantRules.CheckReply(text, plan.Knowledge) is { } checkedText
-                    ? plan with { Kind = PlanKind.Send, Text = checkedText, Disclosed = plan.DisclosureText is not null }
+                    ? plan with { Kind = PlanKind.Send, Text = checkedText, Disclosed = plan.DisclosureText is not null, Redirect = reply.IsRedirect, HandoffAfterSend = reply.HandoffAfterSend }
                     : plan with { Kind = PlanKind.Send, Text = plan.HandoffLine, HandoffReason = AssistantHandoffReasons.GeneratorFailed };
             case AssistantReplyResult.Handoff handoff:
                 var reason = KnownReason(handoff.Reason);
@@ -447,17 +457,20 @@ public sealed class AssistantRunner(
                     }
                 }
 
-                // A generator that did not understand: counted, and the conversation goes to a person once it happens too often.
+                // A generator that did not understand: a short natural clarification the first and second time in a row (each a different
+                // line), a person the third time.
                 if (plan.Misunderstood)
                 {
                     state.RecordMisunderstanding();
-                    if (state.MisunderstandingCount < AssistantSettings.MisunderstandingLimit)
+                    if (state.MisunderstandingCount < AssistantSettings.MisunderstandingLimit && options.ClarificationLines.Count > 0)
                     {
-                        state.Discard();
-                        return;
+                        var line = options.ClarificationLines[(state.MisunderstandingCount - 1) % options.ClarificationLines.Count];
+                        plan = plan with { Text = line, HandoffReason = null, Clarification = true, Misunderstood = false };
                     }
-
-                    plan = plan with { Text = plan.HandoffLine, HandoffReason = AssistantHandoffReasons.Misunderstanding };
+                    else
+                    {
+                        plan = plan with { Text = plan.HandoffLine, HandoffReason = AssistantHandoffReasons.Misunderstanding };
+                    }
                 }
 
                 if (plan.Text is null)
@@ -513,9 +526,20 @@ public sealed class AssistantRunner(
                 else
                 {
                     state.RecordReply(now, plan.Disclosed);
+                    state.RecordTopic(plan.Redirect);
+                    if (!plan.Clarification)
+                    {
+                        state.ClearMisunderstandings(); // the strikes that hand off are consecutive
+                    }
+
                     await CountAsync(repository, conversation, AssistantMetrics.Replied, now);
                     logger.LogInformation(AssistantReplied, "The assistant replied in conversation {ConversationId} of tenant {TenantId} (turn {Turn}).",
                         conversation.Id, conversation.TenantId, state.AssistantTurns);
+                    if (plan.HandoffAfterSend is { } after)
+                    {
+                        // The customer committed (unit 5b, "Closing a sale"): the reply gave the next step and a person confirms it.
+                        await HandOffAsync(repository, conversation, state, after, now);
+                    }
                 }
 
                 AssistantSignals.Touch(conversation, now);

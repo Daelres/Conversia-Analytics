@@ -90,3 +90,48 @@ public class MessageSendOutcome
     {
     }
 }
+
+/// <summary>
+/// What the AI sales assistant's model cost one company in one month (America/Bogota), apart from the conversation analysis (docs/ASSISTANT.md,
+/// "Costs"): its own category, with its own per-company monthly cap; it counts against the deployment's cap with the analysis. Sandbox usage
+/// is kept in its own row. Written only by the assistant's usage meter with atomic upserts; never text.
+/// </summary>
+public class AssistantUsageMonth
+{
+    public Guid TenantId { get; private set; }
+
+    /// <summary>The first day of the month, in America/Bogota.</summary>
+    public DateOnly Month { get; private set; }
+
+    public bool IsSandbox { get; private set; }
+
+    /// <summary>Answers prepared with the model (a guard call, a reply call and a regeneration count as one).</summary>
+    public int Generations { get; private set; }
+
+    /// <summary>Calls to the model (guard and reply).</summary>
+    public int Calls { get; private set; }
+
+    public int GuardCalls { get; private set; }
+
+    public int FailedCalls { get; private set; }
+
+    public long InputTokens { get; private set; }
+
+    public long OutputTokens { get; private set; }
+
+    public long CacheReadTokens { get; private set; }
+
+    public long CacheWriteTokens { get; private set; }
+
+    /// <summary>Estimated from the configured prices (<c>Assistant:Llm:Pricing:*</c>): an estimate for the operator, not a bill.</summary>
+    public decimal EstimatedUsd { get; private set; }
+
+    /// <summary>When the company's monthly cap of the assistant was reached (set once).</summary>
+    public DateTime? CapReachedAt { get; private set; }
+
+    public DateTime UpdatedAt { get; private set; }
+
+    private AssistantUsageMonth()
+    {
+    }
+}

@@ -18,7 +18,14 @@ public interface ILlmClient
 /// <param name="UserContent">The pseudonymized conversation block.</param>
 /// <param name="Schema">The JSON schema of the structured answer.</param>
 /// <param name="SnapshotHash">The snapshot hash: never sent to a provider; the replay client keys its canned answers by it.</param>
-public sealed record LlmRequest(string SystemPrompt, string ContextBlock, string UserContent, JsonObject Schema, string SnapshotHash);
+public sealed record LlmRequest(string SystemPrompt, string ContextBlock, string UserContent, JsonObject Schema, string SnapshotHash)
+{
+    /// <summary>
+    /// Also put a cache breakpoint after <see cref="SystemPrompt"/> (the assistant: its static prompt is shared by every company, its
+    /// <see cref="ContextBlock"/> is one company's knowledge). False: one breakpoint, after the context block.
+    /// </summary>
+    public bool CacheSystemPrompt { get; init; }
+}
 
 /// <summary>Why the model stopped. Anything but <see cref="EndTurn"/> means the answer cannot be used as it is.</summary>
 public enum LlmStopReason

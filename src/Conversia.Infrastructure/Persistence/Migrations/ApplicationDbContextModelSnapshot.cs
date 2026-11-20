@@ -454,6 +454,58 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Conversia.Domain.Entities.AssistantUsageMonth", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("Month")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("IsSandbox")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("CacheReadTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("CacheWriteTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Calls")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("CapReachedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("EstimatedUsd")
+                        .HasPrecision(12, 6)
+                        .HasColumnType("numeric(12,6)");
+
+                    b.Property<int>("FailedCalls")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Generations")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("GuardCalls")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("InputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("OutputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TenantId", "Month", "IsSandbox");
+
+                    b.HasIndex("Month");
+
+                    b.ToTable("AssistantUsageMonths", (string)null);
+                });
+
             modelBuilder.Entity("Conversia.Domain.Entities.BillingAddOn", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1475,6 +1527,9 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("MisunderstandingCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("OffTopicCount")
                         .HasColumnType("integer");
 
                     b.Property<DateTime?>("SendingStartedAt")
@@ -3361,6 +3416,15 @@ namespace Conversia.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Conversia.Domain.Entities.AssistantUsageMonth", b =>
+                {
+                    b.HasOne("Conversia.Domain.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

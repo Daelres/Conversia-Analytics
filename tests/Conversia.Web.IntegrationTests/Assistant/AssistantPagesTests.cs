@@ -144,6 +144,25 @@ public class AssistantConversationViewTests
         Assert.Empty(SpanishUi.Leaks(SpanishUi.Extract(page)));
     }
 
+    [Theory]
+    [InlineData("off_topic", "temas ajenos a la empresa")]
+    [InlineData("complaint", "presentó una queja")]
+    [InlineData("invalid_reply", "datos verificados")]
+    [InlineData("sale_closed", "falta confirmar la cita o el pago")]
+    [InlineData("model_refused", "prefirió que una persona respondiera")]
+    public async Task The_model_handoff_reasons_are_worded(string reason, string words)
+    {
+        using var harness = ConversationsHarness.Create(configure: stub => stub.Assistant = new Application.DTOs.Assistant.ConversationAssistantResponse
+        {
+            State = "HandedOff", HandoffReason = reason, Available = true,
+        });
+
+        var page = (await harness.OpenAsync(Url(ConversationsStub.Won))).ShouldBe(HttpStatusCode.OK);
+
+        Assert.Contains(words, page.Document.QuerySelector("[data-testid=assistant-reason]")!.TextContent);
+        Assert.Empty(SpanishUi.Leaks(SpanishUi.Extract(page)));
+    }
+
     [Fact]
     public async Task Without_the_assistant_on_the_line_nothing_is_shown()
     {
