@@ -1,0 +1,120 @@
+@page "/admin/licencias"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Application.DTOs
+@using Conversia.Application.DTOs.Admin
+@using Conversia.Web.Authentication
+@inherits AdminPageBase
+
+<PageTitle>Licencias - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+<div class="page" data-page="admin-licenses">
+    <PageHeader Eyebrow="Administración" EyebrowIcon="shield-check" Title="Licencias de 360dialog"
+                Description="El inventario de números contratados con 360dialog: cuáles están disponibles, a qué empresa se asignó cada uno y cuánto cuestan.">
+        <a class="btn btn--primary" href="/admin/licencias/nueva" data-testid="new-license"><Icon Name="plus" />Nueva licencia</a>
+    </PageHeader>
+
+    <ErrorAlert Message="@Message" />
+
+    <form method="get" action="/admin/licencias" class="filters" role="search" aria-label="Filtros de licencias" data-testid="license-filters">
+        <div class="field">
+            <label for="f-status" class="field__label">Estado</label>
+            <select id="f-status" name="estado" class="input">
+                <option value="">Todas</option>
+                @foreach (var (_, word, label) in LicenseListFilters.Statuses)
+                {
+                    <option value="@word" selected="@(word == Filters.Word)">@label</option>
+                }
+            </select>
+        </div>
+        <div class="filters__actions">
+            <button type="submit" class="btn btn--secondary"><Icon Name="filter" />Filtrar</button>
+        </div>
+    </form>
+
+    @if (_page is not null)
+    {
+        @if (_page.TotalCount == 0)
+        {
+            <EmptyState Title="No hay licencias" Art="search" Text="Crea una licencia por cada número contratado con 360dialog para asignarlo a una empresa." />
+        }
+        else
+        {
+            <div class="table-wrap" role="region" aria-label="Licencias" tabindex="0">
+                <table class="table table--cards">
+                    <caption class="sr-only">Licencias de líneas de 360dialog</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Número</th>
+                            <th scope="col">Estado</th>
+                            <th scope="col">Empresa</th>
+                            <th scope="col">Costo mensual</th>
+                            <th scope="col">Línea</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var license in _page.Items)
+                        {
+                            <tr data-testid="license-row" data-license-id="@license.Id" data-status="@license.Status">
+                                <th scope="row" data-label="Número"><a href="/admin/licencias/@license.Id">@license.PhoneNumberMasked</a></th>
+                                <td data-label="Estado"><Chip Tone="@Tone(license.Status)">@AdminFormat.LicenseStatus(license.Status)</Chip></td>
+                                <td data-label="Empresa">
+                                    @if (license.AssignedTenantId is { } tenant)
+                                    {
+                                        <a href="/admin/empresas/@tenant">@(license.AssignedTenantName ?? MetricsFormat.NoData)</a>
+                                    }
+                                    else
+                                    {
+                                        @MetricsFormat.NoData
+                                    }
+                                </td>
+                                <td data-label="Costo mensual">@(license.CustomerOwned ? "Del cliente" : AdminFormat.Usd(license.MonthlyCostUsd))</td>
+                                <td data-label="Línea">@(license.ChannelId is null ? "Sin vincular" : "Vinculada")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <Pager Page="_page.Page" PageSize="_page.PageSize" Total="_page.TotalCount" TotalText="@(_page.TotalCount == 1 ? "1 licencia" : $"{MetricsFormat.Whole(_page.TotalCount)} licencias")" UrlFor="Filters.ToUrl" />
+        }
+    }
+</div>
+
+@code {
+    private PagedResponse<LineLicenseResponse>? _page;
+
+    [SupplyParameterFromQuery(Name = "estado")]
+    public string? Estado { get; set; }
+
+    [SupplyParameterFromQuery(Name = "pagina")]
+    public string? Pagina { get; set; }
+
+    private LicenseListFilters Filters => LicenseListFilters.From(Estado, Pagina);
+
+    internal static ChipTone Tone(string status) => status switch
+    {
+        "Available" => ChipTone.Success,
+        "Assigned" => ChipTone.Brand,
+        _ => ChipTone.Neutral,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        var result = await Api.GetAdminLicensesAsync(Token!, Filters.ToQuery());
+        if (await TryFailAsync(result))
+        {
+            return;
+        }
+
+        _page = result.Value;
+    }
+}

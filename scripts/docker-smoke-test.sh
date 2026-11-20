@@ -104,6 +104,8 @@ PY
 postgres_password="$(openssl rand -hex 16)"
 jwt_key="$(openssl rand -hex 32)"
 report_key="$(openssl rand -hex 24)"
+privacy_key="$(openssl rand -base64 32)"
+media_key="$(openssl rand -base64 32)"
 owner_password="Aa1-$(openssl rand -hex 12)"
 owner_email="owner-$suffix@smoke.test"
 admin_password="Zz9-$(openssl rand -hex 12)"
@@ -117,15 +119,19 @@ POSTGRES_USER=$postgres_user
 POSTGRES_PASSWORD=$postgres_password
 JWT_SIGNING_KEY=$jwt_key
 ERROR_REPORT_KEY=$report_key
+PRIVACY_HASH_KEY=$privacy_key
 API_PORT=$api_port
 WEB_PORT=$web_port
 POSTGRES_PORT=$postgres_port
 CONVERSIA_TAG=$tag
 PLATFORM_ADMIN_EMAIL=$admin_email
 PLATFORM_ADMIN_PASSWORD=$admin_password
+MEDIA_STORE=Local
+MEDIA_ENCRYPTION_KEY=$media_key
+MEDIA_LOCAL_ALLOW_OUTSIDE_DEVELOPMENT=true
 EOF
 # The values that must never appear in an image, a container definition or a log.
-printf '%s\n' "$postgres_password" "$jwt_key" "$report_key" "$owner_password" "$admin_password" >"$secrets"
+printf '%s\n' "$postgres_password" "$jwt_key" "$report_key" "$privacy_key" "$owner_password" "$admin_password" "$media_key" >"$secrets"
 
 # Everything is published on loopback only, so the throwaway stack is not reachable from the network.
 cat >"$override" <<'EOF'
@@ -265,6 +271,13 @@ for service in api web; do
   if [ "$uid" != "0" ] && [ "$uid" != "error" ]; then pass "running $service container is non-root (uid $uid)"; else fail "$service container runs as root or the check failed ($uid)"; fi
   if docker exec "$(cid "$service")" sh -c 'test ! -w /app'; then pass "/app is read-only for the $service process"; else fail "/app is writable for the $service process"; fi
 done
+# The billing calendar, the metrics and the dunning run on America/Bogota dates (docs/BILLING.md): the zone data must be in the image (the API
+# also refuses to start without it, naming Metrics:TimeZone).
+if docker exec "$(cid api)" sh -c 'test -s /usr/share/zoneinfo/America/Bogota'; then
+  pass "the api image has the America/Bogota time zone data"
+else
+  fail "the api image lacks the America/Bogota time zone data (install tzdata)"
+fi
 if docker exec "$(cid api)" sh -c 'test -n "$Jwt__SigningKey" && test -n "$ConnectionStrings__DefaultConnection"'; then
   pass "the api receives its secrets as run-time environment"
 else

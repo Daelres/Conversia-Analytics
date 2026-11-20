@@ -11,6 +11,7 @@ public static class ConversationsNotice
     public const string MessageSent = "sent";
     public const string CustomerMessageQueued = "customer-sent";
     public const string SandboxConversationQueued = "sandbox-started";
+    public const string ContactSuppressed = "contact-suppressed";
 
     /// <summary>The list, with the notice of a simulated conversation that was just put in the queue (it has no page of its own yet).</summary>
     public static string ListUrl(string code) => $"/conversaciones?notice={code}";
@@ -24,6 +25,7 @@ public static class ConversationsNotice
         MessageSent => "Mensaje enviado.",
         CustomerMessageQueued => "Mensaje del cliente simulado en cola. Aparece en el chat en unos segundos: recarga la página si aún no lo ves.",
         SandboxConversationQueued => "Conversación simulada en cola. Aparece en esta lista en unos segundos: recarga la página si aún no la ves.",
+        ContactSuppressed => "Datos del cliente suprimidos: se eliminaron el contacto, sus conversaciones y sus mensajes. Si vuelve a escribir, aparecerá como un contacto nuevo.",
         _ => null,
     };
 }

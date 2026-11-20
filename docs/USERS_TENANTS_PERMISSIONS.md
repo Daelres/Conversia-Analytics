@@ -64,6 +64,10 @@ public enum Permission
     ConversationsView = 7,
     ConversationsManage = 8,
     MetricsView = 9,
+    ContactsSuppress = 10,
+    BillingManage = 11,
+    ReportsManage = 12,
+    AssistantManage = 13,
 }
 ```
 
@@ -76,6 +80,10 @@ public enum Permission
 | `ConversationsView` | 7 | `GET /api/conversations`, `GET /api/conversations/{id}` (the detail includes message text), `GET /api/messages/recent`, `GET /api/messages/summary` and `GET /api/webhook-events` |
 | `ConversationsManage` | 8 | `PUT /api/conversations/{id}/advisor`, `PUT /api/conversations/{id}/opportunity` and `POST /api/conversations/{id}/messages` (a person sends a WhatsApp message to the customer, `docs/MESSAGING.md`) |
 | `MetricsView` | 9 | every `GET /api/metrics/*` endpoint (docs/METRICS.md) |
+| `BillingManage` | 11 | `/api/billing/*`: the company's subscription, payment method, charges, payment links and cancellation (docs/BILLING.md). Money-sensitive: grant it only to whoever pays. |
+| `ReportsManage` | 12 | `/api/reports/definitions*` and `/api/reports/options`: create, change, preview and delete the company's automatic manager reports (docs/REPORTS.md). Reading the history needs `MetricsView`; a person always reads the reports they receive. |
+| `AssistantManage` | 13 | `/api/assistant/*`: the AI sales assistant's settings, lines and knowledge base, and switching it off (docs/ASSISTANT.md). Switching it **on** is the owner's alone (`403` for anyone else). Taking a conversation over or handing it back needs `ConversationsManage`. |
+| `ContactsSuppress` | 10 | `POST /api/contacts/{id}/suppression` (deletes a customer's data on their request, see [Contact suppression](#contact-suppression)) |
 
 (`Organization*` gate the Conversia branches, advisors and WhatsApp channels; `Conversations*` the conversations captured from them.
 Client projects add their own values as they add features: the next free number, never a retired one.)
@@ -93,10 +101,68 @@ Outside every company there is the **platform administrator** (table `PlatformAd
 (`POST /api/admin/auth/login`), its own token (audience `<Jwt:Audience>.platform-admin`, key derived from `Jwt:SigningKey`, claim `role=platform_admin`,
 no `tenant_id`) and its own policy `PlatformAdmin`. See `docs/PLATFORM_ADMIN.md`. The two token kinds are rejected on each other's endpoints.
 
-A company that is not `Active` cannot operate: on every endpoint that needs a signed-in company user the API answers `403` with
-`"code": "tenant_not_active"` ("Tu empresa está pendiente de activación." / "Tu empresa está suspendida."), before permissions are evaluated.
+A company that is not `Active` (Pending, Paused, Suspended or Cancelled, `docs/PLATFORM_ADMIN.md`, "Lifecycle of a company") cannot operate:
+on every endpoint that needs a signed-in company user the API answers `403` with `"code": "tenant_not_active"`, `tenantStatus` and, for a
+suspension, `suspensionCause` (`Manual` or `Billing`) ("Tu empresa está pendiente de activación." / "Tu empresa está en pausa." / "Tu empresa
+está suspendida." / "Tu empresa está suspendida por un pago pendiente." / "El servicio de tu empresa fue cancelado."), before permissions are evaluated.
 Exempt: login and registration, `GET /api/tenant` (name, status, quota and line usage) and `GET /api/users/me`. The status is read per request,
 so a suspension applies at once to tokens already issued.
+
+## Contact suppression
+
+A customer can ask a company to delete their data (Ley 1581 de 2012, habeas data: the right of suppression). A company user with
+`ContactsSuppress` (or the owner) does it from the conversation (`/conversaciones/{id}` > "Suprimir datos del cliente", a confirmation page with
+an explicit checkbox) or with `POST /api/contacts/{id}/suppression`. A contact of another company is the same `404` as a missing one.
+
+**What goes.** First, in **one short transaction** under the company's ingestion lock (so no delivery is being turned into this contact's
+messages meanwhile) and the contact row: every conversation of the contact in the company (not only the one it was asked from), their
+messages and opportunities, the AI distinct-conversation rows of those conversations (`AiUsageConversations`, design D24), the contact, and
+the mark below is written. Then, **without** the ingestion lock, the finished raw deliveries that carry the number (`Processed` and `Failed`:
+`WebhookEvents.RawPayload` holds its messages too; matched as a whole JSON string value) are deleted in batches of 500 rows, each batch its
+own short transaction: a company with years of deliveries never holds up its ingestion during the scan. The answer gives the counts.
+
+**What remains, and for how long.**
+
+| Left | Until |
+|---|---|
+| A delivery still `Pending` that carries the number | It is processed: the worker drops this number's old messages and **deletes the delivery right after processing it**, in the same transaction. A company that does not receive (suspended by the team, pending) keeps it until it receives again or its data is deleted. |
+| A delivery that carries the number only in a delivery receipt (`statuses`), processed after the scan | The webhook retention purge: 14 days (`Webhooks:Retention:RetentionDays`). |
+| The mark | The company's own data deletion. |
+
+**Deleting a whole delivery** also deletes the raw diagnostic copy of the other customers it carried: their messages stay (they are stored as
+messages), only the raw payload that `/mensajes/eventos` shows goes. Accepted: one delivery rarely carries two customers.
+
+**Deleted, not anonymised.** The choice is to delete: an anonymised conversation shell (branch, advisor, times, outcome) of a small business
+can still point at one person, and a contact row cannot be kept without a number. The cost is accepted and documented: the metrics of past
+periods stop counting that customer's conversations (one customer barely moves them). What stays is aggregate only: the monthly AI totals
+(`AiUsageMonths`: counts, tokens, USD) and the send counters (`MessageSendOutcomes`: counts per day and outcome), which hold no conversation or
+contact.
+
+**Never recreated from old messages.** The suppression leaves a mark (`ContactSuppressions`): an **HMAC-SHA256** of the company id and the
+number with the deployment's privacy key (`Privacy:HashKey`), the id of that key and the moment of the suppression. Without the key the mark
+cannot be confirmed by trying every phone number; it is kept only to honour the request, inside the company's data, and deleted with the
+company. Ingestion drops any message of that number **sent up to and including that moment** (`SentAt <= SuppressedAt`): a delivery still
+queued when the contact was suppressed, or the provider re-sending an old one. A message the customer **sends after** the suppression opens a
+**new contact**, with nothing of the old one. Suppressing the same number again moves the mark forward.
+
+**Clock skew.** `SuppressedAt` is the API's clock; a message's `SentAt` is the provider's timestamp (whole seconds). If the two clocks differ
+by *d* seconds, a message sent within *d* of the suppression can fall on the other side: a message sent just before it, timestamped by a
+provider clock that is ahead, opens a new contact (it would have been deleted a moment earlier anyway); one sent just after, timestamped by a
+clock that is behind, is dropped. With synchronised clocks the window is the provider's one-second resolution.
+
+**A suppression and a delivery at once** serialize on the company's ingestion lock: either the delivery is stored first and the suppression
+deletes it, or the suppression commits first and the delivery's old messages are dropped. Never both survive (`ContactSuppressionTests`).
+
+**The privacy key** (`Privacy:HashKey`, base64 of at least 32 random bytes; `Privacy:HashKeyId`, default `1`). Its own secret, not
+`Classification:Llm:HashKey` (optional, for the LLM snapshot hash) nor `Messaging:CredentialEncryptionKey` (optional, and an encryption key):
+this one is **required outside Development** (the API does not start without it, naming the key). In Development, when unset, a fixed key that
+is not a secret is used and a warning is logged at startup. **Rotation:** set the new key and a new `Privacy:HashKeyId`, and move the old key to
+`Privacy:RetiredHashKeys:<old id>`: new marks use the new key, and lookups accept a mark made with any retired key, so every suppression keeps
+working. Dropping a retired key forgets the marks made with it (their numbers could then come back from old deliveries); a mark is never
+re-keyed in place.
+
+**Trail.** There is no tenant-side audit table: the trail is the API log line (Information, event 4201 `ContactSuppressed`) with the
+contact id, the company id, the user id and the counts, never the number, the name or a message.
 
 ## Login and tenant resolution
 

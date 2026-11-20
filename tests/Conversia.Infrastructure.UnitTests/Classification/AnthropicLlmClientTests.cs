@@ -114,6 +114,24 @@ public class AnthropicLlmClientTests
     }
 
     [Fact]
+    public async Task TheAssistantRequest_CachesTheStaticPromptAndTheCompanyBlock_WithTwoBreakpoints()
+    {
+        // docs/ASSISTANT.md, "Costs": breakpoint 1 after the deployment-wide system prompt, breakpoint 2 after one company's knowledge.
+        var (client, handler) = New((_, _) => Task.FromResult(Json(HttpStatusCode.OK, MessageJson())), Settings with { MaxTokens = 1024, DisableThinking = true });
+
+        await client.CompleteAsync(Request with { CacheSystemPrompt = true });
+
+        var json = JsonNode.Parse(Assert.Single(handler.Seen).Body)!;
+        var system = json["system"]!.AsArray();
+        Assert.Equal("ephemeral", system[0]!["cache_control"]!["type"]!.GetValue<string>());
+        Assert.Equal("ephemeral", system[1]!["cache_control"]!["type"]!.GetValue<string>());
+        Assert.Equal(1024, json["max_tokens"]!.GetValue<int>());
+        Assert.Equal("disabled", json["thinking"]!["type"]!.GetValue<string>());
+        Assert.Null(json["tools"]);
+        Assert.Null(json["tool_choice"]);
+    }
+
+    [Fact]
     public async Task DisabledThinking_IsSentExplicitly()
     {
         var (client, handler) = New((_, _) => Task.FromResult(Json(HttpStatusCode.OK, MessageJson())), Settings with { DisableThinking = true });

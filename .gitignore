@@ -489,3 +489,6 @@ appsettings.*.local.json
 
 # Tooling metadata
 .atl/
+
+# Development .eml files of the manager reports (Email:Provider=Pickup)
+.email-outbox/

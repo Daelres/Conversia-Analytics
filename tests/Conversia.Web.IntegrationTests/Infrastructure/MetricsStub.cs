@@ -36,6 +36,26 @@ internal sealed class MetricsStub
 
     public AlertsResponse Alerts { get; set; } = null!;
 
+    /// <summary>"Hasta dónde llegan las conversaciones" (<c>/api/metrics/closing-point</c>).</summary>
+    public ClosingPointResponse ClosingPoint { get; set; } = new(
+        Period(), 120, 40, 4,
+        [
+            new ReachedStageShare("FirstContact", 6, 16.7), new ReachedStageShare("NeedsIdentified", 5, 13.9), new ReachedStageShare("PriceShared", 14, 38.9),
+            new ReachedStageShare("ObjectionRaised", 8, 22.2), new ReachedStageShare("AppointmentProposed", 3, 8.3), new ReachedStageShare("AppointmentBooked", 0, 0),
+            new ReachedStageShare("PaymentOrDeposit", 0, 0),
+        ],
+        "PriceShared",
+        new MovedOffChannelSummary(18, 15.0, [new OffChannelShare("PhoneCall", 12, 66.7), new OffChannelShare("InPerson", 4, 22.2), new OffChannelShare("OtherChannel", 2, 11.1)]));
+
+    public IReadOnlyList<AdvisorResponse> Advisors { get; set; } =
+    [
+        new() { Id = Ana, Name = "Ana Torres", BranchId = Centro, IsActive = true },
+        new() { Id = Luis, Name = "Luis Pérez", BranchId = Norte, IsActive = true },
+    ];
+
+    /// <summary>The company's AI status (<c>/api/metrics/ai-analysis</c>): off by default.</summary>
+    public AiAnalysisStatusResponse AiAnalysis { get; set; } = new();
+
     public IReadOnlyList<BranchResponse> Branches { get; set; } =
     [
         new() { Id = Centro, Name = "Centro", IsActive = true },
@@ -216,9 +236,19 @@ internal sealed class MetricsStub
             return Task.FromResult<HttpResponseMessage?>(MemberPermissions is null ? null : FakeBackend.Answer(HttpStatusCode.OK, Member(request)));
         }
 
+        if (path == "/api/tenant/ai-analysis")
+        {
+            return Task.FromResult<HttpResponseMessage?>(Failures.TryGetValue(path, out var aiFailure) ? aiFailure() : FakeBackend.Answer(HttpStatusCode.OK, AiAnalysis));
+        }
+
         if (path == "/api/branches")
         {
             return Task.FromResult<HttpResponseMessage?>(FakeBackend.Answer(HttpStatusCode.OK, Branches));
+        }
+
+        if (path == "/api/advisors")
+        {
+            return Task.FromResult<HttpResponseMessage?>(FakeBackend.Answer(HttpStatusCode.OK, Advisors));
         }
 
         if (!path.StartsWith("/api/metrics/", StringComparison.Ordinal))
@@ -245,6 +275,7 @@ internal sealed class MetricsStub
             "/api/metrics/first-response" => FirstResponse,
             "/api/metrics/volume" => Volume,
             "/api/metrics/alerts" => Alerts,
+            "/api/metrics/closing-point" => ClosingPoint,
             _ => null,
         };
 

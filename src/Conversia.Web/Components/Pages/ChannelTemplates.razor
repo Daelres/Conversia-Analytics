@@ -1,0 +1,197 @@
+@page "/organizacion/canales/{Id:guid}/plantillas"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Organization
+@using Conversia.Application.DTOs.Templates
+@using Conversia.Domain.Enums
+@using Conversia.Web.Components.Conversations
+@using Conversia.Web.Http
+@using Conversia.Web.Time
+@inherits AuthenticatedPageBase
+@inject OneTimeSubmissions Submissions
+@inject Conversia.Application.Time.TenantTimeZone TimeZone
+
+<PageTitle>Plantillas - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (_missing)
+{
+    <ChannelNotFoundView />
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="channel-templates">
+        <PageHeader Eyebrow="Organización" EyebrowIcon="building" Title="Plantillas de WhatsApp" Description="@Description">
+            <a class="btn btn--secondary" href="/organizacion"><Icon Name="arrow-left" />Volver a organización</a>
+        </PageHeader>
+
+        @if (Notice == SyncedNotice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">Plantillas sincronizadas con 360dialog.</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        <Alert Kind="AlertKind.Info" Title="Las plantillas se crean en 360dialog" data-testid="templates-hub-note">
+            Crea o edita las plantillas en el Hub de 360dialog (Channels › tu número › Templates); Meta las revisa en 24 a 48 horas. Conversia
+            solo las lee: se sincronizan solas cada pocas horas o con el botón de esta página. Meta cobra cada mensaje de plantilla según su categoría.
+        </Alert>
+
+        @if (_templates is not null)
+        {
+            <Card Title="Plantillas" Subtitle="@SyncedText" IconName="layers" data-testid="templates-card">
+                @if (_templates.Templates.Count == 0)
+                {
+                    <p class="muted" data-testid="templates-empty">Todavía no hay plantillas sincronizadas para este número.</p>
+                }
+                else
+                {
+                    <table class="table" data-testid="templates-table">
+                        <thead><tr><th>Nombre</th><th>Idioma</th><th>Categoría</th><th>Estado</th><th>Campos</th></tr></thead>
+                        <tbody>
+                            @foreach (var template in _templates.Templates)
+                            {
+                                <tr data-testid="template-row" data-name="@template.Name">
+                                    <td class="mono">@template.Name</td>
+                                    <td>@template.Language</td>
+                                    <td>@TemplateComposer.CategoryLabel(template.Category)</td>
+                                    <td>@StatusLabel(template)</td>
+                                    <td>@template.ParameterNames.Count</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </Card>
+        }
+
+        @* Always rendered: a POST can only be dispatched to a form that exists in the render tree; the API refuses a caller without OrganizationManage. *@
+        <div hidden="@(!_canManage || _templates is null || _templates.Sandbox)">
+            <EditForm Model="Input" FormName="sync-templates" OnSubmit="SyncAsync" method="post" class="form" data-testid="templates-sync-form" data-submit-once>
+                <input type="hidden" name="@($"{nameof(Input)}.{nameof(ChannelActionInput.SubmissionId)}")" value="@_submissionId" />
+                <p class="muted">Cada sincronización hace solicitudes a 360dialog con la clave de este número. Una clave de sandbox de 360dialog permite 25 solicitudes en total.</p>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn--primary" data-testid="templates-sync"><Icon Name="refresh" />Sincronizar ahora</button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    public const string SyncedNotice = "sincronizadas";
+
+    private ChannelTemplatesResponse? _templates;
+    private ChannelResponse? _channel;
+    private bool _missing;
+    private bool _canManage;
+    private string _submissionId = OneTimeSubmissions.NewId();
+    private ChannelActionInput? _input;
+
+    [SupplyParameterFromForm(FormName = "sync-templates")]
+    private ChannelActionInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [SupplyParameterFromQuery(Name = "aviso")]
+    public string? Notice { get; set; }
+
+    private string Description => _channel is null ? "Plantillas aprobadas del número." : $"Plantillas del número {_channel.DisplayPhoneNumber}.";
+
+    private string SyncedText => _templates switch
+    {
+        { Sandbox: true } => "Modo sandbox: plantillas fijas de prueba, no se leen de 360dialog.",
+        { LastSyncedAt: { } at } => $"Última sincronización: {MetricsFormat.Moment(TimeZone.ToLocal(at))}.",
+        _ => "Nunca sincronizadas.",
+    };
+
+    private static string StatusLabel(MessageTemplateResponse template) => template.Status switch
+    {
+        "Approved" when !template.IsSupported => "Aprobada (Conversia aún no puede enviarla)",
+        "Approved" => "Aprobada",
+        "Pending" => "En revisión",
+        "Rejected" => "Rechazada",
+        "Paused" => "Pausada",
+        "Disabled" => "Desactivada",
+        _ => "Desconocido",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    protected override void OnNotFound()
+    {
+        _missing = true;
+        NotFoundMarker.Mark(HttpContext, NotFoundMarker.Channel);
+        SetStatusCode(StatusCodes.Status404NotFound);
+        Message = null;
+    }
+
+    private async Task LoadAsync()
+    {
+        var channelTask = Api.GetChannelAsync(Token!, Id);
+        var templatesTask = Api.GetChannelTemplatesAsync(Token!, Id);
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        await Task.WhenAll(channelTask, templatesTask, profileTask);
+
+        if (await TryFailAsync(channelTask.Result, templatesTask.Result, profileTask.Result))
+        {
+            return;
+        }
+
+        Shell.Remember(profileTask.Result.Value!);
+        _channel = channelTask.Result.Value;
+        _templates = templatesTask.Result.Value;
+        _canManage = profileTask.Result.Value!.Can(Permission.OrganizationManage);
+    }
+
+    private async Task SyncAsync()
+    {
+        if (!Submissions.TryClaim(Input.SubmissionId))
+        {
+            Message = "Este formulario ya se envió. Revisa la lista de plantillas.";
+            await LoadAsync();
+            return;
+        }
+
+        var result = await Api.SyncChannelTemplatesAsync(Token!, Id);
+        if (result.IsSuccess)
+        {
+            RedirectTo($"/organizacion/canales/{Id}/plantillas?aviso={SyncedNotice}");
+            return;
+        }
+
+        if (result.Status is ApiResultStatus.Conflict or ApiResultStatus.Unprocessable or ApiResultStatus.RateLimited or ApiResultStatus.Unavailable
+            && SendFailure.Describe(result.ProblemCode) is { } described)
+        {
+            Message = described;
+            SetStatusCode(StatusCodes.Status409Conflict);
+        }
+        else
+        {
+            await TryFailAsync(result);
+        }
+
+        if (!Redirected && !_missing && !Denied)
+        {
+            await LoadAsync();
+        }
+    }
+}

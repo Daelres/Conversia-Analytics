@@ -24,8 +24,7 @@ public class ContactConfiguration : IEntityTypeConfiguration<Contact>
         builder.Property(c => c.FirstSeenAt).IsRequired();
         builder.Property(c => c.DisplayNameAt);
         builder.Property(c => c.IsSandbox).IsRequired().HasDefaultValue(false);
-
-        // The profile an LLM extracts (or a person sets), with per-field provenance. Only the coarse range is stored, never an exact age.
+         // The profile an LLM extracts (or a person sets), with per-field provenance. Only the coarse range is stored, never an exact age.
         builder.Property(c => c.AgeRange).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.AgeRangeSource).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.Gender).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(Gender.Undetermined);
@@ -59,6 +58,10 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.AdvisorAssignedAt);
         builder.Property(c => c.Source).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.SourceReference).HasMaxLength(Conversation.SourceReferenceMaxLength);
+        builder.Property(c => c.ReferralSourceType).HasMaxLength(AdReferral.SourceTypeMaxLength);
+        builder.Property(c => c.ReferralSourceId).HasMaxLength(AdReferral.SourceIdMaxLength);
+        builder.Property(c => c.ReferralSourceUrl).HasMaxLength(AdReferral.SourceUrlMaxLength);
+        builder.Property(c => c.ReferralHeadline).HasMaxLength(AdReferral.HeadlineMaxLength);
         builder.Property(c => c.StartedAt).IsRequired();
         builder.Property(c => c.LastMessageAt).IsRequired();
         builder.Property(c => c.Status).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
@@ -73,6 +76,15 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.PendingAgeRange).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.PendingGender).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(c => c.IsSandbox).IsRequired().HasDefaultValue(false);
+        builder.Property(c => c.IsImported).IsRequired().HasDefaultValue(false);
+        // The LLM analysis state (docs/CLASSIFICATION.md, "When the AI reads"), apart from the rules' flag.
+        builder.Property(c => c.LlmPending).IsRequired().HasDefaultValue(false);
+        builder.Property(c => c.LlmLeaseUntil);
+        builder.Property(c => c.LlmAttemptedAt);
+        builder.Property(c => c.LlmAnalyzedAt);
+        builder.Property(c => c.LastInboundAt);
+        builder.Property(c => c.LastOutboundAt);
+        builder.Property(c => c.CustomerReadMarkedAt);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.UpdatedAt);
 
@@ -88,8 +100,15 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
 
         builder.HasIndex(c => c.TenantId);
 
+        // The LLM runner claims a company's pending conversations, oldest request first: only pending ones are indexed.
+        builder.HasIndex(c => new { c.TenantId, c.ClassificationRequestedAt }, "IX_Conversations_LlmPending")
+            .HasFilter("\"LlmPending\"");
+
         // The conversation list and the metrics read a tenant's conversations by the day they started and by whether they are still open.
         builder.HasIndex(c => new { c.TenantId, c.StartedAt });
+
+        // Conversations closed per day of a company (platform monitoring).
+        builder.HasIndex(c => new { c.TenantId, c.ClosedAt });
         builder.HasIndex(c => new { c.TenantId, c.Status, c.LastMessageAt });
 
         // The close-by-inactivity job looks for the idle open conversations of every tenant at once: only open ones are indexed.
@@ -101,6 +120,18 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
             .HasFilter("\"ClassificationDirty\"");
 
         // The sandbox rows of a tenant (docs/SANDBOX.md): few or none, so only they are indexed. Serves the clean-up and the sandbox-mode metrics.
+        // The inbox (docs/MESSAGING.md, "Inbox"): its change token and its delta read the conversations of a tenant (real or sandbox) by
+        // their last change; every conversation has one (set when it is created too).
+        builder.HasIndex(c => new { c.TenantId, c.IsSandbox, c.UpdatedAt }, "IX_Conversations_Inbox_Changes");
+
+        // The inbox's "awaiting a reply" part: the open conversations by the customer's last message, oldest first, read with a limit.
+        builder.HasIndex(c => new { c.TenantId, c.IsSandbox, c.LastInboundAt }, "IX_Conversations_Inbox_Waiting")
+            .HasFilter("\"Status\" = 'Open'");
+
+        // The inbox's other part: the open conversations by their last message, newest first, read with a limit.
+        builder.HasIndex(c => new { c.TenantId, c.IsSandbox, c.LastMessageAt }, "IX_Conversations_Inbox_Open")
+            .HasFilter("\"Status\" = 'Open'");
+
         builder.HasIndex(c => c.TenantId, "IX_Conversations_TenantId_Sandbox")
             .HasFilter("\"IsSandbox\"");
 
@@ -127,6 +158,24 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.Property(m => m.Type).IsRequired().HasMaxLength(Message.TypeMaxLength);
         builder.Property(m => m.Text).HasMaxLength(Message.TextMaxLength);
         builder.Property(m => m.SentAt).IsRequired();
+        builder.Property(m => m.Sender).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(MessageSender.Unknown);
+        builder.Property(m => m.SentByUserId);
+        builder.Property(m => m.SentByAdvisorId);
+        builder.Property(m => m.AssignedAdvisorIdAtReceipt);
+        builder.Property(m => m.MediaId).HasMaxLength(MessageMedia.MaxIdLength);
+        builder.Property(m => m.MediaMimeType).HasMaxLength(MessageMedia.MaxMimeTypeLength);
+        builder.Property(m => m.HasCaption).IsRequired().HasDefaultValue(false);
+        builder.Property(m => m.TemplateName).HasMaxLength(MessageTemplate.NameMaxLength);
+        builder.Property(m => m.TemplateCategory).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        // The stored copy of the media (docs/MESSAGING.md, "Media"): a random key, never a file name.
+        builder.Property(m => m.MediaStatus).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(m => m.MediaObjectKey).HasMaxLength(StoredMediaObject.MaxKeyLength);
+        builder.Property(m => m.MediaSizeBytes);
+        builder.Property(m => m.MediaContentType).HasMaxLength(MessageMedia.MaxMimeTypeLength);
+        builder.Property(m => m.MediaAttempts).IsRequired().HasDefaultValue(0);
+        builder.Property(m => m.MediaNextAttemptAt);
+        builder.Property(m => m.MediaStoredAt);
+        builder.Property(m => m.IsImported).IsRequired().HasDefaultValue(false);
         builder.Property(m => m.CreatedAt).IsRequired();
         builder.Property(m => m.UpdatedAt);
 
@@ -135,6 +184,10 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
 
         // A conversation's messages in time order.
         builder.HasIndex(m => new { m.ConversationId, m.SentAt });
+
+        // The download job's queue (only the pending ones) and the retention job's scan (only the stored ones).
+        builder.HasIndex(m => m.MediaNextAttemptAt, "IX_Messages_MediaPending").HasFilter("\"MediaStatus\" = 'Pending'");
+        builder.HasIndex(m => new { m.TenantId, m.MediaStoredAt }, "IX_Messages_MediaStored").HasFilter("\"MediaStatus\" = 'Stored'");
 
         // The message volume of a tenant over a period (and the foreign key to the tenant, which it serves as its first column).
         builder.HasIndex(m => new { m.TenantId, m.SentAt });
@@ -178,6 +231,19 @@ public class OpportunityConfiguration : IEntityTypeConfiguration<Opportunity>
         builder.Property(o => o.ObjectionClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(o => o.ClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(o => o.DetailsChangedAt);
+        builder.Property(o => o.ReachedStage).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.ReachedStageSource).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(FieldSource.Auto);
+        builder.Property(o => o.ReachedStageClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.MovedOffChannel).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(OffChannelMove.None);
+        builder.Property(o => o.OffChannelEvidenceIndex);
+        builder.Property(o => o.MovedOffChannelSource).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(FieldSource.Auto);
+        builder.Property(o => o.MovedOffChannelClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.ClosedBy).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(ClosedBy.Unknown);
+        builder.Property(o => o.ClosedBySource).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(FieldSource.Auto);
+        builder.Property(o => o.ClosedByClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(o => o.ClosedOutsideSystem).IsRequired().HasDefaultValue(false);
+        builder.Property(o => o.ClosedOutsideSystemSource).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength).HasDefaultValue(FieldSource.Auto);
+        builder.Property(o => o.ClosedOutsideSystemClassifiedBy).HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
         builder.Property(o => o.DetailsChangedBy);
         builder.Property(o => o.CreatedAt).IsRequired();
         builder.Property(o => o.UpdatedAt);
@@ -227,7 +293,82 @@ public class WebhookEventConfiguration : IEntityTypeConfiguration<WebhookEvent>
         // The deliveries page of a tenant, newest first (it also serves the foreign key to the tenant as its first column).
         builder.HasIndex(e => new { e.TenantId, e.ReceivedAt });
 
+        // The platform's monitoring counts deliveries of the last 24 hours and 7 days across companies (docs/PLATFORM_ADMIN.md, "Monitoring").
+        builder.HasIndex(e => e.ReceivedAt);
+
         builder.HasOne<Tenant>().WithMany().HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<WhatsAppChannel>().WithMany().HasForeignKey(e => e.ChannelId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+/// <summary>
+/// The marks of suppressed contacts (docs/USERS_TENANTS_PERMISSIONS.md, "Contact suppression"): one per company and number hash, looked up by
+/// ingestion for every message of a contact it does not know yet.
+/// </summary>
+public class ContactSuppressionConfiguration : IEntityTypeConfiguration<ContactSuppression>
+{
+    public void Configure(EntityTypeBuilder<ContactSuppression> builder)
+    {
+        builder.ToTable("ContactSuppressions");
+        builder.HasKey(s => s.Id);
+        builder.Property(s => s.TenantId).IsRequired();
+        builder.Property(s => s.WaIdHash).IsRequired().HasMaxLength(ContactSuppression.HashLength).IsFixedLength();
+        builder.Property(s => s.HashKeyId).IsRequired().HasMaxLength(ContactSuppression.HashKeyIdMaxLength);
+        builder.Property(s => s.SuppressedAt).IsRequired();
+        builder.Property(s => s.SuppressedBy).IsRequired();
+        builder.Property(s => s.CreatedAt).IsRequired();
+        builder.HasIndex(s => new { s.TenantId, s.WaIdHash }).IsUnique();
+        builder.HasOne<Tenant>().WithMany().HasForeignKey(s => s.TenantId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+/// <summary>The copies of the channels' templates (docs/MESSAGING.md, "Templates"): one row per name and language of a channel.</summary>
+public class MessageTemplateConfiguration : IEntityTypeConfiguration<MessageTemplate>
+{
+    public void Configure(EntityTypeBuilder<MessageTemplate> builder)
+    {
+        builder.ToTable("MessageTemplates");
+        builder.HasKey(t => t.Id);
+
+        builder.Property(t => t.TenantId).IsRequired();
+        builder.Property(t => t.ChannelId).IsRequired();
+        builder.Property(t => t.Name).IsRequired().HasMaxLength(MessageTemplate.NameMaxLength);
+        builder.Property(t => t.Language).IsRequired().HasMaxLength(MessageTemplate.LanguageMaxLength);
+        builder.Property(t => t.Category).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(t => t.Status).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength);
+        builder.Property(t => t.BodyText).HasMaxLength(MessageTemplate.BodyMaxLength);
+        builder.Property(t => t.ParameterNames).IsRequired();
+        builder.Property(t => t.IsSupported).IsRequired();
+        builder.Property(t => t.SyncedAt).IsRequired();
+        builder.Property(t => t.StatusChangedAt);
+        builder.Property(t => t.CreatedAt).IsRequired();
+        builder.Property(t => t.UpdatedAt);
+
+        builder.Ignore(t => t.ParameterCount);
+        builder.Ignore(t => t.NamedParameters);
+        builder.Ignore(t => t.CanBeSent);
+
+        builder.HasIndex(t => new { t.ChannelId, t.Name, t.Language }).IsUnique();
+        builder.HasIndex(t => t.TenantId);
+
+        builder.HasOne<Tenant>().WithMany().HasForeignKey(t => t.TenantId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<WhatsAppChannel>().WithMany().HasForeignKey(t => t.ChannelId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public class MediaObjectDeletionConfiguration : IEntityTypeConfiguration<MediaObjectDeletion>
+{
+    public void Configure(EntityTypeBuilder<MediaObjectDeletion> builder)
+    {
+        builder.ToTable("MediaObjectDeletions");
+        builder.HasKey(d => d.Id);
+        builder.Property(d => d.TenantId).IsRequired();
+        builder.Property(d => d.ObjectKey).IsRequired().HasMaxLength(StoredMediaObject.MaxKeyLength);
+        builder.Property(d => d.CreatedAt).IsRequired();
+        builder.Property(d => d.UpdatedAt);
+        builder.Property(d => d.Attempts).IsRequired().HasDefaultValue(0);
+        builder.Property(d => d.NextAttemptAt);
+        builder.HasIndex(d => new { d.TenantId, d.CreatedAt });
+        builder.HasOne<Tenant>().WithMany().HasForeignKey(d => d.TenantId).OnDelete(DeleteBehavior.Restrict);
     }
 }

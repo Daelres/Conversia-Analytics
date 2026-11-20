@@ -1,0 +1,157 @@
+@page "/conversaciones/{Id:guid}/suprimir-contacto"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Conversations
+@using Conversia.Domain.Enums
+@inherits AuthenticatedPageBase
+@inject OneTimeSubmissions Submissions
+
+<PageTitle>Suprimir datos del cliente - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <StatusView DataPage="forbidden" Code="403" Title="Sin permiso para suprimir datos" Art="locked"
+                Hint="Pide el permiso a la persona propietaria de tu empresa.">
+        <ChildContent>Tu cuenta no tiene el permiso «@PermissionLabels.For(Permission.ContactsSuppress)». Con él podrás atender las solicitudes de clientes que piden borrar sus datos.</ChildContent>
+        <Actions>
+            <a class="btn btn--primary" href="@ConversationLinks.Detail(Id)"><Icon Name="arrow-left" />Volver a la conversación</a>
+        </Actions>
+    </StatusView>
+}
+else if (_missing)
+{
+    <ConversationNotFoundView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="contact-suppress" data-conversation-id="@Id">
+        <PageHeader Eyebrow="Conversaciones" EyebrowIcon="message" Title="Suprimir datos del cliente" Description="@ContactLabel">
+            <a class="btn btn--secondary" href="@ConversationLinks.Detail(Id)"><Icon Name="arrow-left" />Volver a la conversación</a>
+        </PageHeader>
+
+        <ErrorAlert Message="@Message" />
+
+        @* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller without the permission
+           who forges one must still reach the API and be refused there, not crash here. *@
+        <div hidden="@(!ShowForm)">
+            <Card Title="¿Suprimir todos los datos de este cliente?" IconName="trash" data-testid="suppress-confirm">
+                <div class="stack">
+                    <Alert Kind="AlertKind.Danger" data-testid="suppress-effect">
+                        Se eliminan para siempre el contacto y todas sus conversaciones, mensajes y resultados en tu empresa, no solo los de esta
+                        conversación. Las métricas de periodos pasados dejan de contarlo. No se puede deshacer.
+                    </Alert>
+                    <p class="muted">Úsalo cuando el cliente pida borrar sus datos (Ley 1581 de 2012). Si vuelve a escribir después, Conversia lo registra como un contacto nuevo, sin nada del anterior.</p>
+                    <EditForm Model="Input" FormName="suppress-contact" OnValidSubmit="RunAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="suppress-form">
+                        <DataAnnotationsValidator />
+                        <input type="hidden" name="@($"{nameof(Input)}.{nameof(ContactSuppressionInput.SubmissionId)}")" value="@_submissionId" />
+                        <label class="checkbox" for="confirmed">
+                            <input id="confirmed" type="checkbox" name="@($"{nameof(Input)}.{nameof(ContactSuppressionInput.Confirmed)}")" value="true" checked="@Input.Confirmed" />
+                            <span>El cliente pidió suprimir sus datos.</span>
+                        </label>
+                        <ValidationMessage For="() => Input.Confirmed" data-testid="confirm-error" />
+                        <div class="form-actions">
+                            @if (ShowForm)
+                            {
+                                <button type="submit" class="btn btn--danger" data-testid="suppress-submit"><Icon Name="trash" />Sí, suprimir sus datos</button>
+                            }
+                            <a class="btn btn--ghost" href="@ConversationLinks.Detail(Id)">Cancelar</a>
+                        </div>
+                    </EditForm>
+                </div>
+            </Card>
+        </div>
+    </div>
+}
+
+@code {
+    private ConversationDetailResponse? _conversation;
+    private bool _canSuppress;
+    private bool _missing;
+    private string _submissionId = OneTimeSubmissions.NewId();
+    private ContactSuppressionInput? _input;
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [SupplyParameterFromForm(FormName = "suppress-contact")]
+    private ContactSuppressionInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    private bool ShowForm => _canSuppress && _conversation is not null && !Redirected;
+
+    private string? ContactLabel => _conversation is null ? null : ConversationFormat.ListTitle(_conversation.Contact);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    protected override void OnNotFound()
+    {
+        _missing = true;
+        SetStatusCode(StatusCodes.Status404NotFound);
+        Message = null;
+    }
+
+    private async Task LoadAsync()
+    {
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        var detailTask = Api.GetConversationAsync(Token!, Id);
+        await Task.WhenAll(profileTask, detailTask);
+        if (await TryFailAsync(profileTask.Result))
+        {
+            return;
+        }
+
+        Shell.Remember(profileTask.Result.Value!);
+        _canSuppress = profileTask.Result.Value!.Can(Permission.ContactsSuppress);
+        if (!_canSuppress)
+        {
+            Deny();
+            return;
+        }
+
+        if (await TryFailAsync(detailTask.Result))
+        {
+            return;
+        }
+
+        _conversation = detailTask.Result.Value;
+    }
+
+    private async Task RunAsync()
+    {
+        // The contact is read from the conversation again, never taken from the form.
+        await LoadAsync();
+        if (_conversation is null || Denied || Redirected || _missing)
+        {
+            return;
+        }
+
+        if (!Submissions.TryClaim(Input.SubmissionId))
+        {
+            Message = "Este formulario ya se envió. Revisa la lista de conversaciones.";
+            return;
+        }
+
+        var result = await Api.SuppressContactAsync(Token!, _conversation.Contact.Id);
+        if (result.IsSuccess || result.Status == ApiResultStatus.NotFound)
+        {
+            // Not found: already suppressed (a second tab, a double click). Either way the contact is gone.
+            RedirectTo(ConversationsNotice.ListUrl(ConversationsNotice.ContactSuppressed));
+            return;
+        }
+
+        await TryFailAsync(result);
+    }
+}

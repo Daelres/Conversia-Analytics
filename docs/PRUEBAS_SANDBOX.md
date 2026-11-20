@@ -391,6 +391,32 @@ Al empezar de cero, los datos de 360dialog (tu llave y tu número de sandbox) si
 - La API se publica en todas las interfaces de tu computador (`API_PORT`), no solo en `localhost`; en una red compartida, ten presente que otros equipos podrían alcanzarla. PostgreSQL solo escucha en `127.0.0.1`.
 - Nunca pegues llaves, secretos ni contraseñas en el repositorio, en `docs/` ni en conversaciones. `.env` está en `.gitignore`.
 
+## 8b. Coexistencia: conectar un número que ya usa la aplicación WhatsApp Business **[Externo]**
+
+Esto se hace con un número real (no con la clave del sandbox de 360dialog) y lo hace la empresa dueña del número. Referencias:
+[Coexistencia](https://docs.360dialog.com/docs/resources/phone-numbers/coexistence) y
+[Registro con coexistencia](https://docs.360dialog.com/docs/hub/embedded-signup/coexistence-onboarding).
+
+1. **Antes de empezar:** el número debe estar registrado en la aplicación WhatsApp Business (versión reciente, en un teléfono con cámara) y no
+   puede estar ya conectado a la plataforma de WhatsApp Business. No desinstales la aplicación: hacerlo desconecta la cuenta.
+2. **En el Hub de 360dialog**, inicia el registro integrado (Embedded Signup) y elige la opción de conectar una aplicación WhatsApp Business
+   existente («Yes, Business App»).
+3. **En el teléfono** llega un mensaje de WhatsApp que pide escanear un código QR: ábrelo y escanea el código que muestra la pantalla (o
+   escribe el código de acceso). Al confirmar, la aplicación comparte el historial de chats con la plataforma si así se eligió.
+4. **Historial (opcional, una sola vez):** Meta envía hasta 180 días de chats al webhook del número **una sola vez, dentro de las 24 horas**
+   siguientes al registro (en el Client Hub: «Sync contacts and history»). Si quieres importarlo, **antes** activa en Conversia
+   `/organizacion/canales/{id}/historial` (solo la persona propietaria, confirmando la base legal). Si no está activado, Conversia lo descarta.
+5. **En Conversia:** registra el número en `/organizacion`, configura el webhook en 360dialog con la dirección y el secreto que muestra
+   Conversia (sección 2), guarda la clave de API del número y activa la línea.
+6. **Comprobación:** escribe desde el teléfono del cliente y responde desde la aplicación del negocio: en `/mensajes` deben aparecer el mensaje
+   del cliente y la respuesta como «enviado desde el teléfono». Envía una imagen desde el cliente: en la conversación aparece «Descargando el
+   archivo» y, en un momento, la imagen.
+7. **Mantenimiento:** abre la aplicación WhatsApp Business al menos **una vez cada 13 días**. Si Meta desconecta el número, la línea aparece
+   en `/organizacion` como «Desconectada de la API» y hay que volver a conectarla en 360dialog.
+
+Qué no está verificado aún con una entrega real: que 360dialog reenvíe al webhook del número los avisos de historial, de contactos y de
+desconexión (docs/WEBHOOKS.md, «Coexistence»). Anota lo que llegue (sin datos de clientes) para confirmarlo.
+
 ## 9. Lista de aceptación
 
 Marca ☐ cuando lo hayas comprobado. La columna **Previo** indica qué ya se ejecutó antes de entregarte la guía: **V** = verificado contra una instalación real en Docker con entregas emuladas (22 de octubre de 2026); **E** = solo puedes comprobarlo tú (necesita 360dialog, tu teléfono o un túnel público).

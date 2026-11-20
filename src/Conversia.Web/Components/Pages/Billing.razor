@@ -1,0 +1,294 @@
+@page "/organizacion/facturacion"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Billing
+@using Conversia.Application.Time
+@using Conversia.Domain.Enums
+@using Conversia.Web.Time
+@inherits AuthenticatedPageBase
+@inject TenantTimeZone TimeZone
+
+<PageTitle>Facturación - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <StatusView DataPage="forbidden" Code="403" Title="Sin acceso a la facturación" Art="locked"
+                Hint="Pide acceso a la persona propietaria de tu empresa.">
+        <ChildContent>Tu cuenta no tiene el permiso «@PermissionLabels.For(Permission.BillingManage)». Con él verás el plan, los cobros y el medio de pago de tu empresa.</ChildContent>
+        <Actions>
+            <a class="btn btn--primary" href="/"><Icon Name="home" />Ir al inicio</a>
+        </Actions>
+    </StatusView>
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="billing">
+        <PageHeader Eyebrow="Tu negocio" EyebrowIcon="card" Title="Facturación"
+                    Description="Tu plan, el próximo cobro, el medio de pago y el historial. Conversia no emite aquí facturas electrónicas." />
+
+        @if (Notice is not null)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">@Notice</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_none)
+        {
+            <div data-testid="billing-none">
+                <EmptyState Title="Tu empresa aún no tiene una suscripción" Art="chat"
+                            Text="El equipo de Conversia activa la suscripción cuando acuerdan el plan. Si ya lo acordaste, contáctalo." />
+            </div>
+        }
+        else if (_account is { } a)
+        {
+            @if (a.DunningStage == DunningStage.Suspended)
+            {
+                <Alert Kind="AlertKind.Danger" data-testid="billing-suspended">Tu empresa está suspendida por un pago pendiente. Paga el cobro pendiente o actualiza el medio de pago para reactivarla al instante.</Alert>
+            }
+            else if (a.DunningStage == DunningStage.Retrying)
+            {
+                <Alert Kind="AlertKind.Warning" data-testid="billing-past-due">No pudimos cobrar el periodo actual. Actualiza el medio de pago o paga ahora para evitar la suspensión.</Alert>
+            }
+
+            <div class="stack">
+                <Card Title="Plan y próximo cobro" IconName="card" data-testid="billing-plan">
+                    <dl class="kv">
+                        <div><dt>Plan</dt><dd data-testid="billing-plan-name">@a.PlanName</dd></div>
+                        <div><dt>Estado</dt><dd><Chip Tone="BillingFormat.SubscriptionTone(a.Status)" data-testid="billing-status">@BillingFormat.Subscription(a.Status)</Chip></dd></div>
+                        <div><dt>Periodo actual</dt><dd>@MetricsFormat.Date(a.CurrentPeriodStart) al @MetricsFormat.Date(a.CurrentPeriodEnd.AddDays(-1))</dd></div>
+                        <div><dt>Líneas facturadas</dt><dd>@a.BilledLines × @BillingFormat.Money(a.PricePerLineInCents)</dd></div>
+                        @if (a.AddOnQuantity > 0)
+                        {
+                            <div><dt>Conversaciones con IA adicionales</dt><dd>@a.AddOnQuantity × @a.AddOnName</dd></div>
+                        }
+                        <div>
+                            <dt>Próximo cobro</dt>
+                            <dd data-testid="billing-next">
+                                @if (a.NextChargeOn is { } on && a.NextChargeAmountInCents is { } amount)
+                                {
+                                    @($"{MetricsFormat.Date(on)}: {BillingFormat.Money(amount)}")
+                                }
+                                else if (a.CancelAtPeriodEnd)
+                                {
+                                    @($"Ninguno: la suscripción termina el {MetricsFormat.Date(a.CurrentPeriodEnd)}")
+                                }
+                                else
+                                {
+                                    @("Ninguno")
+                                }
+                            </dd>
+                        </div>
+                    </dl>
+                    <p class="muted">Los cambios de plan o de líneas se aplican desde el siguiente periodo, sin prorrateos. No hay permanencia mínima.</p>
+                </Card>
+
+                <Card Title="Medio de pago" IconName="lock" data-testid="billing-method">
+                    <div class="stack">
+                        <p data-testid="billing-method-label">@(a.PaymentMethodLabel ?? "Sin medio de pago registrado")</p>
+                        @if (a.GatewayConfigured && a.Status != SubscriptionStatus.Cancelled)
+                        {
+                            <div class="form-actions">
+                                <a class="btn btn--secondary" href="/organizacion/facturacion/medio-de-pago" data-testid="billing-method-change">
+                                    <Icon Name="card" />@(a.PaymentMethodLabel is null ? "Agregar tarjeta o Nequi" : "Cambiar el medio de pago")
+                                </a>
+                            </div>
+                        }
+                    </div>
+                </Card>
+
+                @if (a.OpenCharge is { } open)
+                {
+                    <Card Title="Cobro pendiente" IconName="alert-circle" data-testid="billing-open">
+                        <div class="stack">
+                            <p><strong>@BillingFormat.Money(open.AmountInCents)</strong> del periodo @MetricsFormat.Date(open.PeriodStart) al @MetricsFormat.Date(open.PeriodEnd.AddDays(-1)), vence el @MetricsFormat.Date(open.DueOn).</p>
+                            @if (open.HasPendingAttempt)
+                            {
+                                <p class="muted" data-testid="billing-open-pending">Hay un pago en proceso. Si usas Nequi, apruébalo en tu aplicación.</p>
+                            }
+                            @if (a.GatewayConfigured)
+                            {
+                                <div class="form-actions">
+                                    @if (a.PaymentMethodLabel is not null && !open.HasPendingAttempt)
+                                    {
+                                        <form method="post" @formname="billing-pay" @onsubmit="PayAsync" data-testid="billing-pay-form">
+                                            <AntiforgeryToken />
+                                            <button type="submit" class="btn btn--primary"><Icon Name="check" />Pagar ahora con @a.PaymentMethodLabel</button>
+                                        </form>
+                                    }
+                                    <form method="post" @formname="billing-link" @onsubmit="LinkAsync" data-testid="billing-link-form">
+                                        <AntiforgeryToken />
+                                        <button type="submit" class="btn btn--secondary"><Icon Name="link" />Pagar con PSE u otro medio</button>
+                                    </form>
+                                </div>
+                                <p class="muted">PSE y los demás medios se pagan en la página segura de Wompi con un enlace de un solo uso para este cobro.</p>
+                            }
+                        </div>
+                    </Card>
+                }
+
+                @if (a.Status != SubscriptionStatus.Cancelled)
+                {
+                    <Card Title="Cancelar la suscripción" IconName="trash" data-testid="billing-cancel">
+                        <div class="stack">
+                            @if (a.CancelAtPeriodEnd)
+                            {
+                                <p>La suscripción termina el @MetricsFormat.Date(a.CurrentPeriodEnd). Ese día tu empresa se cancela y sus datos se eliminan después del periodo de retención.</p>
+                                <form method="post" @formname="billing-undo" @onsubmit="UndoCancelAsync">
+                                    <AntiforgeryToken />
+                                    <button type="submit" class="btn btn--secondary" data-testid="billing-undo">Seguir con la suscripción</button>
+                                </form>
+                            }
+                            else
+                            {
+                                <p>Puedes cancelar cuando quieras: el servicio sigue hasta el final del periodo pagado y no se cobra el siguiente.</p>
+                                <form method="post" @formname="billing-cancel" @onsubmit="CancelAsync">
+                                    <AntiforgeryToken />
+                                    <button type="submit" class="btn btn--danger-ghost" data-testid="billing-cancel-submit">Cancelar al final del periodo</button>
+                                </form>
+                            }
+                        </div>
+                    </Card>
+                }
+
+                <Card Title="Historial de cobros" IconName="activity" data-testid="billing-history">
+                    @if (a.Charges.Count == 0)
+                    {
+                        <p class="muted">Aún no hay cobros.</p>
+                    }
+                    else
+                    {
+                        <div class="table-wrap" role="region" aria-label="Historial de cobros" tabindex="0">
+                            <table class="table">
+                                <caption class="sr-only">Cobros de la suscripción</caption>
+                                <thead>
+                                    <tr><th scope="col">Periodo</th><th scope="col">Valor</th><th scope="col">Estado</th><th scope="col">Intentos</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var charge in a.Charges)
+                                    {
+                                        <tr data-testid="billing-charge">
+                                            <td>@MetricsFormat.Date(charge.PeriodStart) al @MetricsFormat.Date(charge.PeriodEnd.AddDays(-1))</td>
+                                            <td>@BillingFormat.Money(charge.AmountInCents)</td>
+                                            <td><Chip Tone="BillingFormat.ChargeTone(charge.Status)">@BillingFormat.Charge(charge.Status)</Chip></td>
+                                            <td>
+                                                @foreach (var attempt in charge.Attempts)
+                                                {
+                                                    <div class="muted">@AttemptLine(attempt)</div>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </Card>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private BillingAccountResponse? _account;
+    private bool _none;
+
+    [SupplyParameterFromQuery(Name = "notice")]
+    private string? NoticeCode { get; set; }
+
+    private string? Notice => BillingNotice.Describe(NoticeCode);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (await TryReadTokenAsync())
+        {
+            await LoadAsync();
+        }
+    }
+
+    protected override void OnNotFound()
+    {
+        _none = true;
+        Message = null;
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Api.GetBillingAsync(Token!);
+        if (!await TryFailAsync(result))
+        {
+            _account = result.Value;
+        }
+    }
+
+    private string AttemptLine(BillingAttemptResponse attempt)
+        => $"{MetricsFormat.Date(DateOnly.FromDateTime(TimeZone.ToLocal(attempt.AttemptedAt)))}: {BillingFormat.Kind(attempt.Kind)}, {BillingFormat.Attempt(attempt.Status)}";
+
+    private async Task PayAsync()
+    {
+        if (_account?.OpenCharge is not { } open)
+        {
+            return;
+        }
+
+        var result = await Api.PayChargeNowAsync(Token!, open.Id);
+        if (result.IsSuccess)
+        {
+            RedirectTo(BillingNotice.Url(result.Value!.Status switch
+            {
+                PaymentAttemptStatus.Approved => BillingNotice.Paid,
+                PaymentAttemptStatus.Pending => BillingNotice.Pending,
+                _ => BillingNotice.Declined,
+            }));
+            return;
+        }
+
+        await Fail(result);
+    }
+
+    private async Task LinkAsync()
+    {
+        if (_account?.OpenCharge is not { } open)
+        {
+            return;
+        }
+
+        var result = await Api.GetPaymentLinkAsync(Token!, open.Id);
+        if (result.IsSuccess)
+        {
+            // The gateway's own checkout page (validated https by the client); nothing of ours travels in it.
+            RedirectTo(result.Value!.Url);
+            return;
+        }
+
+        await Fail(result);
+    }
+
+    private Task CancelAsync() => SetCancellationAsync(true);
+
+    private Task UndoCancelAsync() => SetCancellationAsync(false);
+
+    private async Task SetCancellationAsync(bool cancel)
+    {
+        var result = await Api.SetBillingCancellationAsync(Token!, cancel);
+        if (result.IsSuccess)
+        {
+            RedirectTo(BillingNotice.Url(cancel ? BillingNotice.CancelScheduled : BillingNotice.CancelUndone));
+            return;
+        }
+
+        await Fail(result);
+    }
+
+    private async Task Fail<T>(ApiResult<T> result)
+    {
+        if (BillingNotice.Problem(result.ProblemCode) is { } problem)
+        {
+            Message = problem;
+            SetStatusCode(result.Status == ApiResultStatus.Unavailable ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status409Conflict);
+            await LoadAsync();
+            return;
+        }
+
+        await TryFailAsync(result);
+    }
+}

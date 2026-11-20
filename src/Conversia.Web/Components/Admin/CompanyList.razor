@@ -1,0 +1,22 @@
+@* A short list of companies, each a link to its page with one line of business facts. *@
+@if (Companies.Count == 0)
+{
+    <p class="muted">@Empty</p>
+}
+else
+{
+    <ul class="stack" data-testid="company-list">
+        @foreach (var (id, name, detail) in Companies)
+        {
+            <li data-testid="company-item" data-company-id="@id"><a href="/admin/empresas/@id">@name</a> <span class="muted">· @detail</span></li>
+        }
+    </ul>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<(Guid Id, string Name, string Detail)> Companies { get; set; } = [];
+
+    [Parameter]
+    public string Empty { get; set; } = "Ninguna.";
+}

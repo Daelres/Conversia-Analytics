@@ -16,4 +16,12 @@ public enum Permission
     ConversationsView = 7,
     ConversationsManage = 8,
     MetricsView = 9,
+    /// <summary>Suppress a contact on request of the customer (Ley 1581): its conversations, messages and opportunities are deleted.</summary>
+    ContactsSuppress = 10,
+    /// <summary>See and manage the company's subscription: payment method, charges, payment links, cancellation (docs/BILLING.md).</summary>
+    BillingManage = 11,
+    /// <summary>Create, change and delete the company's automatic manager reports, and preview them (docs/REPORTS.md).</summary>
+    ReportsManage = 12,
+    /// <summary>Change the AI sales assistant's settings, its lines and its knowledge base (docs/ASSISTANT.md). Switching it on is the owner's alone.</summary>
+    AssistantManage = 13,
 }

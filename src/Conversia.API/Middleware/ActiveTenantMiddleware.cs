@@ -6,14 +6,14 @@ using Microsoft.AspNetCore.Authorization;
 
 namespace Conversia.API.Middleware;
 
-/// <summary>Marks an endpoint a signed-in user of a pending or suspended company may still call (to learn where the company stands).</summary>
+/// <summary>Marks an endpoint a signed-in user of a company that is not Active may still call (to learn where the company stands).</summary>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
 public sealed class AllowInactiveTenantAttribute : Attribute
 {
 }
 
 /// <summary>
-/// A company that is not Active cannot operate: every endpoint that needs a signed-in company user answers 403 with the code
+/// A company that is not Active (pending, paused, suspended or cancelled) cannot operate: every endpoint that needs a signed-in company user answers 403 with the code
 /// <c>tenant_not_active</c>, before permissions are looked at. Exempt: anonymous endpoints (login, registration, webhooks, which check the
 /// status themselves), the admin API, and those marked <see cref="AllowInactiveTenantAttribute"/>.
 /// The status is read on every request (a primary-key lookup of one column) rather than cached: a suspension takes effect on the very next
@@ -30,16 +30,16 @@ public sealed class ActiveTenantMiddleware
 
     public async Task InvokeAsync(HttpContext context, ITenantRepository tenants)
     {
-        if (await MustBeActiveAsync(context, tenants) is { } status && status != TenantStatus.Active)
+        if (await MustBeActiveAsync(context, tenants) is { } state && state.Status != TenantStatus.Active)
         {
-            // The outermost middleware turns this into the 403 problem with the code.
-            throw new TenantNotActiveException(status);
+            // The outermost middleware turns this into the 403 problem with the code, the status and the cause of a suspension.
+            throw new TenantNotActiveException(state.Status, state.Cause);
         }
 
         await _next(context);
     }
 
-    private static async Task<TenantStatus?> MustBeActiveAsync(HttpContext context, ITenantRepository tenants)
+    private static async Task<TenantLifecycleState?> MustBeActiveAsync(HttpContext context, ITenantRepository tenants)
     {
         var endpoint = context.GetEndpoint();
         var protectedEndpoint = endpoint?.Metadata.GetOrderedMetadata<IAuthorizeData>() ?? [];
@@ -54,7 +54,7 @@ public sealed class ActiveTenantMiddleware
             return null;
         }
 
-        // A token whose company no longer exists is as good as no token.
-        return await tenants.GetStatusAsync(tenantId, context.RequestAborted) ?? TenantStatus.Suspended;
+        // A token whose company no longer exists (its data was deleted) is as good as no token: 401 with its own code and words.
+        return await tenants.GetLifecycleAsync(tenantId, context.RequestAborted) ?? throw new TenantGoneException();
     }
 }

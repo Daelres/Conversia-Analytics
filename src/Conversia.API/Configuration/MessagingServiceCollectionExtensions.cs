@@ -2,7 +2,10 @@ using Conversia.API.RateLimiting;
 using Conversia.Application.Interfaces;
 using Conversia.Application.Messaging;
 using Conversia.Application.Services;
+using Conversia.Domain.Interfaces;
+using Conversia.Infrastructure.Conversations;
 using Conversia.Infrastructure.Messaging;
+using Conversia.Infrastructure.Repositories;
 using Conversia.Infrastructure.Security;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -29,6 +32,7 @@ public static class MessagingServiceCollectionExtensions
         services.AddSingleton(sending);
         services.AddSingleton<ISecretProtector>(new AesGcmSecretProtector(protection));
         services.AddMessageSendRateLimiting(sending);
+        services.AddPollingRateLimiting(configuration);
 
         // One attempt, a fixed timeout, no redirects (the key would follow them) and no handler logging (it can print headers).
         services.AddHttpClient<Dialog360MessageSender>(client =>
@@ -45,9 +49,50 @@ public static class MessagingServiceCollectionExtensions
             })
             .RemoveAllLoggers();
 
+        // The template list: same rules as the sender (one attempt per page, no redirects, no handler logging), a bigger answer.
+        services.AddHttpClient<IWhatsAppTemplateSource, Dialog360TemplateSource>(client =>
+            {
+                client.Timeout = dialog360.Timeout;
+                client.MaxResponseContentBufferSize = Dialog360TemplateSource.MaxPageBytes;
+            })
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+                UseCookies = false,
+                ConnectTimeout = dialog360.Timeout,
+                PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            })
+            .RemoveAllLoggers();
+
         services.AddSingleton<SandboxMessageSender>();
         services.AddScoped<IWhatsAppMessageSenderResolver, WhatsAppMessageSenderResolver>();
         services.AddScoped<IMessageSendingService, MessageSendingService>();
+
+        // Templates, read receipts and typing, the inbox (docs/MESSAGING.md).
+        services.AddScoped<IMessageTemplateRepository, MessageTemplateRepository>();
+        services.AddScoped<ITemplateService, TemplateService>();
+        services.AddSingleton<TypingIndicatorThrottle>();
+        services.AddScoped<IConversationPresenceService, ConversationPresenceService>();
+        services.AddScoped<IInboxQueries, InboxQueries>();
+        services.AddScoped<IInboxService, InboxService>();
+        services.AddScoped<IMessagingSettingsService, MessagingSettingsService>();
+        services.AddScoped<IChannelHistoryImportService, ChannelHistoryImportService>();
+
+        var templateSync = GetValidatedTemplateSyncOptions(configuration);
+        services.AddSingleton(templateSync);
+        if (templateSync.Enabled)
+        {
+            services.AddHostedService<TemplateSyncService>();
+        }
+
         return services;
+    }
+
+    public static TemplateSyncOptions GetValidatedTemplateSyncOptions(IConfiguration configuration)
+    {
+        var defaults = TemplateSyncOptions.Default;
+        return new TemplateSyncOptions(
+            Enabled: ConfigurationReader.ReadBool(configuration, TemplateSyncOptions.EnabledKey, defaults.Enabled),
+            IntervalMinutes: ConfigurationReader.ReadInt(configuration, TemplateSyncOptions.IntervalMinutesKey, defaults.IntervalMinutes, 15, 10080));
     }
 }

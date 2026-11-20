@@ -6,7 +6,8 @@ using Conversia.Domain.Exceptions;
 namespace Conversia.Domain.Entities;
 
 /// <summary>
-/// One change made by a platform administrator: who, what (an action code), to which company and the old and new values. Details hold
+/// One change made by a platform administrator, or by the system (a background job: billing, deletion): who, what (an action code), to which
+/// company, why (a stable <see cref="ReasonCode"/>, apart from the free-text reason in the details) and the old and new values. Details hold
 /// ids, statuses and numbers only (never a secret, a message or customer data). Platform-level, so no tenant query filter applies.
 /// </summary>
 public class PlatformAuditLog : BaseEntity
@@ -23,9 +24,47 @@ public class PlatformAuditLog : BaseEntity
         public const string TenantQuotaChanged = "tenant.quota_changed";
         public const string ChannelDeactivated = "channel.deactivated";
         public const string TenantSandboxModeChanged = "tenant.sandbox_mode_changed";
+        public const string TenantAiEnabledChanged = "tenant.ai_enabled_changed";
+        public const string TenantAiQuotaChanged = "tenant.ai_quota_changed";
+        public const string TenantAiScheduleChanged = "tenant.ai_schedule_changed";
+        public const string TenantSendRateLimitChanged = "tenant.send_rate_limit_changed";
+        public const string TenantMediaRetentionChanged = "tenant.media_retention_changed";
+        public const string LicenseCreated = "license.created";
+        public const string LicenseAssigned = "license.assigned";
+        public const string LicenseReleased = "license.released";
+        public const string LicenseRetired = "license.retired";
+        public const string TenantDataDeletionStarted = "tenant.data_deletion_started";
+        public const string TenantDataDeleted = "tenant.data_deleted";
+        public const string BillingPlanCreated = "billing.plan_created";
+        public const string BillingPlanUpdated = "billing.plan_updated";
+        public const string BillingAddOnCreated = "billing.addon_created";
+        public const string BillingAddOnUpdated = "billing.addon_updated";
+        public const string BillingSubscriptionStarted = "billing.subscription_started";
+        public const string BillingSubscriptionChanged = "billing.subscription_changed";
+        public const string BillingPaymentMethodChanged = "billing.payment_method_changed";
+        public const string BillingCancellationScheduled = "billing.cancellation_scheduled";
+        public const string BillingCancellationUndone = "billing.cancellation_undone";
+        public const string BillingSubscriptionCancelled = "billing.subscription_cancelled";
+        public const string BillingChargeCreated = "billing.charge_created";
+        public const string BillingChargePaid = "billing.charge_paid";
+        public const string BillingChargeVoided = "billing.charge_voided";
+        public const string BillingChargeFailed = "billing.charge_failed";
+        public const string BillingPaymentAttempted = "billing.payment_attempted";
+        public const string BillingPaymentResolved = "billing.payment_resolved";
+        public const string BillingPaymentLinkCreated = "billing.payment_link_created";
+        public const string BillingPaymentNeedsReview = "billing.payment_needs_review";
+        public const string BillingPaymentReviewed = "billing.payment_reviewed";
+        public const string TenantAssistantBlockedChanged = "tenant.assistant_blocked_changed";
+        public const string PlatformAssistantChanged = "platform.assistant_changed";
     }
 
-    public Guid AdminId { get; private set; }
+    /// <summary>The administrator who made the change; null when the system made it (see <see cref="IsSystem"/>).</summary>
+    public Guid? AdminId { get; private set; }
+
+    /// <summary>The stable code of why (<see cref="Common.ReasonCodes"/>): always there for a system change, optional for an administrator's.</summary>
+    public string? ReasonCode { get; private set; }
+
+    public bool IsSystem => AdminId is null;
 
     public string Action { get; private set; } = string.Empty;
 
@@ -40,7 +79,15 @@ public class PlatformAuditLog : BaseEntity
     {
     }
 
-    public static PlatformAuditLog Record(Guid adminId, string action, Guid? tenantId, IReadOnlyDictionary<string, object?> details)
+    public static PlatformAuditLog Record(
+        Guid adminId, string action, Guid? tenantId, IReadOnlyDictionary<string, object?> details, string? reasonCode = null)
+        => Create(TextRules.RequiredId(adminId, "El administrador es obligatorio."), action, tenantId, details, ReasonCodes.Optional(reasonCode));
+
+    /// <summary>A change made by a background job: no administrator, and the reason code is required.</summary>
+    public static PlatformAuditLog RecordSystem(string action, Guid? tenantId, string reasonCode, IReadOnlyDictionary<string, object?> details)
+        => Create(null, action, tenantId, details, ReasonCodes.Required(reasonCode));
+
+    private static PlatformAuditLog Create(Guid? adminId, string action, Guid? tenantId, IReadOnlyDictionary<string, object?> details, string? reasonCode)
     {
         if (string.IsNullOrWhiteSpace(action) || action.Length > ActionMaxLength)
         {
@@ -55,10 +102,11 @@ public class PlatformAuditLog : BaseEntity
 
         return new PlatformAuditLog
         {
-            AdminId = TextRules.RequiredId(adminId, "El administrador es obligatorio."),
+            AdminId = adminId,
             Action = action,
             TenantId = tenantId,
             Details = json,
+            ReasonCode = reasonCode,
         };
     }
 }

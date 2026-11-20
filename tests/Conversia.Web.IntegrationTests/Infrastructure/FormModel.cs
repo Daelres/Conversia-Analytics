@@ -67,6 +67,13 @@ internal sealed class FormModel
         return this;
     }
 
+    /// <summary>Adds a field, as the submit button a person clicked adds its own name and value.</summary>
+    public FormModel With(string field, string value)
+    {
+        _fields.Add(new KeyValuePair<string, string>(field, value));
+        return this;
+    }
+
     /// <summary>Removes the field entirely, as a client that never sent it would (static-SSR binding then sees no value at all).</summary>
     public FormModel Without(string field)
     {
@@ -115,7 +122,8 @@ internal sealed class FormModel
 
     private static bool Matches(string name, string field)
     {
+        // A full name matches too: an indexed field ("Input.Values[0]") has no last segment of its own.
         var lastSegment = name[(name.LastIndexOfAny(new[] { '.', ']' }) + 1)..];
-        return string.Equals(lastSegment, field, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(name, field, StringComparison.Ordinal) || string.Equals(lastSegment, field, StringComparison.OrdinalIgnoreCase);
     }
 }

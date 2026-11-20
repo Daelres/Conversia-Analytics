@@ -35,6 +35,36 @@ public sealed class SendMessageInput
 }
 
 /// <summary>
+/// The template composer as posted (docs/MESSAGING.md, "Templates"): the template by name and language, and one value per placeholder.
+/// The values are checked by the API against the template; here only their number and length are bounded.
+/// </summary>
+public sealed class SendTemplateInput
+{
+    public string? TemplateName { get; set; }
+
+    public string? Language { get; set; }
+
+    public List<string?> Values { get; set; } = [];
+
+    public string? SubmissionId { get; set; }
+
+    /// <summary>The template's choice as the picker writes it: <c>name|language</c>.</summary>
+    public static string Key(string name, string language) => $"{name}|{language}";
+
+    public static (string Name, string Language)? ParseKey(string? key)
+        => key?.Split('|') is [var name, var language] && Domain.Entities.MessageTemplate.IsValidName(name) && Domain.Entities.MessageTemplate.IsValidLanguage(language)
+            ? (name, language)
+            : null;
+
+    public SendTemplateMessageRequest ToRequest() => new()
+    {
+        TemplateName = TemplateName?.Trim(),
+        Language = Language?.Trim(),
+        Parameters = [.. Values.Take(Domain.Entities.MessageTemplate.MaxParameters).Select(v => v?.Replace("\r\n", "\n"))],
+    };
+}
+
+/// <summary>
 /// The provider credentials form as posted. The key is write-only: it goes to the API and nowhere else, so this model is never
 /// rendered back into a page and prints no key.
 /// </summary>

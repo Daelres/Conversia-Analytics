@@ -127,9 +127,25 @@ public class LlmClassificationOptionsTests
     }
 
     [Theory]
-    [InlineData("Classification:Llm:TimeoutSeconds", "9")]
+    [InlineData("Classification:Llm:TimeoutSeconds", "16")]
     [InlineData("Classification:Llm:TimeoutSeconds", "0")]
-    [InlineData("Classification:Llm:MaxRetries", "1")]
+    [InlineData("Classification:Llm:MaxRetries", "2")]
+    [InlineData("Classification:Llm:MaxConcurrent", "0")]
+    [InlineData("Classification:Llm:MaxConcurrent", "17")]
+    [InlineData("Classification:Workers", "0")]
+    [InlineData("Classification:Llm:Batch:Enabled", "perhaps")]
+    [InlineData("Classification:Llm:Batch:MaxRequests", "100001")]
+    [InlineData("Classification:Llm:Batch:PollSeconds", "0")]
+    [InlineData("Classification:Llm:Batch:DiscountFactor", "1.5")]
+    [InlineData("Classification:Llm:PerCompanyConcurrency", "0")]
+    [InlineData("Classification:Llm:Batch:PoisonGraceHours", "0")]
+    [InlineData("Classification:Llm:Batch:RetentionDays", "0")]
+    [InlineData("Classification:Schedule:DefaultNightlyHour", "24")]
+    [InlineData("Classification:Schedule:NightlyWindowHours", "0")]
+    [InlineData("Classification:Schedule:NightlyWindowHours", "13")]
+    [InlineData("Classification:Schedule:SpreadMinutes", "-1")]
+    [InlineData("Classification:Schedule:MaxConversationsPerWindow", "0")]
+    [InlineData("Classification:Schedule:TimeZone", "Mars/Olympus")]
     [InlineData("Classification:Llm:MaxTokens", "10")]
     [InlineData("Classification:Llm:Effort", "extreme")]
     [InlineData("Classification:Llm:Thinking", "sometimes")]
@@ -154,17 +170,99 @@ public class LlmClassificationOptionsTests
         Assert.Contains("Classification:Llm:Thinking", Fails("Development", With(("Classification:Llm:Thinking", "Disabled"), ("Classification:Llm:Effort", "xhigh"))).Message);
     }
 
-    [Theory]
-    [InlineData("Classification:ProcessingTimeoutSeconds", "13")]
-    [InlineData("Classification:RetryDelaySeconds", "13")]
-    public void TheStageATimingBudget_MustFitInsideTheTransactionAndTheRetryDelay_NamingTheValues(string key, string value)
+    [Fact]
+    public void TheCallBudget_MustEndBeforeTheLease_TheRetryDelay_NamingTheValues()
     {
-        // CC-13 S3: TotalBudget = TimeoutSeconds x (MaxRetries + 1) + OtherWaitsSeconds = 8 + 5 = 13 must be < both.
-        var ex = Fails("Development", With((key, value)));
+        // Design H1: TotalBudget = TimeoutSeconds x (MaxRetries + 1) + OtherWaitsSeconds = 8 + 5 = 13 must be shorter than the lease.
+        var ex = Fails("Development", With(("Classification:RetryDelaySeconds", "13")));
 
         Assert.Contains("Classification:Llm:TotalBudget", ex.Message);
-        Assert.Contains(key, ex.Message);
+        Assert.Contains("Classification:RetryDelaySeconds", ex.Message);
         Assert.Contains("13", ex.Message);
+    }
+
+    [Fact]
+    public void TheCall_IsNoLongerBoundByTheTransactionTimeout_AndMayTakeFifteenSecondsWithOneRetry()
+    {
+        // The call runs outside any transaction (design H1): a short transaction timeout no longer limits it; 15 x 2 + 5 = 35 < 60.
+        var llm = Validate("Development", With(
+            ("Classification:ProcessingTimeoutSeconds", "5"), ("Classification:Llm:TimeoutSeconds", "15"), ("Classification:Llm:MaxRetries", "1"))).Llm!;
+
+        Assert.Equal((15, 1, 35), (llm.TimeoutSeconds, llm.MaxRetries, llm.TotalBudgetSeconds));
+    }
+
+    [Fact]
+    public void TheConcurrencyAndBatchSettings_HaveTheDocumentedDefaults_AndWorkersFollowMaxConcurrent()
+    {
+        var llm = Validate("Development", With()).Llm!;
+        Assert.Equal((4, 4, true, 1000, 60, 0.5m), (llm.MaxConcurrent, llm.Workers, llm.BatchEnabled, llm.BatchMaxRequests, llm.BatchPollSeconds, llm.BatchDiscountFactor));
+
+        var two = Validate("Development", With(("Classification:Llm:MaxConcurrent", "2"))).Llm!;
+        Assert.Equal((2, 2), (two.MaxConcurrent, two.Workers));
+        Assert.Equal(6, Validate("Development", With(("Classification:Llm:MaxConcurrent", "2"), ("Classification:Workers", "6"))).Llm!.Workers);
+    }
+
+    [Fact]
+    public void TheReviewSettings_HaveTheDocumentedDefaults()
+    {
+        var llm = Validate("Development", With()).Llm!;
+
+        Assert.Equal((2, 48, 30), (llm.PerCompanyConcurrency, llm.BatchPoisonGraceHours, llm.BatchRetentionDays));
+    }
+
+    [Theory]
+    [InlineData("Production", true, false, true)]   // batch on, no hash key, outside Development: refused
+    [InlineData("Production", true, true, false)]
+    [InlineData("Production", false, false, false)] // no batch: the custom id is never sent
+    [InlineData("Development", true, false, false)]
+    public void BatchMode_OutsideDevelopment_RequiresTheHashKey_BecauseTheCustomIdCarriesAHashPrefix(string environment, bool batch, bool key, bool refused)
+    {
+        var llm = LlmOptions.Default(development: environment == "Development") with { BatchEnabled = batch, HashKey = key ? new byte[32] : null };
+
+        var error = Record.Exception(() => ClassificationServiceCollectionExtensions.ValidateBatchHashKey(environment, llm));
+
+        if (refused)
+        {
+            Assert.Contains("Classification:Llm:HashKey", Assert.IsType<InvalidOperationException>(error).Message);
+            Assert.Contains("Classification:Llm:Batch:Enabled", error.Message);
+        }
+        else
+        {
+            Assert.Null(error);
+        }
+    }
+
+    [Fact]
+    public void TheSchedule_IsReadWhateverTheProvider_WithTheDocumentedDefaults()
+    {
+        var rules = Validate("Production").ScheduleSettings;
+        Assert.Equal(("America/Bogota", 1, 5, 60, 2000), (rules.TimeZone.Id, rules.DefaultNightlyHour, rules.NightlyWindowHours, rules.SpreadMinutes, rules.MaxConversationsPerWindow));
+
+        var custom = Validate("Production", ("Classification:Schedule:DefaultNightlyHour", "2"), ("Classification:Schedule:SpreadMinutes", "0")).ScheduleSettings;
+        Assert.Equal((2, 0), (custom.DefaultNightlyHour, custom.SpreadMinutes));
+    }
+
+    [Theory]
+    [InlineData("Maximum Pool Size=100", 4, 4, true)]   // 4 x 2 + 1 + 4 + 20 = 33
+    [InlineData("Maximum Pool Size=32", 4, 4, false)]
+    [InlineData("Maximum Pool Size=33", 4, 4, true)]
+    [InlineData("Maximum Pool Size=50", 16, 16, false)] // 16 x 2 + 1 + 16 + 20 = 69
+    public void ThePoolSize_MustHoldEveryLlmWorker_NamingBothValues(string pool, int maxConcurrent, int workers, bool accepted)
+    {
+        var llm = LlmOptions.Default(development: true) with { MaxConcurrent = maxConcurrent, Workers = workers };
+        var connection = $"Host=localhost;Database=conversia;Username=u;{pool}";
+
+        if (accepted)
+        {
+            ClassificationServiceCollectionExtensions.ValidatePoolSize(connection, llm);
+        }
+        else
+        {
+            var ex = Assert.Throws<InvalidOperationException>(() => ClassificationServiceCollectionExtensions.ValidatePoolSize(connection, llm));
+            Assert.Contains("Maximum Pool Size", ex.Message);
+            Assert.Contains("Classification:Llm:MaxConcurrent", ex.Message);
+            Assert.Contains("Classification:Workers", ex.Message);
+        }
     }
 
     [Fact]

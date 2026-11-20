@@ -1,10 +1,15 @@
+using Conversia.Application.Assistant;
 using Conversia.Application.DTOs;
+using Conversia.Application.DTOs.Assistant;
 using Conversia.Application.DTOs.Admin;
+using Conversia.Application.DTOs.Contacts;
 using Conversia.Application.DTOs.Auth;
+using Conversia.Application.DTOs.Billing;
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.DTOs.Messages;
 using Conversia.Application.DTOs.Metrics;
 using Conversia.Application.DTOs.Organization;
+using Conversia.Application.DTOs.Reports;
 using Conversia.Application.DTOs.Sandbox;
 using Conversia.Application.DTOs.Tenants;
 using Conversia.Application.DTOs.Users;
@@ -36,6 +41,9 @@ public interface IApiClient
 
     Task<ApiResult<SummaryResponse>> GetMetricsSummaryAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
 
+    /// <summary>Whether the company's AI is on and when it last updated the AI fields.</summary>
+    Task<ApiResult<AiAnalysisStatusResponse>> GetAiAnalysisStatusAsync(string token, CancellationToken cancellationToken = default);
+
     Task<ApiResult<ConversionResponse>> GetMetricsConversionAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
 
     Task<ApiResult<FirstResponseResponse>> GetMetricsFirstResponseAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
@@ -43,6 +51,8 @@ public interface IApiClient
     Task<ApiResult<VolumeResponse>> GetMetricsVolumeAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
 
     Task<ApiResult<AlertsResponse>> GetMetricsAlertsAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ClosingPointResponse>> GetMetricsClosingPointAsync(string token, MetricsQuery query, CancellationToken cancellationToken = default);
 
     // ---- organization (OrganizationView) ----
 
@@ -144,5 +154,206 @@ public interface IApiClient
     /// <summary><c>POST /api/admin/tenants/{id}/channels/{channelId}/deactivate</c>: forces a line off. Idempotent.</summary>
     Task<ApiResult<TenantLineResponse>> DeactivateTenantLineAsync(string token, Guid id, Guid channelId, CancellationToken cancellationToken = default);
 
+    Task<ApiResult<TenantSummaryResponse>> SetTenantAiEnabledAsync(string token, Guid id, SetAiEnabledRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<TenantSummaryResponse>> SetTenantAiQuotaAsync(string token, Guid id, SetAiQuotaRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<TenantSummaryResponse>> SetTenantAiScheduleAsync(string token, Guid id, SetAiScheduleRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<TenantSummaryResponse>> SetTenantSendRateLimitAsync(string token, Guid id, SetSendRateLimitRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<TenantMonitoringResponse>> GetAdminTenantMonitoringAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PlatformOverviewResponse>> GetAdminMonitoringAsync(string token, CancellationToken cancellationToken = default);
+
+    /// <summary>The manager reports of this month per company: counts, model share, cost and the email sender (docs/PLATFORM_ADMIN.md).</summary>
+    Task<ApiResult<ReportMonitoringResponse>> GetAdminReportMonitoringAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PagedResponse<LineLicenseResponse>>> GetAdminLicensesAsync(string token, AdminLicensesQuery query, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<LineLicenseResponse>> GetAdminLicenseAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<LineLicenseResponse>> CreateAdminLicenseAsync(string token, CreateLineLicenseRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<LineLicenseResponse>> AssignAdminLicenseAsync(string token, Guid id, AssignLineLicenseRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<LineLicenseResponse>> ReleaseAdminLicenseAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<LineLicenseResponse>> RetireAdminLicenseAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
     Task<ApiResult<PagedResponse<AuditEntryResponse>>> GetAdminAuditAsync(string token, AdminAuditQuery query, CancellationToken cancellationToken = default);
+
+    /// <summary><c>GET /api/admin/tenants/{id}/lifecycle</c>: the company's status changes and data deletion, newest first.</summary>
+    Task<ApiResult<PagedResponse<AuditEntryResponse>>> GetAdminTenantLifecycleAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// <c>POST /api/admin/tenants/{id}/data-deletion</c>: deletes a cancelled company's data now (202). A company that is not cancelled is a
+    /// 409 <c>tenant_not_cancelled</c>; a name that is not the company's is a 400.
+    /// </summary>
+    Task<ApiResult<TenantSummaryResponse>> RequestTenantDataDeletionAsync(string token, Guid id, DeleteTenantDataRequest request, CancellationToken cancellationToken = default);
+
+    // ---- contact suppression (Ley 1581; ContactsSuppress) ----
+
+    /// <summary><c>POST /api/contacts/{id}/suppression</c>: deletes the contact and everything of it. Irreversible.</summary>
+    Task<ApiResult<ContactSuppressionResponse>> SuppressContactAsync(string token, Guid contactId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<BillingAccountResponse>> GetBillingAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PaymentMethodSetupResponse>> GetPaymentMethodSetupAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Unit>> SetPaymentMethodAsync(string token, SetPaymentMethodRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PayNowResponse>> PayChargeNowAsync(string token, Guid chargeId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PaymentLinkResponse>> GetPaymentLinkAsync(string token, Guid chargeId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Unit>> SetBillingCancellationAsync(string token, bool cancel, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<IReadOnlyList<PlanResponse>>> GetAdminPlansAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PlanResponse>> CreateAdminPlanAsync(string token, PlanRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PlanResponse>> UpdateAdminPlanAsync(string token, Guid id, PlanRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AddOnResponse>> CreateAdminAddOnAsync(string token, Guid planId, AddOnRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AdminBillingAccountResponse>> GetAdminBillingAsync(string token, Guid tenantId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AdminBillingAccountResponse>> StartAdminSubscriptionAsync(string token, Guid tenantId, StartSubscriptionRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AdminBillingAccountResponse>> ChangeAdminSubscriptionAsync(string token, Guid tenantId, ChangeSubscriptionRequest request, CancellationToken cancellationToken = default);
+
+    /// <param name="markPaid">True: mark it paid (with the reason); false: void it.</param>
+    Task<ApiResult<Unit>> AdminChargeActionAsync(string token, Guid tenantId, Guid chargeId, bool markPaid, ChargeActionRequest request, CancellationToken cancellationToken = default);
+
+    /// <param name="request">Null: undo the cancellation at period end.</param>
+    Task<ApiResult<Unit>> AdminCancelSubscriptionAsync(string token, Guid tenantId, AdminCancelSubscriptionRequest? request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<IReadOnlyList<BillingReviewItemResponse>>> GetAdminReviewItemsAsync(string token, Guid? tenantId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Unit>> CloseAdminReviewItemAsync(string token, Guid itemId, ReviewItemRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Unit>> ReviewAdminAttemptAsync(string token, Guid tenantId, Guid attemptId, ReviewAttemptRequest request, CancellationToken cancellationToken = default);
+
+    // ---- inbox, templates, read receipts (docs/MESSAGING.md) ----
+
+    Task<ApiResult<Application.DTOs.Inbox.InboxResponse>> GetInboxAsync(string token, Application.DTOs.Inbox.InboxQuery query, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Application.DTOs.Inbox.ConversationVersionResponse>> GetConversationVersionAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Application.DTOs.Templates.ChannelTemplatesResponse>> GetConversationTemplatesAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>Carries the codes of <see cref="SendFailure.SendCodes"/>, like a text send.</summary>
+    Task<ApiResult<MessageResponse>> SendTemplateMessageAsync(string token, Guid id, SendTemplateMessageRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PresenceResponse>> MarkConversationReadAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PresenceResponse>> SendTypingAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Application.DTOs.Templates.ChannelTemplatesResponse>> GetChannelTemplatesAsync(string token, Guid channelId, CancellationToken cancellationToken = default);
+
+    /// <summary>Carries the codes of <see cref="SendFailure.TemplateSyncCodes"/>.</summary>
+    Task<ApiResult<Application.DTOs.Templates.TemplateSyncResponse>> SyncChannelTemplatesAsync(string token, Guid channelId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<MessagingSettingsResponse>> GetMessagingSettingsAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<MessagingSettingsResponse>> SetMessagingSettingsAsync(string token, SetMessagingSettingsRequest request, CancellationToken cancellationToken = default);
+
+    // ---- media and coexistence (docs/MESSAGING.md, "Media", "Coexistence") ----
+
+    /// <summary>
+    /// Opens the stored file of a message as a stream from the API (the browser never sees the store): the caller copies it to the browser and
+    /// disposes the result. <paramref name="range"/> is the browser's <c>Range</c> header, passed as is.
+    /// </summary>
+    Task<MediaProxyResponse> OpenMessageMediaAsync(string token, Guid conversationId, Guid messageId, string? range, CancellationToken cancellationToken = default);
+
+    /// <summary>Sends an attachment (multipart to <c>POST api/conversations/{id}/media-messages</c>). The file's name is not forwarded.</summary>
+    Task<ApiResult<MessageResponse>> SendMediaMessageAsync(string token, Guid conversationId, Stream content, string? contentType, string? caption, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ChannelResponse>> SetHistoryImportAsync(string token, Guid channelId, SetHistoryImportRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<TenantSummaryResponse>> SetAdminMediaRetentionAsync(string token, Guid tenantId, SetMediaRetentionRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The inbox for a page that polls: <paramref name="ifNoneMatch"/> is passed to the API, whose <c>304</c> comes back as
+    /// <see cref="InboxPage.NotModified"/> (the API then built no list).
+    /// </summary>
+    Task<InboxPage> GetInboxPageAsync(string token, Application.DTOs.Inbox.InboxQuery query, string? ifNoneMatch, CancellationToken cancellationToken = default);
+
+    // ---- manager reports (docs/REPORTS.md) ----
+
+    Task<ApiResult<IReadOnlyList<ReportDefinitionResponse>>> GetReportDefinitionsAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportDefinitionResponse>> GetReportDefinitionAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportDefinitionResponse>> CreateReportDefinitionAsync(string token, ReportDefinitionRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportDefinitionResponse>> UpdateReportDefinitionAsync(string token, Guid id, ReportDefinitionRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<Unit>> DeleteReportDefinitionAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportOptionsResponse>> GetReportOptionsAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportPreviewResponse>> PreviewReportAsync(string token, Guid definitionId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<PagedResponse<ReportSummaryResponse>>> GetReportsAsync(string token, int page, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportResponse>> GetReportAsync(string token, Guid id, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportWhatsAppOptInResponse>> GetReportWhatsAppOptInAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportWhatsAppOptInResponse>> SetReportWhatsAppOptInAsync(string token, ReportWhatsAppOptInRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportWhatsAppOptInResponse>> RemoveReportWhatsAppOptInAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ReportWhatsAppOptInResponse>> VerifyReportWhatsAppAsync(string token, ReportWhatsAppVerifyRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Anonymous: the token of the link names the recipient.</summary>
+    Task<ApiResult<ReportUnsubscribeResponse>> UnsubscribeFromReportAsync(string unsubscribeToken, CancellationToken cancellationToken = default);
+
+    // The AI sales assistant (docs/ASSISTANT.md).
+    Task<ApiResult<AssistantSettingsResponse>> GetAssistantSettingsAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantSettingsResponse>> UpdateAssistantSettingsAsync(string token, UpdateAssistantSettingsRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantSettingsResponse>> EnableAssistantAsync(string token, EnableAssistantRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantSettingsResponse>> DisableAssistantAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantSettingsResponse>> SetChannelAssistantAsync(string token, Guid channelId, bool enabled, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<KnowledgeListResponse>> ListKnowledgeAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<KnowledgeVersionResponse>> GetKnowledgeAsync(string token, int number, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<KnowledgeVersionResponse>> SaveKnowledgeAsync(string token, SaveKnowledgeRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<KnowledgeVersionResponse>> PublishKnowledgeAsync(string token, int number, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ConversationAssistantResponse>> GetConversationAssistantAsync(string token, Guid conversationId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ConversationAssistantResponse>> TakeOverConversationAsync(string token, Guid conversationId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<ConversationAssistantResponse>> HandBackConversationAsync(string token, Guid conversationId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantAdminResponse>> GetAdminAssistantAsync(string token, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantAdminResponse>> SetAdminAssistantAsync(string token, SetAssistantSwitchRequest request, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantAdminResponse>> GetTenantAssistantAsync(string token, Guid tenantId, CancellationToken cancellationToken = default);
+
+    Task<ApiResult<AssistantAdminResponse>> SetTenantAssistantAsync(string token, Guid tenantId, SetAssistantSwitchRequest request, CancellationToken cancellationToken = default);
+}
+
+/// <summary>An inbox answer with the API's <c>ETag</c>; <see cref="NotModified"/> means the caller's version is still current.</summary>
+public sealed record InboxPage(ApiResult<Application.DTOs.Inbox.InboxResponse> Result, string? ETag, bool NotModified);
+
+/// <summary>The API's answer to a media request, still open: its status, the headers worth passing on, and the body. Dispose it.</summary>
+public sealed class MediaProxyResponse(int status, HttpResponseMessage? response) : IDisposable
+{
+    public int Status { get; } = status;
+
+    public HttpResponseMessage? Response { get; } = response;
+
+    public void Dispose() => Response?.Dispose();
 }

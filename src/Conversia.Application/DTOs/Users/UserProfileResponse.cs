@@ -22,4 +22,10 @@ public class UserProfileResponse
     /// so that every page can say so without another call. Read fresh per request, like the permissions.
     /// </summary>
     public bool TenantSandboxMode { get; set; }
+
+    /// <summary>
+    /// Whether the company has read receipts and the typing indicator on (docs/MESSAGING.md, "Read receipts and typing"), so the conversation
+    /// page knows whether to send them without another call.
+    /// </summary>
+    public bool TenantReadReceipts { get; set; }
 }

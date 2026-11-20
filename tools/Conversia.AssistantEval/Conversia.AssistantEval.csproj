@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Conversia.AssistantEval</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The real pipeline: the 5a rules, the 5b generator, prompts and checks (Application) and the Anthropic adapter for the opt-in real run (Infrastructure). -->
+    <ProjectReference Include="..\..\src\Conversia.Application\Conversia.Application.csproj" />
+    <ProjectReference Include="..\..\src\Conversia.Infrastructure\Conversia.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="eval-set.v1.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

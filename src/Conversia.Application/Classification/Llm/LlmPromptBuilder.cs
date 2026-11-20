@@ -22,7 +22,7 @@ public sealed record LlmPrompt(string SystemPrompt, string ContextBlock, string 
 public sealed class LlmPromptBuilder
 {
     /// <summary>The revision of the embedded system prompt. Bump it with any edit of the file (the version also hashes the text).</summary>
-    public const string SystemPromptRevision = "es-CO.1";
+    public const string SystemPromptRevision = "es-CO.2";
 
     private const string ResourceName = "Conversia.Application.Classification.Llm.system-prompt.es-CO.md";
 

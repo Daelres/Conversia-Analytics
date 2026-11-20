@@ -55,6 +55,38 @@ internal static class ExtractionVocabulary
         ("55_plus", AgeRange.From55),
     ];
 
+    /// <summary>The closing point's steps, in their order (docs/CLASSIFICATION.md, "Closing point").</summary>
+    public static readonly IReadOnlyList<(string Code, ReachedStage Value)> ReachedStages =
+    [
+        ("first_contact", ReachedStage.FirstContact),
+        ("needs_identified", ReachedStage.NeedsIdentified),
+        ("price_shared", ReachedStage.PriceShared),
+        ("objection_raised", ReachedStage.ObjectionRaised),
+        ("appointment_proposed", ReachedStage.AppointmentProposed),
+        ("appointment_booked", ReachedStage.AppointmentBooked),
+        ("payment_or_deposit", ReachedStage.PaymentOrDeposit),
+    ];
+
+    public static readonly IReadOnlyList<(string Code, OffChannelMove Value)> OffChannelMoves =
+    [
+        ("none", OffChannelMove.None),
+        ("phone_call", OffChannelMove.PhoneCall),
+        ("in_person", OffChannelMove.InPerson),
+        ("other_channel", OffChannelMove.OtherChannel),
+    ];
+
+    /// <summary>Every closer but <see cref="ClosedBy.AiAssistant"/>: reserved for the AI sales assistant (roadmap stage 5), never the model's answer.</summary>
+    public static readonly IReadOnlyList<(string Code, ClosedBy Value)> Closers =
+    [
+        ("unknown", ClosedBy.Unknown),
+        ("advisor", ClosedBy.Advisor),
+        ("customer_self_service", ClosedBy.CustomerSelfService),
+    ];
+
+    /// <summary>The answer's properties of the closing point; an answer with none of them leaves the closing point unread.</summary>
+    public static readonly IReadOnlyList<string> ClosingPointProperties =
+        ["reached_stage", "moved_off_channel", "off_channel_evidence_line", "closed_by", "closed_outside_system"];
+
     /// <summary>The most service codes one answer may hold (as many as the rules classifier keeps).</summary>
     public const int MaxServices = 5;
 }

@@ -1,8 +1,11 @@
+using Conversia.API.RateLimiting;
 using Conversia.Application.DTOs.Organization;
+using Conversia.Application.DTOs.Templates;
 using Conversia.Application.Interfaces;
 using Conversia.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Conversia.API.Controllers;
 
@@ -13,12 +16,31 @@ public class ChannelsController : ControllerBase
 {
     private readonly IOrganizationService _organization;
     private readonly IAuthorizationService _authorization;
+    private readonly ITemplateService _templates;
 
-    public ChannelsController(IOrganizationService organization, IAuthorizationService authorization)
+    public ChannelsController(IOrganizationService organization, IAuthorizationService authorization, ITemplateService templates)
     {
         _organization = organization;
         _authorization = authorization;
+        _templates = templates;
     }
+
+    /// <summary>The channel's templates as last synced (docs/MESSAGING.md, "Templates"); in sandbox mode, the fixed sandbox list.</summary>
+    [HttpGet("{id:guid}/templates")]
+    [Authorize(Policy = nameof(Permission.OrganizationView))]
+    [EnableRateLimiting(PollingRateLimitingExtensions.PolicyName)]
+    public async Task<ActionResult<ChannelTemplatesResponse>> GetTemplates(Guid id, CancellationToken cancellationToken)
+        => Ok(await _templates.ListForChannelAsync(id, cancellationToken));
+
+    /// <summary>
+    /// Reads the channel's templates from 360dialog with its key and replaces the stored copy. Each call is one or more requests to
+    /// 360dialog: a sandbox key allows 25 in total. Rate-limited like a send.
+    /// </summary>
+    [HttpPost("{id:guid}/templates/sync")]
+    [Authorize(Policy = nameof(Permission.OrganizationManage))]
+    [EnableRateLimiting(MessageSendRateLimitingExtensions.PolicyName)]
+    public async Task<ActionResult<TemplateSyncResponse>> SyncTemplates(Guid id, CancellationToken cancellationToken)
+        => Ok(await _templates.SyncAsync(id, cancellationToken));
 
     /// <summary>Whoever can view the channels sees them, but the key of the webhook URL is for those who can manage them.</summary>
     [HttpGet]
@@ -87,6 +109,23 @@ public class ChannelsController : ControllerBase
     [Authorize(Policy = nameof(Permission.OrganizationManage))]
     public async Task<ActionResult<ChannelResponse>> ClearProviderCredentials(Guid id, CancellationToken cancellationToken)
         => Ok(await _organization.ClearChannelProviderCredentialsAsync(id, cancellationToken));
+
+    /// <summary>
+    /// Turns the import of the shared chat history (coexistence onboarding) on or off. Only the company owner, and turning it on requires
+    /// <c>legalBasisConfirmed</c> (docs/MESSAGING.md, "History import"). <c>403</c> for anyone else, even with <c>OrganizationManage</c>.
+    /// </summary>
+    [HttpPut("{id:guid}/history-import")]
+    [Authorize(Policy = nameof(Permission.OrganizationManage))]
+    public async Task<ActionResult<ChannelResponse>> SetHistoryImport(
+        Guid id, SetHistoryImportRequest request, [FromServices] Application.Services.IChannelHistoryImportService history, CancellationToken cancellationToken)
+    {
+        if (User.FindFirst("is_owner")?.Value != "true" || User.GetUserId() is not { } userId)
+        {
+            return Forbid();
+        }
+
+        return Ok(await history.SetAsync(id, request, userId, cancellationToken));
+    }
 
     private async Task<bool> CanManageAsync()
         => (await _authorization.AuthorizeAsync(User, resource: null, nameof(Permission.OrganizationManage))).Succeeded;

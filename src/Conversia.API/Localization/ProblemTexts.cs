@@ -16,6 +16,11 @@ public static class ProblemTexts
     public const string LineQuotaConflictTitle = "Cupo de líneas no válido";
     public const string LineQuotaFullTitle = "Cupo de líneas completo";
     public const string TenantNotActiveTitle = "Empresa no activa";
+    public const string ContactNotFoundTitle = "Contacto no encontrado";
+    public const string ReportNotFoundTitle = "Informe no encontrado";
+    public const string ReportLimitTitle = "Límite de informes alcanzado";
+    public const string AssistantTitle = "Asistente de IA";
+    public const string TenantGoneTitle = "Empresa eliminada";
     public const string ConversationNotFoundTitle = "Conversación no encontrada";
     public const string MessageNotFoundTitle = "Mensaje no encontrado";
     public const string DuplicateBranchNameTitle = "Sucursal duplicada";
@@ -25,6 +30,13 @@ public static class ProblemTexts
     public const string MessageNotRecordedTitle = "Mensaje enviado sin registrar";
     public const string CredentialsUnavailableTitle = "Credenciales no disponibles";
     public const string SandboxRefusedTitle = "Mensaje simulado no aceptado";
+    public const string LineLicenseNotFoundTitle = "Licencia no encontrada";
+    public const string LineLicenseConflictTitle = "Cambio de licencia no permitido";
+    public const string LicenseRequiredTitle = "Licencia requerida";
+    public const string ConcurrentChangeTitle = "Cambio simultáneo";
+    public const string BillingTitle = "Facturación";
+    public const string BillingEventRejectedTitle = "Evento no válido";
+    public const string BillingEventRejectedDetail = "La firma del evento no es válida.";
 
     public const string UnexpectedTitle = "Ocurrió un error inesperado";
     public const string UnexpectedDetail = "Ocurrió un error inesperado. Inténtalo de nuevo más tarde.";

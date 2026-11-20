@@ -14,9 +14,24 @@ public class TenantFilterGuardTests
     // Every file of src/ that calls IgnoreQueryFilters (migrations aside), and why.
     private static readonly string[] AllowedFiles =
     [
+        "Conversia.Infrastructure/Assistant/AssistantJob.cs", // the assistant job claims due timers across companies; each conversation is handled in its own company
+        "Conversia.Infrastructure/Assistant/AssistantMonitoringQueries.cs", // the platform administrator's assistant counts
         "Conversia.Infrastructure/Classification/ClassificationBacklogMonitor.cs", // counts of the shared backlog (operations view)
+        "Conversia.Infrastructure/Assistant/AssistantUsageMeter.cs", // the deployment USD cap sums every company; the recorder names its company explicitly
         "Conversia.Infrastructure/Classification/ConversationClassificationRunner.cs", // the worker claims across companies
+        "Conversia.Infrastructure/Classification/LlmAnalysisRunner.cs", // claims and relocks name the company explicitly; batch collection spans companies
+        "Conversia.Infrastructure/Classification/LlmAnalysisScheduler.cs", // which companies are due: every company's pending conversations and window counts
+        "Conversia.Infrastructure/Classification/Usage/AiUsageMeter.cs", // the deployment USD cap sums every company; the recorder has no company set
         "Conversia.Infrastructure/Conversations/ConversationAutoCloser.cs", // the worker claims across companies
+        "Conversia.Infrastructure/Media/MediaJobs.cs", // the media download and retention jobs claim across companies; each write names its row's company
+        "Conversia.Infrastructure/Messaging/MessageSendOutcomeRecorder.cs", // retention of the send counters across companies
+        "Conversia.Infrastructure/Messaging/TemplateSyncService.cs", // the periodic template sync lists the channels of every company, then syncs each in its own company
+        "Conversia.Infrastructure/Monitoring/PlatformMonitoringQueries.cs", // the platform administrator's monitoring counts
+        "Conversia.Infrastructure/Reports/ReportAiAdmission.cs", // the deployment's monthly report spend sums every company
+        "Conversia.Infrastructure/Reports/ReportJob.cs", // the reports job finds due definitions and claims deliveries across companies; each write runs in its row's company
+        "Conversia.Infrastructure/Reports/ReportMonitoringQueries.cs", // the platform administrator's report counts
+        "Conversia.Infrastructure/Reports/ReportStore.cs", // the anonymous unsubscribe link names its recipient row by id
+        "Conversia.Infrastructure/Repositories/BillingRepositories.cs", // the billing lock and lookups name the company explicitly; the job and events run without one
         "Conversia.Infrastructure/Repositories/PlatformAdminQueries.cs", // the platform administrator's scalar projections
         "Conversia.Infrastructure/Repositories/TenantUnitOfWork.cs", // names the locked company explicitly in every query
         "Conversia.Infrastructure/Repositories/UserRepository.cs", // the email is unique across companies (login, registration)
@@ -56,7 +71,7 @@ public class TenantFilterGuardTests
     }
 
     [Fact]
-    public void EveryEntityWithATenantHasTheFilter_ExceptTheTwoPlatformTables()
+    public void EveryEntityWithATenantHasTheFilter_ExceptThePlatformTables()
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -66,7 +81,22 @@ public class TenantFilterGuardTests
             .Select(t => t.ClrType)
             .ToHashSet();
 
-        Assert.Equal(new HashSet<Type> { typeof(ErrorLog), typeof(PlatformAuditLog) }, unfiltered);
+        // ErrorLogs: the operations registry; PlatformAuditLogs: the administrators' trail; TenantDeletions: the tombstone of a company
+        // whose data is gone (its key is the id the company had, and there is no company left to filter by); BillingReviewItems: money for a
+        // person to look at, which may name no company (an unmatched payment); only the administrator reads it.
+        Assert.Equal(new HashSet<Type> { typeof(ErrorLog), typeof(PlatformAuditLog), typeof(TenantDeletion), typeof(BillingReviewItem) }, unfiltered);
+    }
+
+    [Fact]
+    public void TheLicenceInventory_IsAPlatformTable_WhoseCompanyIsData_NotATenantColumn()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var licenses = db.Model.FindEntityType(typeof(LineLicense))!;
+
+        Assert.Null(licenses.FindProperty("TenantId"));
+        Assert.NotNull(licenses.FindProperty(nameof(LineLicense.AssignedTenantId)));
+        Assert.Empty(licenses.GetDeclaredQueryFilters());
     }
 
     [Fact]

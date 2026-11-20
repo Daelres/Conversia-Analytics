@@ -30,7 +30,7 @@ worker's job, so a parsing bug can never lose a message.
 | Body | One JSON object, at most `Webhooks:MaxBodyBytes` (default 1 MiB). Any content type. |
 | `200` | Stored as a new pending event, **or** an event with the same body hash already existed for the channel (nothing stored). 360dialog must always see `200` for a delivery we have, otherwise it retries. Empty body. |
 | `400` | The body is empty, not a single JSON object, or JSON that PostgreSQL `jsonb` cannot hold (a `\u0000` escape, an unpaired surrogate). `application/problem+json`. |
-| `401` | Unknown key, malformed key, inactive channel, **channel of a company that is not Active (pending or suspended)**, missing secret, wrong secret or a malformed `Authorization` header. **One identical answer** for all of them, so nothing tells an attacker which part failed. The body is not read. |
+| `401` | Unknown key, malformed key, inactive channel, **channel of a company that does not receive (pending, suspended by the team, cancelled or deleted)**, missing secret, wrong secret or a malformed `Authorization` header. **One identical answer** for all of them, so nothing tells an attacker which part failed. The body is not read. |
 | `413` | Body over the limit (checked on `Content-Length` and, for chunked bodies, while reading). |
 | `429` | The client IP failed to authenticate more than `Webhooks:FailedAuthRateLimitPerMinute` times (default 60) in a minute (it is then refused before being authenticated), or the channel received more than `Webhooks:ChannelRateLimitPerMinute` deliveries (default 6000). Has `Retry-After`. See [Rate limits](#rate-limits-and-proxies). |
 
@@ -60,10 +60,25 @@ the API at startup. It applies to the whole API (the login limiter too), as the 
 
 ### Companies that are not Active
 
-Billing is per line, so a company operates only while a platform administrator has it **Active** (`docs/PLATFORM_ADMIN.md`). For a Pending or
-Suspended company the webhook answers the same uniform `401` as for a wrong secret and **stores nothing**; the background workers (event
-processing, classification, automatic closing) do not claim its work. Events stored before a suspension stay `Pending` and are processed once
-it is Active again. The queue health and the backlog counters ignore that waiting work on purpose.
+What a delivery meets depends on the company's status (`docs/PLATFORM_ADMIN.md`, "Lifecycle of a company"):
+
+| Status | Webhook | Event processing and automatic closing | Classification |
+|---|---|---|---|
+| Active | accepted | yes | yes |
+| **Paused** | **accepted and stored** | yes: no message is lost and conversation boundaries follow the messages | waits, flagged, until it is Active again |
+| **Suspended for a late payment** (`SuspensionCause = Billing`) | **accepted and stored** | yes | waits |
+| Pending, Suspended by the team (`Manual`), Cancelled | the same uniform `401` as for a wrong secret; **nothing stored** | no: events stored before stay `Pending` and are processed once the company receives again | no |
+
+The rule lives in one place: `Tenant.StatusesThatReceive` and `Tenant.ReceivingSuspensionCause` in the domain. `TenantIngestion` generates
+from them both the LINQ expression (webhook lookup, monitors) and the SQL condition spliced into the two claim statements (the webhook
+worker's and the auto-closer's); `TenantReceivingStatesTests` checks, for every status, that the lookup, the worker and the auto-closer agree
+with the domain. The queue monitor and the platform backlog count the events of the companies that
+receive.
+
+**Suppressed contacts.** Before a message is stored, ingestion looks up the number in `ContactSuppressions` (once per number and delivery):
+a message sent up to and including the suppression is dropped and counted as skipped; one sent after it opens a new contact
+(`docs/USERS_TENANTS_PERMISSIONS.md`, "Contact suppression"). A delivery that had such messages is **deleted right after it is processed**, in
+the same transaction (its other messages are stored; only its raw copy goes); the log says so, with ids only.
 
 ### Managing a channel
 
@@ -179,28 +194,122 @@ shape, with `contacts`, `messages` and `statuses` at the root, is read too.
 | `messages[].timestamp` (unix seconds, string or number; decimals and exponents such as `1792324800.0` or `1.7923248e9` are truncated to the second) | `Message.SentAt`, UTC. Only 2015-01-01 up to one day after now is plausible; anything else is skipped and counted. |
 | `messages[].type` | `Message.Type` in lower case (`text`, `image`, `audio`, ...); an odd value becomes `unknown`. |
 | `text.body`, or `button.text`, or the title of an `interactive` reply, or the `caption` of a media message | `Message.Text` (4096 characters at most, NUL removed). Null for media without caption. |
-| `messages[].referral` (click-to-WhatsApp ad) | `Conversation.Source = Ads`; `SourceReference` is the first *non-blank* of `headline`, `source_url`, `source_id`, `body`; a later referral fills a reference the ad conversation lacked. |
+| `messages[].referral` (click-to-WhatsApp ad) | `Conversation.Source = Ads`; `SourceReference` is the first *non-blank* of `headline`, `source_url`, `source_id`, `body`; a later referral fills a reference the ad conversation lacked. The ad's data is kept too, see "Ad referral". |
+| `messages[].{image,audio,video,document,sticker}` | Media metadata, see "Media metadata". The file is downloaded afterwards by the media job (docs/MESSAGING.md, "Media"), never by ingestion. |
+| Who sent it | Inbound: `Messages.Sender = Customer`. An echo (outbound): `PhoneApp`, no author (`SentByAdvisorId` null); `AssignedAdvisorIdAtReceipt` records the advisor assigned to the conversation when it arrived, as context, not authorship (docs/MESSAGING.md "Who sent it"). |
 | `value.statuses[]` | Ignored (delivery receipts); counted in `WebhookEvents.StatusCount`. |
 | `messages[]` with a `group_id` (or `recipient_type: group`) | Skipped and counted: group chats are not customer conversations. |
-| `messages[]` of type `reaction` or `system` | Ignored: they never create a conversation nor set `FirstInboundAt`/`FirstResponseAt`. |
-| `value.message_echoes[]` (`field: smb_message_echoes`) | An **Outbound** message; the customer is `to`. **Unverified**, see below. |
+| `messages[]` of type `reaction` or `system`, echoes of type `revoke` or `edit` | Ignored: they never create a conversation nor set `FirstInboundAt`/`FirstResponseAt`. |
+| `value.message_echoes[]` (`field: smb_message_echoes`) | An **Outbound** `PhoneApp` message; the customer is `to`. Shape checked against Meta's reference, see "Coexistence". |
+| `field: history` | The shared chat history: imported messages, stored only when the channel opted in. See "History import". |
+| `field: smb_app_state_sync` | The app's address book: **never stored**, only counted (`Ignored`). |
+| `field: account_update` | `PARTNER_REMOVED`, `ACCOUNT_OFFBOARDED`, `ACCOUNT_RECONNECTED` flag or clear the channel; other events change nothing. See "Coexistence". |
 | A `messages[]` entry whose `from` is the business number (`metadata.display_phone_number`, compared by its digits) | Also **Outbound**, customer = `to`. Defensive fallback, **unverified**. |
 | An outbound entry with no `to` | Belongs to `contacts[0]` only when the delivery has exactly one contact; otherwise skipped and counted (never a guess). |
 | `metadata.phone_number_id` | Not used to find the channel (the URL does). If the channel has a `ProviderPhoneNumberId` and the delivery names another one, its messages are ignored. |
-| Anything else (templates, history sync, unknown fields) | Ignored. |
+| Anything else (unknown fields) | Ignored. |
 
-### The unverified part: messages sent from the phone
+### Ad referral
+
+Checked on 2026-11-13 against Meta's Cloud API reference (text message webhook, "Click to WhatsApp ad" example:
+https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/text). The `referral` object
+comes only with a message sent through a Click to WhatsApp ad: `source_url` (the ad's URL), `source_id` (the ad's id), `source_type`
+(`ad`; the welcome-message sequences page also lists `post`), `body` (the ad's text), `headline`, `media_type`, `image_url` /
+`video_url` / `thumbnail_url`, `ctwa_clid` (the click id; omitted for WhatsApp Status placements) and `welcome_message.text`.
+
+| Referral field | Stored |
+|---|---|
+| `source_type` | `Conversations.ReferralSourceType` (a lower-case word, else dropped) |
+| `source_id` (the ad id) | `Conversations.ReferralSourceId` (100 characters) |
+| `source_url` | `Conversations.ReferralSourceUrl` (500): **scheme, host and path only**; the query and the fragment are dropped (tracking parameters such as `fbclid` or `utm_*` can identify the click). A value that is not an http(s) URL is not kept. The same applies when the URL is the `SourceReference` fallback |
+| `headline` | `Conversations.ReferralHeadline` (500) |
+| `ctwa_clid`, `body`, media URLs, `welcome_message` | **Not kept**: the click id identifies the person's click in Meta's systems, and the rest adds nothing to the analysis (minimisation, docs/decisiones.md) |
+
+The first referral that brings data is kept (the ad that started the conversation). **Unverified:** that 360dialog forwards the
+object unchanged, and whether `ctwa_clid` comes only on the first message (one community report says so).
+
+### Media metadata
+
+Checked on 2026-11-13 against Meta's image message reference
+(https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/image): the media object has
+`id`, `mime_type`, `sha256`, `caption` and (being rolled out) `url`; **no file size**.
+
+| Field | Stored |
+|---|---|
+| `id` | `Messages.MediaId` (200 characters; blank or longer: null). Used **only** by the media job to download the file within Meta's 7 days (verified, docs/MESSAGING.md); it never appears in an API answer or a log line (`TenantDtoGuardTests`, `AdminDtoGuardTests`). A message with an id starts `MediaStatus = Pending`, one without is `Failed` |
+| `mime_type` | `Messages.MediaMimeType`, lower case, parameters dropped (`audio/ogg; codecs=opus` is `audio/ogg`); a malformed value is null |
+| `caption` present | `Messages.HasCaption` (the caption itself is `Messages.Text`, as before) |
+| file size, `sha256`, `url`, a document's `filename` | Not kept. The size comes from the stored copy; the `url` is not used (the job asks `GET /{media-id}`); a file name can carry personal data |
+
+Templates: neither the message webhook nor the `smb_message_echoes` reference documents a template name or category, so none is stored.
+
+### Coexistence
+
+Checked on 2026-11-17 against Meta's references (links in docs/MESSAGING.md, "Verified provider facts"); the samples in
+`tests/Shared/Dialog360Samples.cs` follow them (`EchoImageDocShaped`, `HistoryChunk`, `HistoryMediaFollowUp`, `HistoryDeclined`,
+`AppStateSync`, `AccountUpdate`). Still **not verified against a live 360dialog delivery**.
+
+- **Echoes** (`smb_message_echoes`): the delivery's `contacts[]` carries `wa_id` and `user_id`, each echo `to` and `to_user_id`. `to` is the
+  customer; an echo without `to` (a username-only customer) follows the one-contact rule below or is skipped. `revoke` and `edit` are ignored.
+- **`account_update`:** only `PARTNER_REMOVED` (with `disconnection_info.reason`, kept when it is an upper-case word), `ACCOUNT_OFFBOARDED`
+  and `ACCOUNT_RECONNECTED` are read, with the entry's `time`; the channel whose URL received the delivery is the one flagged
+  (`WhatsAppChannels.ProviderDisconnection*`). Logged at Warning with ids, the event and the reason word.
+- **`smb_app_state_sync`:** counted in `Ignored`; names and numbers are never read into anything.
+
+### What is kept of a raw delivery
+
+`WebhookEvents.RawPayload` keeps the delivery as received (for the retention of the queue), **except**, rewritten before it is stored
+(`WebhookPayloadRewriter`, Application):
+
+- `smb_app_state_sync` changes become `{"redacted": "smb_app_state_sync", "count": n}`: no name and no number of the phone's address book is
+  ever kept, not even raw;
+- `history` changes of a channel that does not import its history become `{"redacted": "history", "messages": n}`;
+- a `history` change the channel imports, with more than 500 messages, is split into one stored delivery per 500 messages (each with the
+  chunk's metadata and the thread's context), each processed in its own transaction.
+
+A delivery with none of these keeps its bytes and its hash. Tests: `CoexistenceIngestionTests` (no contact name or number, no history message
+remains in any stored row; the 5,000-message chunk is ten deliveries, processed quickly and once).
+
+### History import
+
+A change with `field: history` (Meta's `history` reference): `history[]` chunks, each with `metadata` (`phase`, `chunk_order`, `progress`) and
+`threads[]` (one per customer: `context.wa_id` or `id`) of `messages[]`; a message from the business number is Outbound (`PhoneApp`), any
+other Inbound. There is no `to`. A thread without a phone number is skipped and counted. `errors[]` (code `2593109`) means the business
+declined: logged, nothing stored. A media follow-up comes as `messages[]` under the same field and completes the stored `media_placeholder`
+of the same message id.
+
+- The parser marks these messages **imported**; the processor stores them **only when the channel's `HistoryImportEnabled`** is on
+  (docs/MESSAGING.md, "History import"); otherwise they are counted and dropped, and the delivery is `Processed`.
+- Imported messages go to the contact's imported conversation (closed, `IsImported`), never to a live one; the AI reads it only with the
+  channel's `HistoryAiAnalysisEnabled`.
+- Bound: `Webhooks:Processing:MaxHistoryMessagesPerDelivery` (5000) for a delivery with history chunks, `MaxMessagesPerDelivery` (500) otherwise.
+- **Unverified:** that 360dialog forwards the `history` field to the channel's webhook URL, and the envelope of the declined variant (Meta's
+  page shows it without `entry`; the parser reads both shapes).
+
+### The (formerly) unverified part: messages sent from the phone
 
 Advisors keep answering from the WhatsApp Business app, so the product depends on
 receiving those outgoing messages (coexistence "echoes"). The format implemented
 follows the public documentation (360dialog "Coexistence Webhooks" and Meta's
 `smb_message_echoes` reference: `message_echoes[]` with `from`, `to`, `id`,
-`timestamp`, `type` and a type-named object) but **has not been verified against a
-real 360dialog sandbox**. Until it is, treat first-response metrics as unproven.
+`timestamp`, `type` and a type-named object; checked again on 2026-11-17, see "Coexistence") but **has not been verified against a
+real 360dialog delivery**. Until it is, treat first-response metrics as unproven.
 If the real shape differs, only `Dialog360PayloadParser` has to change; the tests
 build their payloads from `tests/Shared/Dialog360Samples.cs`. Also open: newer API
 versions may identify users by a business-scoped id (BSUID) and omit the phone
 number; such messages are skipped and counted in `SkippedMessageCount`, never stored under a fake number. Supporting them needs a decision about the contact key.
+
+### Template status
+
+A change whose `field` is `message_template_status_update` (Meta's reference:
+<https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/message_template_status_update>) is read
+as a template status, not as messages: `message_template_name`, `message_template_language`, `event`, `message_template_category`. The
+worker updates the status of the channel's stored template of that name and language (docs/MESSAGING.md, "Templates"): `APPROVED` and
+`REINSTATED` → approved; `PENDING`, `IN_APPEAL` → pending; `REJECTED`; `PAUSED`; `DISABLED`, `ARCHIVED`, `DELETED`, `PENDING_DELETION` →
+disabled. `FLAGGED`, `LOCKED`, `UNLOCKED`, `UNARCHIVED`, `LIMIT_EXCEEDED` and unknown events change nothing (the next sync settles them).
+A template the channel has not synced yet is left for the sync; an entry without a valid name or language is counted as skipped.
+
+**Unverified:** whether 360dialog delivers this field to a channel's webhook URL at all. The periodic sync does not depend on it.
 
 ## Processing
 
@@ -284,12 +393,16 @@ A review asked whether two ingestion workers that touch conversations A and B in
   wants the tenant lock (the manual outcome and the jobs never take it). `TenantIngestionLock` is the one definition of the key for both sides.
   Both waits are bounded by the transaction's `lock_timeout` and `statement_timeout` (`Messaging:RecordTimeoutSeconds`), so a stuck holder cannot hang the request.
 
-- **The LLM classifier** (`Classification:Provider=Llm`, Development only, docs/CLASSIFICATION.md) claims like the rules worker, but in Stage A it **calls the
-  model inside the claim transaction**, holding the conversation row for up to `Classification:Llm:TimeoutSeconds` (8 s, one attempt). Ingestion, a manual edit or
-  the auto-closer touching that conversation waits that long (an accepted Stage A limit; the hardening slice moves the call out of the transaction before the
-  gate is lifted). Ingestion takes the **contact row before the conversation row**; the classifier writes the contact profile **only after its commit**, in a
-  transaction of its own that takes the contact row alone, so it never holds the conversation while it waits for a contact (a deterministic two-session test,
-  `LlmClassificationTests.IngestionAndTheRunner_TakeContactAndConversationInAnOrderThatCannotDeadlock`, pins it).
+- **The LLM analysis** (`Classification:Provider=Llm`, Development only, docs/CLASSIFICATION.md, "When the AI reads") **never calls the model while it holds
+  a row**. Phase 1 claims one conversation of a company with `FOR UPDATE SKIP LOCKED`, reads it, writes a lease (`LlmLeaseUntil`) and commits in a few
+  milliseconds; the call runs with no lock and no open transaction; phase 3 takes the row again by id with `SKIP LOCKED` (three tries 200 ms apart, then it
+  gives up and the lease expires) and applies the answer only if the snapshot hash, `ClassificationRequestedAt` and the opportunity's stage did not change
+  meanwhile. So ingestion, a manual edit or the auto-closer never wait for the model: they may change the conversation during the call, and the answer is then
+  discarded (`LlmClassificationTests.DuringASlowCall_TheConversationRowIsFree_IngestionWritesItAtOnce_AndTheAnswerIsDiscarded` measures ingestion under one
+  second during a slow call). The first stage's limit (the call inside the claim transaction, up to 8 s) is gone for every mode. Message Batches (nightly
+  companies) hold no row at all while the provider processes them; their results go through the same phase 3. Ingestion takes the **contact row before the
+  conversation row**; the runner writes the contact profile **only after its phase 3 commit**, in a transaction of its own that takes the contact row alone, so it
+  never holds the conversation while it waits for a contact.
 
 If a new code path ever locks several conversations and *waits* for them, it must either take the tenant lock first or lock them in `Id` order.
 
@@ -411,6 +524,8 @@ events older than `Webhooks:Retention:RetentionDays` (14) and **Failed** events 
 `Webhooks:Retention:FailedRetentionDays` (60, longer because an operator may still want to look at
 or requeue them); `Pending` events are never purged. It can be turned off with
 `Webhooks:Retention:Enabled=false`. The stored contacts, conversations and messages are *not* covered
-by this purge: their retention, the Ley 1581 de 2012 purposes and deletion requests remain open
-(`docs/decisiones.md`). Secrets never reach the repository: the webhook secret is stored as a hash,
+by this purge. Deletion is now covered two ways (Ley 1581 de 2012): **a customer's request** suppresses the contact and everything of it,
+processed raw deliveries with its number included (`docs/USERS_TENANTS_PERMISSIONS.md`, "Contact suppression"), and **the end of the service**
+deletes everything of the company after its retention window (`docs/PLATFORM_ADMIN.md`, "Deleting a company's data"). A retention period for
+the conversations of an active company (how long they are kept while the service runs) remains open (`docs/decisiones.md`). Secrets never reach the repository: the webhook secret is stored as a hash,
 the 360dialog key only comes from configuration.

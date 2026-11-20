@@ -36,6 +36,10 @@ internal static class SpanishText
         [Permission.ConversationsView] = "Ver conversaciones",
         [Permission.ConversationsManage] = "Gestionar conversaciones",
         [Permission.MetricsView] = "Ver métricas",
+        [Permission.ContactsSuppress] = "Suprimir datos de contactos",
+        [Permission.BillingManage] = "Gestionar facturación",
+        [Permission.ReportsManage] = "Gestionar informes",
+        [Permission.AssistantManage] = "Gestionar el asistente de IA",
     };
 
     /// <summary>

@@ -30,6 +30,12 @@ public class DomainExceptionMessagesTests
         { "branch: blank name", () => Branch.Create(SomeId, " ") },
         { "branch: name too long", () => Branch.Create(SomeId, new string('n', 101)) },
         { "advisor: blank name", () => Advisor.Create(SomeId, SomeId, " ", null) },
+        { "plan: bad code", () => BillingPlan.Create("Pro Plan", "Pro", 0, 0) },
+        { "plan: price not whole pesos", () => BillingPlan.Create("pro", "Pro", 150, 0) },
+        { "plan: negative AI", () => BillingPlan.Create("pro", "Pro", 0, -1) },
+        { "add-on: no conversations", () => BillingAddOn.Create(SomeId, "ia", "IA", 0, 0) },
+        { "subscription: trial too long", () => BillingSubscription.Start(SomeId, SomeId, new DateOnly(2026, 1, 1), 365, DateTime.UtcNow) },
+        { "billing period: bad anchor", () => Conversia.Domain.Common.BillingPeriods.EndOf(new DateOnly(2026, 1, 1), 0) },
     };
 
     [Theory]

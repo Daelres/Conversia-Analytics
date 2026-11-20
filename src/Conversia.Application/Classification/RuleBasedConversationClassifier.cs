@@ -1,3 +1,4 @@
+using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
 
 namespace Conversia.Application.Classification;
@@ -22,7 +23,7 @@ namespace Conversia.Application.Classification;
 /// The work is bounded: only the last <see cref="MaxMessages"/> messages are read, and only the first <see cref="MaxCharactersPerMessage"/>
 /// characters of each.
 /// </summary>
-public sealed class RuleBasedConversationClassifier : IConversationClassifier
+public sealed partial class RuleBasedConversationClassifier : IConversationClassifier
 {
     /// <summary>The most messages one classification reads (the latest ones).</summary>
     public const int MaxMessages = 200;
@@ -60,6 +61,20 @@ public sealed class RuleBasedConversationClassifier : IConversationClassifier
     private readonly PhraseSet _cancelObjects;
     private readonly PhraseSet _cancelPayment;
     private readonly PhraseSet _cancelRequestCues;
+
+    // The closing point's cues (docs/CLASSIFICATION.md, "Closing point"). They are read into signals of their own and never feed the outcome.
+    private readonly IReadOnlySet<string> _priceUnits;
+    private readonly PhraseSet _payment;
+    private readonly PhraseSet _phoneCall;
+    private readonly PhraseSet _inPerson;
+    private readonly PhraseSet _channelVerbs;
+    private readonly PhraseSet _channelNouns;
+    private readonly int _channelWindow;
+    private readonly PhraseSet _selfService;
+    private readonly PhraseSet _priceContext;
+    private readonly PhraseSet _deferral;
+    private readonly IReadOnlySet<string> _channelPrepositions;
+    private readonly IReadOnlySet<string> _channelDeterminers;
 
     public RuleBasedConversationClassifier(ClassificationRuleSet rules)
     {
@@ -102,6 +117,19 @@ public sealed class RuleBasedConversationClassifier : IConversationClassifier
         _cancelObjects = new PhraseSet(rules.Cancellation.Objects);
         _cancelPayment = new PhraseSet(rules.Cancellation.PaymentWords);
         _cancelRequestCues = new PhraseSet(rules.Cancellation.RequestCues);
+
+        _priceUnits = rules.ClosingPoint.PriceUnits.Select(TextNormalizer.Normalize).Where(u => u.Length > 0).ToHashSet(StringComparer.Ordinal);
+        _payment = new PhraseSet(rules.ClosingPoint.Payment);
+        _phoneCall = new PhraseSet(rules.ClosingPoint.PhoneCall);
+        _inPerson = new PhraseSet(rules.ClosingPoint.InPerson);
+        _channelVerbs = new PhraseSet(rules.ClosingPoint.ChannelVerbs);
+        _channelNouns = new PhraseSet(rules.ClosingPoint.ChannelNouns);
+        _channelWindow = rules.ClosingPoint.ChannelWindow;
+        _selfService = new PhraseSet(rules.ClosingPoint.SelfService);
+        _priceContext = new PhraseSet(rules.ClosingPoint.PriceContext);
+        _deferral = new PhraseSet(rules.ClosingPoint.DeferralCues);
+        _channelPrepositions = rules.ClosingPoint.ChannelPrepositions.Select(TextNormalizer.Normalize).ToHashSet(StringComparer.Ordinal);
+        _channelDeterminers = rules.ClosingPoint.ChannelDeterminers.Select(TextNormalizer.Normalize).ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>The classifier of the default Spanish (Colombia) rules.</summary>
@@ -143,6 +171,7 @@ public sealed class RuleBasedConversationClassifier : IConversationClassifier
         var booking = Booking.None;
         var lostAt = -1;
         var customerSignal = false;
+        var confirmedByAdvisor = false;
         for (var i = 0; i < messages.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -155,6 +184,8 @@ public sealed class RuleBasedConversationClassifier : IConversationClassifier
                     booking = Booking.ByAdvisor;
                     lostAt = -1;
                 }
+
+                confirmedByAdvisor |= booking == Booking.ByAdvisor; // the closing point only: a booking the business confirmed was reached
 
                 continue;
             }
@@ -279,8 +310,199 @@ public sealed class RuleBasedConversationClassifier : IConversationClassifier
             confidence = 0.2m;
         }
 
-        return new ClassificationResult(service, reason, objection, outcome, lossReason, Math.Clamp(confidence, 0m, 1m), codes);
+        var closingPoint = ReadClosingPoint(messages, first, outcome, confirmedByAdvisor);
+
+        // A deal won in the chat where every business message was the AI sales assistant's (docs/ASSISTANT.md, "Metrics"): the stored
+        // authors are the evidence, not the text. One message of a person (Conversia, the phone app, or unknown) keeps it the advisor's.
+        if (outcome == ClassificationOutcome.Won && ClosedByTheAssistant(all))
+        {
+            closingPoint = closingPoint with { ClosedBy = ClosedBy.AiAssistant };
+        }
+
+        return new ClassificationResult(service, reason, objection, outcome, lossReason, Math.Clamp(confidence, 0m, 1m), codes, ClosingPoint: closingPoint);
     }
+
+    private static bool ClosedByTheAssistant(IReadOnlyList<SnapshotMessage> messages)
+    {
+        var business = messages.Where(m => m.Direction == MessageDirection.Outbound).ToList();
+        return business.Count > 0 && business.All(m => m.Sender == MessageSender.AiAssistant);
+    }
+
+    // ---- The closing point --------------------------------------------------------------------------------------------
+
+    // How far the conversation got (the furthest step, by the order of ReachedStage, whatever order they happened in), the latest move off the
+    // chat, and where it ended. Only obvious cues; when unsure: no stage, no move, unknown closer. It reads the signals the outcome was decided
+    // from and changes none of them.
+    private static ClosingPointReading ReadClosingPoint(List<MessageSignals> messages, int firstIndex, ClassificationOutcome outcome, bool confirmedByAdvisor)
+    {
+        ReachedStage? stage = null;
+        if (messages.Any(m => m.Customer))
+        {
+            stage = ReachedStage.FirstContact;
+            if (messages.Any(m => m.Customer && (m.Services.Count > 0 || m.GeneralServices.Count > 0 || m.Reasons.Count > 0)))
+            {
+                stage = ReachedStage.NeedsIdentified;
+            }
+
+            if (Enumerable.Range(0, messages.Count).Any(i => !messages[i].Customer
+                    && (messages[i].PriceShared || (messages[i].BareAmount && CustomerAskedThePrice(messages, i)))))
+            {
+                stage = ReachedStage.PriceShared;
+            }
+
+            if (messages.Any(m => m.Customer && m.Objections.Count > 0))
+            {
+                stage = ReachedStage.ObjectionRaised;
+            }
+
+            if (messages.Any(m => m.Customer ? m.Intent || m.AcceptsProposal : m.Proposal))
+            {
+                stage = ReachedStage.AppointmentProposed;
+            }
+
+            if (confirmedByAdvisor || outcome == ClassificationOutcome.Won)
+            {
+                stage = ReachedStage.AppointmentBooked;
+            }
+
+            if (messages.Any(m => m.Payment))
+            {
+                stage = ReachedStage.PaymentOrDeposit;
+            }
+        }
+
+        var moveAt = messages.FindLastIndex(m => m.OffChannel != OffChannelMove.None);
+        var move = moveAt < 0 ? OffChannelMove.None : messages[moveAt].OffChannel;
+        var selfService = messages.Any(m => m.SelfService);
+
+        // The move was the last commercial step: no customer message after it says anything about the sale, and the chat neither closed it
+        // nor lost it. A self-service booking or payment happened outside the chat by definition.
+        var movedLast = moveAt >= 0 && !messages.Skip(moveAt + 1).Any(m => m.Customer && m.SaysSomething)
+                        && outcome is ClassificationOutcome.InFollowUp or ClassificationOutcome.Undetermined;
+        // A Won was closed in the chat; a Lost was not closed and did not continue anywhere (docs/CLASSIFICATION.md, "Closing point").
+        var open = outcome is ClassificationOutcome.InFollowUp or ClassificationOutcome.Undetermined;
+        var outside = open && (movedLast || selfService);
+
+        var closedBy = outcome == ClassificationOutcome.Won ? ClosedBy.Advisor
+            : selfService && open ? ClosedBy.CustomerSelfService
+            : ClosedBy.Unknown;
+
+        return new ClosingPointReading(stage, move, moveAt < 0 ? null : firstIndex + moveAt + 1, closedBy, outside);
+    }
+
+    // The customer messages right above a business message (its own media without text does not interrupt) ask the price.
+    private static bool CustomerAskedThePrice(List<MessageSignals> messages, int index)
+    {
+        var i = index - 1;
+        while (i >= 0 && !messages[i].Customer)
+        {
+            i--;
+        }
+
+        for (; i >= 0 && messages[i].Customer; i--)
+        {
+            if (messages[i].AsksPrice)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // An amount in a business message: "$" before a digit in the raw text, or a number followed by a price unit ("80 mil") with a price word
+    // or a service zone in its clause ("el valor es de 60 mil", "piernas 180 mil"). A bare amount ("200 mil") is a price only as the answer
+    // to a customer who asked the price; "más de 10 mil pacientes" never is.
+    private (bool Price, bool BareAmount) ReadAmount(string raw, TokenizedText text)
+    {
+        if (DollarAmount().IsMatch(raw))
+        {
+            return (true, false);
+        }
+
+        var context = _priceContext.Find(text).Concat(_services.SelectMany(s => s.Phrases.Find(text)))
+            .Select(h => (h.Sentence, text.Tokens[h.Start].Clause)).ToHashSet();
+        var tokens = text.Tokens;
+        var bare = false;
+        for (var i = 1; i < tokens.Length; i++)
+        {
+            if (_priceUnits.Contains(tokens[i].Text) && tokens[i - 1].Sentence == tokens[i].Sentence && tokens[i - 1].Text.All(char.IsAsciiDigit))
+            {
+                if (context.Contains((tokens[i].Sentence, tokens[i].Clause)))
+                {
+                    return (true, false);
+                }
+
+                bare = true;
+            }
+        }
+
+        return (false, bare);
+    }
+
+    // A condition or a deferral in the clause of the hit ("te llamo si me decido", "paso por la sede cuando pueda").
+    private bool Deferred(TokenizedText text, PhraseHit hit)
+    {
+        var clause = text.Tokens[hit.Start].Clause;
+        return _deferral.Find(text).Any(d => d.Sentence == hit.Sentence && text.Tokens[d.Start].Clause == clause);
+    }
+
+    // The closing point's cues of one message; questions and negated phrases never count.
+    private void ReadClosingCues(MessageSignals signals, string raw, TokenizedText text)
+    {
+        bool Stated(PhraseSet phrases) => Scan(phrases, text, negatable: true, skipQuestions: true, null).Positive.Any(h => !Deferred(text, h));
+
+        signals.Payment = Stated(_payment);
+        signals.OffChannel = Stated(_phoneCall) ? OffChannelMove.PhoneCall
+            : Stated(_inPerson) ? OffChannelMove.InPerson
+            : ReadsAsOtherChannel(text) ? OffChannelMove.OtherChannel
+            : OffChannelMove.None;
+        if (signals.Customer)
+        {
+            signals.SelfService = Stated(_selfService);
+            signals.AsksPrice = _priceContext.Find(text).Any();
+        }
+        else
+        {
+            (signals.PriceShared, signals.BareAmount) = ReadAmount(raw, text);
+        }
+    }
+
+    // A contact verb and a channel noun of the same clause, close to each other, outside a question and not negated ("escríbeme al otro número").
+    private bool ReadsAsOtherChannel(TokenizedText text)
+    {
+        var nouns = _channelNouns.Find(text).ToList();
+        if (nouns.Count == 0)
+        {
+            return false;
+        }
+
+        // The noun must be the channel ("por correo", "a mi correo"), not an address being shared ("te mando el correo de la sede").
+        bool AsChannel(PhraseHit noun)
+        {
+            var before = noun.Start - 1;
+            if (before >= 0 && _channelDeterminers.Contains(text.Tokens[before].Text))
+            {
+                before--;
+            }
+
+            return before >= 0 && text.Tokens[before].Sentence == noun.Sentence && _channelPrepositions.Contains(text.Tokens[before].Text);
+        }
+
+        foreach (var verb in Scan(_channelVerbs, text, negatable: true, skipQuestions: true, null).Positive.Where(v => !Deferred(text, v)))
+        {
+            var clause = text.Tokens[verb.Start].Clause;
+            if (nouns.Any(n => n.Sentence == verb.Sentence && text.Tokens[n.Start].Clause == clause && Gap(verb, n) <= _channelWindow && AsChannel(n)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\$\s?\d", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex DollarAmount();
 
     private enum Booking
     {
@@ -346,6 +568,28 @@ public sealed class RuleBasedConversationClassifier : IConversationClassifier
 
         public bool AdvisorConfirmation { get; set; }
 
+        /// <summary>Closing point: a business message that gives a price.</summary>
+        public bool PriceShared { get; set; }
+
+        /// <summary>Closing point: an amount without a price word in its clause; a price only as the answer to a customer who asked it.</summary>
+        public bool BareAmount { get; set; }
+
+        /// <summary>Closing point: the customer asks the price ("¿cuánto vale?").</summary>
+        public bool AsksPrice { get; set; }
+
+        /// <summary>Closing point: a payment or a deposit made or confirmed.</summary>
+        public bool Payment { get; set; }
+
+        /// <summary>Closing point: the message moves the conversation off the chat.</summary>
+        public OffChannelMove OffChannel { get; set; }
+
+        /// <summary>Closing point: the customer booked or paid on their own.</summary>
+        public bool SelfService { get; set; }
+
+        /// <summary>The customer said something about the sale (the same signals that make an outcome InFollowUp, and refusals, cancellations).</summary>
+        public bool SaysSomething => Topic || Services.Count > 0 || GeneralServices.Count > 0 || Reasons.Count > 0 || Objections.Count > 0 || Competitor
+                                     || Inquiry || Intent || NegatedIntent || AcceptsProposal || StrongConfirmation || Refusal || Cancel || Withdrawal;
+
         /// <summary>The most important objection of this message (price before timing before ..., as in the rules).</summary>
         public ObjectionType Objection => Objections.Count == 0 ? ObjectionType.None : Objections[0];
     }
@@ -398,6 +642,7 @@ public sealed class RuleBasedConversationClassifier : IConversationClassifier
                                || Scan(_proposalCue, text, negatable: false, skipQuestions: false, null).Positive.Any(h => dayTimeSentences.Contains(h.Sentence));
             signals.AdvisorConfirmation = Scan(_advisorConfirmation, text, negatable: true, skipQuestions: true, null).Positive.Count > 0
                                           || Scan(_advisorSchedule, text, negatable: true, skipQuestions: true, null).Positive.Any(h => dayTimeSentences.Contains(h.Sentence));
+            ReadClosingCues(signals, raw, text);
             return signals;
         }
 
@@ -456,6 +701,12 @@ public sealed class RuleBasedConversationClassifier : IConversationClassifier
         {
             signals.StrongConfirmation = false;
             signals.WeakAck = false;
+        }
+
+        ReadClosingCues(signals, raw, text);
+        if (signals.Refusal || signals.Competitor)
+        {
+            signals.Payment = false; // "ya pagué el abono en otro lado" is a payment to someone else
         }
 
         return signals;

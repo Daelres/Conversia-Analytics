@@ -26,11 +26,37 @@ public enum ComposerAvailability
 /// </summary>
 /// <param name="Sandbox">The line sends through the provider's sandbox, which has limits a person must know before writing.</param>
 /// <param name="Internal">The company is in the internal sandbox mode (docs/SANDBOX.md): the message is recorded and reaches nobody.</param>
-public sealed record ComposerState(ComposerAvailability Availability, bool Sandbox = false, bool Internal = false)
+/// <param name="WindowClosed">
+/// More than 24 hours passed since the customer last wrote (docs/MESSAGING.md, "Customer service window"): free text is not offered, only a
+/// template. The API decides it again on every send.
+/// </param>
+/// <param name="WindowClosesAt">When free text stops being possible (UTC), as the API computed it; null when the customer never wrote.</param>
+public sealed record ComposerState(
+    ComposerAvailability Availability, bool Sandbox = false, bool Internal = false, bool WindowClosed = false, DateTime? WindowClosesAt = null)
 {
     public static readonly ComposerState Unknown = new(ComposerAvailability.Unknown);
 
-    public bool CanSend => Availability == ComposerAvailability.Available;
+    /// <summary>Free text can be offered: the composer is available and the window is open.</summary>
+    public bool CanSend => Availability == ComposerAvailability.Available && !WindowClosed;
+
+    /// <summary>A template can be offered (whatever the window): the composer is available.</summary>
+    public bool CanSendTemplate => Availability == ComposerAvailability.Available;
+
+    /// <summary>The state with the conversation's window applied (what the API said when the page loaded).</summary>
+    public ComposerState WithWindow(bool windowOpen, DateTime? closesAt) => this with { WindowClosed = !windowOpen, WindowClosesAt = closesAt };
+
+    /// <summary>"3 h 12 min", "45 min" or "menos de 1 min": what is left of the window, for the countdown of the composer.</summary>
+    public static string Remaining(DateTime closesAtUtc, DateTime nowUtc)
+    {
+        var left = closesAtUtc - nowUtc;
+        if (left < TimeSpan.FromMinutes(1))
+        {
+            return "menos de 1 min";
+        }
+
+        var hours = (int)left.TotalHours;
+        return hours > 0 ? $"{hours} h {left.Minutes} min" : $"{left.Minutes} min";
+    }
 
     public string? Reason => Availability switch
     {

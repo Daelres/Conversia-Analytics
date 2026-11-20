@@ -24,8 +24,18 @@ public interface ITenantChange : IAsyncDisposable
     /// <summary>A tracked channel of THIS company (any tenant filter aside); null when it does not exist or belongs to another company.</summary>
     Task<WhatsAppChannel?> GetChannelAsync(Guid channelId, CancellationToken cancellationToken = default);
 
+    /// <summary>Every line of THIS company, tracked.</summary>
+    Task<IReadOnlyList<WhatsAppChannel>> GetChannelsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>The licences assigned to THIS company, tracked (docs/PLATFORM_ADMIN.md, "Line licences").</summary>
+    Task<IReadOnlyList<LineLicense>> GetAssignedLicensesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Queues the tombstone of a company whose data deletion starts; written, with the rest, by <see cref="CommitAsync"/>.</summary>
+    void AddDeletionRecord(TenantDeletion record);
+
     /// <summary>Queues an audit row; it is written, with the rest, by <see cref="CommitAsync"/>.</summary>
     void Record(PlatformAuditLog entry);
 
+    /// <summary>Saves and commits. A licence that changed since it was read throws <see cref="Exceptions.ConcurrencyConflictException"/>.</summary>
     Task CommitAsync(CancellationToken cancellationToken = default);
 }

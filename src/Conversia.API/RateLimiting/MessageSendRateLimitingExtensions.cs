@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Threading.RateLimiting;
+using Conversia.Application.Interfaces;
 using Conversia.Infrastructure.Configuration;
 using Microsoft.AspNetCore.RateLimiting;
 
@@ -20,7 +21,8 @@ public static class MessageSendRateLimitingExtensions
     /// <list type="bullet">
     /// <item><b>Per user</b> (<c>Messaging:SendRateLimitPerMinute</c>), the endpoint's policy: a loop or a stuck client of one person
     /// cannot flood a customer. Users are told apart by the <c>sub</c> claim, as in <see cref="HeavyQueryRateLimitingExtensions"/>.</item>
-    /// <item><b>Per company</b> (<c>Messaging:TenantSendRateLimitPerMinute</c>), keyed by the <c>tenant_id</c> claim: many users, or
+    /// <item><b>Per company</b> (<c>Messaging:TenantSendRateLimitPerMinute</c>, or the company's own limit set by the platform administrator,
+    /// <see cref="ITenantSendRateLimits"/>), keyed by the <c>tenant_id</c> claim: many users, or
     /// many accounts, of one company cannot together spend the provider's quota or crowd the others out. It is the application's global
     /// limiter, and applies only to endpoints that carry this policy; every other request passes through it untouched.</item>
     /// </list>
@@ -33,9 +35,18 @@ public static class MessageSendRateLimitingExtensions
             limiter.OnRejected = TooManyRequestsResponse.WriteAsync;
             limiter.AddPolicy(PolicyName, httpContext => Window(UserPartitionOf(httpContext), options.SendRateLimitPerMinute));
             limiter.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-                IsSend(httpContext) && TenantOf(httpContext) is { } tenant
-                    ? Window("tenant:" + tenant, options.TenantSendRateLimitPerMinute)
-                    : RateLimitPartition.GetNoLimiter(string.Empty));
+            {
+                if (!IsSend(httpContext) || TenantOf(httpContext) is not { } tenant)
+                {
+                    return RateLimitPartition.GetNoLimiter(string.Empty);
+                }
+
+                // The company's own limit when the administrator set one (docs/PLATFORM_ADMIN.md, "Limits"), else the deployment's. The
+                // limit is part of the partition, so a new limit starts a fresh window instead of keeping the old one.
+                var limit = (Guid.TryParse(tenant, out var id) ? httpContext.RequestServices.GetService<ITenantSendRateLimits>()?.OverrideFor(id) : null)
+                    ?? options.TenantSendRateLimitPerMinute;
+                return Window($"tenant:{tenant}:{limit}", limit);
+            });
         });
 
     private static RateLimitPartition<string> Window(string partition, int permitLimit)

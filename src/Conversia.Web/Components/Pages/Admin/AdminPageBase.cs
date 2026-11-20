@@ -32,9 +32,9 @@ public abstract class AdminPageBase : AuthenticatedPageBase
     /// A 404 the page answers itself. The status-code pages re-run every 404 into the public "page not found"; the marker makes that page (and
     /// the layout around it) the administration's own "company not found".
     /// </summary>
-    protected void NotFoundInPlace()
+    protected void NotFoundInPlace(string kind = NotFoundMarker.Company)
     {
-        NotFoundMarker.Mark(HttpContext, NotFoundMarker.Company);
+        NotFoundMarker.Mark(HttpContext, kind);
         SetStatusCode(StatusCodes.Status404NotFound);
     }
 }

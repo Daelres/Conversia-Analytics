@@ -1,0 +1,254 @@
+@page "/admin/licencias/{Id:guid}"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Application.DTOs.Admin
+@using Conversia.Application.Time
+@using Conversia.Domain.Enums
+@using Conversia.Web.Authentication
+@using Conversia.Web.Http
+@using Conversia.Web.Time
+@inherits AdminPageBase
+@inject TenantTimeZone TimeZone
+
+<PageTitle>@(_license?.PhoneNumberMasked ?? "Licencia") - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+@if (_licenseMissing)
+{
+    <LicenseNotFoundView />
+}
+else if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="admin-license" data-license-id="@Id">
+        <PageHeader Eyebrow="Licencias" EyebrowIcon="key" Title="@(_license is null ? "Licencia" : $"Licencia {_license.PhoneNumberMasked}")" Description="Número de 360dialog del inventario de la plataforma.">
+            <a class="btn btn--secondary" href="/admin/licencias"><Icon Name="arrow-left" />Volver a licencias</a>
+        </PageHeader>
+
+        @if (LicenseNotice.Describe(Notice) is { } notice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">@notice</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_conflict is not null)
+        {
+            <Alert Kind="AlertKind.Danger" data-testid="license-conflict">@_conflict</Alert>
+        }
+
+        @if (_license is { } l)
+        {
+            <Card Title="Datos" IconName="key" data-testid="license-card">
+                <dl class="kv">
+                    <div><dt>Número</dt><dd data-testid="license-number">@l.PhoneNumberMasked</dd></div>
+                    <div><dt>Proveedor</dt><dd>@l.Provider</dd></div>
+                    <div><dt>Identificador en 360dialog</dt><dd>@(l.ProviderChannelId ?? MetricsFormat.NoData)</dd></div>
+                    <div><dt>Estado</dt><dd><Chip Tone="@AdminLicenses.Tone(l.Status)" data-testid="license-status" data-status="@l.Status">@AdminFormat.LicenseStatus(l.Status)</Chip></dd></div>
+                    <div><dt>Costo mensual</dt><dd>@(l.CustomerOwned ? "Del cliente (0 USD para la plataforma)" : AdminFormat.Usd(l.MonthlyCostUsd))</dd></div>
+                    <div>
+                        <dt>Empresa</dt>
+                        <dd data-testid="license-company">
+                            @if (l.AssignedTenantId is { } tenant)
+                            {
+                                <a href="/admin/empresas/@tenant">@(l.AssignedTenantName ?? MetricsFormat.NoData)</a>
+                            }
+                            else
+                            {
+                                @MetricsFormat.NoData
+                            }
+                        </dd>
+                    </div>
+                    <div><dt>Línea</dt><dd data-testid="license-line">@(l.ChannelId is null ? "Sin vincular: se vincula cuando la empresa registra o activa ese número" : "Vinculada a una línea de la empresa")</dd></div>
+                    @if (l.AssignedAt is { } assignedAt)
+                    {
+                        <div><dt>Asignada</dt><dd>@AdminFormat.Moment(TimeZone.ToLocal(assignedAt))</dd></div>
+                    }
+                    @if (l.ReleasedAt is { } releasedAt)
+                    {
+                        <div><dt>Liberada por última vez</dt><dd>@AdminFormat.Moment(TimeZone.ToLocal(releasedAt))</dd></div>
+                    }
+                    @if (l.RetiredAt is { } retiredAt)
+                    {
+                        <div><dt>Retirada</dt><dd>@AdminFormat.Moment(TimeZone.ToLocal(retiredAt))</dd></div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(l.Notes))
+                    {
+                        <div><dt>Notas</dt><dd>@l.Notes</dd></div>
+                    }
+                </dl>
+            </Card>
+        }
+
+        @* The three forms are always rendered (hidden when they do not apply): a POST can only be dispatched to a form that exists in the render tree,
+           and a forged one must still reach the API and be refused there. *@
+        <div hidden="@(!CanAssign)">
+            <Card Title="Asignar a una empresa" Subtitle="La empresa podrá usar este número; si ya lo registró, se vincula a su línea." IconName="building" data-testid="assign-card">
+                <EditForm Model="Assign" FormName="assign-license" OnValidSubmit="AssignAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="assign-form">
+                    <DataAnnotationsValidator />
+                    <div class="field">
+                        <label for="company" class="field__label">Empresa</label>
+                        <select id="company" name="@($"{nameof(Assign)}.{nameof(LicenseAssignInput.TenantId)}")" class="input" required>
+                            <option value="">Elige una empresa activa</option>
+                            @foreach (var company in _companies)
+                            {
+                                <option value="@company.Id">@company.Name</option>
+                            }
+                        </select>
+                        <ValidationMessage For="() => Assign.TenantId" class="field__error" />
+                    </div>
+                    <div class="form-actions">
+                        @if (CanAssign)
+                        {
+                            <button type="submit" class="btn btn--primary" data-testid="assign-submit"><Icon Name="check" />Asignar licencia</button>
+                        }
+                    </div>
+                </EditForm>
+            </Card>
+        </div>
+
+        <div hidden="@(!CanRelease)">
+            <Card Title="¿Liberar esta licencia?" IconName="power" data-testid="release-card">
+                <div class="stack">
+                    <p class="muted" data-testid="release-effect">Vuelve al inventario y deja de estar asignada a la empresa. Si la plataforma exige licencia para activar líneas, la línea vinculada se desactiva en el acto.</p>
+                    <EditForm Model="Release" FormName="release-license" OnValidSubmit="ReleaseAsync" method="post" class="form" data-testid="release-form">
+                        <div class="form-actions">
+                            @if (CanRelease)
+                            {
+                                <button type="submit" class="btn btn--danger" data-testid="release-submit"><Icon Name="power" />Sí, liberar la licencia</button>
+                            }
+                        </div>
+                    </EditForm>
+                </div>
+            </Card>
+        </div>
+
+        <div hidden="@(!CanAssign)">
+            <Card Title="¿Retirar esta licencia?" IconName="trash" data-testid="retire-card">
+                <div class="stack">
+                    <p class="muted">Sale del inventario para siempre (por ejemplo, el número se canceló con 360dialog). Queda el registro.</p>
+                    <EditForm Model="Retire" FormName="retire-license" OnValidSubmit="RetireAsync" method="post" class="form" data-testid="retire-form">
+                        <div class="form-actions">
+                            @if (CanAssign)
+                            {
+                                <button type="submit" class="btn btn--danger-ghost" data-testid="retire-submit"><Icon Name="trash" />Retirar la licencia</button>
+                            }
+                        </div>
+                    </EditForm>
+                </div>
+            </Card>
+        </div>
+    </div>
+}
+
+@code {
+    private LineLicenseResponse? _license;
+    private IReadOnlyList<TenantSummaryResponse> _companies = [];
+    private bool _licenseMissing;
+    private string? _conflict;
+    private LicenseAssignInput? _assign;
+    private LicenseActionInput? _release;
+    private LicenseActionInput? _retire;
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [SupplyParameterFromQuery(Name = "aviso")]
+    public string? Notice { get; set; }
+
+    [SupplyParameterFromForm(FormName = "assign-license")]
+    private LicenseAssignInput Assign
+    {
+        get => _assign ??= new();
+        set => _assign = value;
+    }
+
+    [SupplyParameterFromForm(FormName = "release-license")]
+    private LicenseActionInput Release
+    {
+        get => _release ??= new();
+        set => _release = value;
+    }
+
+    [SupplyParameterFromForm(FormName = "retire-license")]
+    private LicenseActionInput Retire
+    {
+        get => _retire ??= new();
+        set => _retire = value;
+    }
+
+    private bool CanAssign => _license is { Status: "Available" } && !Redirected;
+
+    private bool CanRelease => _license is { Status: "Assigned" } && !Redirected;
+
+    protected override void OnNotFound()
+    {
+        _licenseMissing = true;
+        NotFoundInPlace(NotFoundMarker.License);
+        Message = null;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var licenseTask = Api.GetAdminLicenseAsync(Token!, Id);
+        var companiesTask = Api.GetAdminTenantsAsync(Token!, new AdminTenantsQuery { Status = nameof(TenantStatus.Active), Page = 1, PageSize = AdminTenantsQuery.MaxPageSize });
+        await Task.WhenAll(licenseTask, companiesTask);
+        if (await TryFailAsync(licenseTask.Result))
+        {
+            return;
+        }
+
+        _license = licenseTask.Result.Value;
+        _companies = companiesTask.Result.IsSuccess ? companiesTask.Result.Value!.Items.OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ToList() : [];
+    }
+
+    private Task AssignAsync() => RunAsync(() => Api.AssignAdminLicenseAsync(Token!, Id, new AssignLineLicenseRequest { TenantId = Assign.TenantId }), LicenseNotice.Assigned);
+
+    private Task ReleaseAsync() => RunAsync(() => Api.ReleaseAdminLicenseAsync(Token!, Id), LicenseNotice.Released);
+
+    private Task RetireAsync() => RunAsync(() => Api.RetireAdminLicenseAsync(Token!, Id), LicenseNotice.Retired);
+
+    private async Task RunAsync(Func<Task<ApiResult<LineLicenseResponse>>> call, string notice)
+    {
+        var result = await call();
+        if (result.IsSuccess)
+        {
+            RedirectTo(LicenseNotice.Url(Id, notice));
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.Conflict)
+        {
+            // The API says why (already assigned, not assigned, changed meanwhile).
+            _conflict = result.Detail ?? "La licencia no admite ese cambio ahora.";
+            SetStatusCode(StatusCodes.Status409Conflict);
+        }
+        else
+        {
+            await TryFailAsync(result);
+        }
+
+        if (!Redirected && !Denied && !_licenseMissing && !CompanyMissing)
+        {
+            await LoadAsync();
+        }
+    }
+}

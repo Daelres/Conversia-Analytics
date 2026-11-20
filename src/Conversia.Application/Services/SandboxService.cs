@@ -66,7 +66,10 @@ public class SandboxService : ISandboxService
     public async Task<SandboxMessageAcceptedResponse> SendCustomerMessageAsync(
         Guid tenantId, Guid conversationId, SandboxCustomerMessageRequest request, CancellationToken cancellationToken = default)
     {
-        var text = TextRules.Required(request.Text, Message.TextMaxLength, StartSandboxConversationRequest.TextRuleMessage);
+        var attachment = request.Attachment is "image" or "document" ? request.Attachment : null;
+        var text = attachment is null
+            ? TextRules.Required(request.Text, Message.TextMaxLength, StartSandboxConversationRequest.TextRuleMessage)
+            : TextRules.Optional(request.Text, Message.TextMaxLength, StartSandboxConversationRequest.TextRuleMessage);
         await RequireSandboxModeAsync(tenantId, cancellationToken);
 
         var conversation = await _conversations.GetByIdAsync(conversationId, cancellationToken) ?? throw new ConversationNotFoundException();
@@ -87,7 +90,7 @@ public class SandboxService : ISandboxService
         var contact = await _contacts.GetByIdAsync(conversation.ContactId, cancellationToken)
             ?? throw new InvalidOperationException("The contact of the conversation no longer exists.");
 
-        return await DeliverAsync(channel, contact.WaId, contact.DisplayName ?? FallbackCustomerName, text, conversation.LastMessageAt, cancellationToken);
+        return await DeliverAsync(channel, contact.WaId, contact.DisplayName ?? FallbackCustomerName, text, conversation.LastMessageAt, cancellationToken, attachment);
     }
 
     public async Task<SandboxDataDeletedResponse> DeleteDataAsync(Guid tenantId, Guid? userId, CancellationToken cancellationToken = default)
@@ -140,10 +143,14 @@ public class SandboxService : ISandboxService
     }
 
     private async Task<SandboxMessageAcceptedResponse> DeliverAsync(
-        WhatsAppChannel channel, string customerWaId, string customerName, string text, DateTime? notBefore, CancellationToken cancellationToken)
+        WhatsAppChannel channel, string customerWaId, string customerName, string? text, DateTime? notBefore, CancellationToken cancellationToken,
+        string? attachment = null)
     {
         var sentAt = WholeSecond(_timeProvider.GetUtcNow().UtcDateTime, notBefore);
-        var body = SandboxWebhookPayload.InboundText(channel, customerWaId, customerName, SandboxIds.NewInboundMessageId(), text, sentAt);
+        // A synthetic attachment: its file is made up by the internal media client when the download job asks for it (docs/SANDBOX.md).
+        var body = attachment is null
+            ? SandboxWebhookPayload.InboundText(channel, customerWaId, customerName, SandboxIds.NewInboundMessageId(), text!, sentAt)
+            : SandboxWebhookPayload.InboundMedia(channel, customerWaId, customerName, SandboxIds.NewInboundMessageId(), attachment, text, sentAt);
 
         var result = await _ingestion.StoreAsync(
             new WebhookChannelAccess(channel.Id, channel.TenantId, IsSandbox: true), Encoding.UTF8.GetBytes(body), cancellationToken);

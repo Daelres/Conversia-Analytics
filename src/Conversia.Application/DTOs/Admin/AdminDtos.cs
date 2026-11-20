@@ -66,6 +66,31 @@ public class ChangeTenantStatusRequest
     [Display(Name = "Motivo")]
     [TrimmedText(Tenant.StatusReasonMaxLength, Required = false)]
     public string? Reason { get; set; }
+
+    /// <summary>
+    /// One of <see cref="Domain.Common.AdminReasonCodes.All"/> (optional): the reason from the closed list, kept as a code. The free text above
+    /// is then only the detail; it is kept forever in the audit trail, so it must never hold personal data.
+    /// </summary>
+    [Display(Name = "Motivo de la lista")]
+    [TrimmedText(64, Required = false)]
+    public string? ReasonCode { get; set; }
+}
+
+/// <summary>
+/// Body of <c>POST /api/admin/tenants/{id}/data-deletion</c>: delete a cancelled company's data now, before its retention window ends. The
+/// administrator types the company's name (the strong confirmation) and the reason (audited).
+/// </summary>
+public class DeleteTenantDataRequest
+{
+    public const int ReasonMaxLength = 200;
+
+    [Display(Name = "Nombre de la empresa")]
+    [TrimmedText(200)]
+    public string? ConfirmName { get; set; }
+
+    [Display(Name = "Motivo")]
+    [TrimmedText(ReasonMaxLength)]
+    public string? Reason { get; set; }
 }
 
 public class SetLineQuotaRequest
@@ -118,6 +143,31 @@ public class TenantSummaryResponse
     /// <summary>Whether the company is in the internal sandbox mode (docs/SANDBOX.md).</summary>
     public bool SandboxMode { get; set; }
 
+    /// <summary>Whether the LLM may read the company's conversations (docs/CLASSIFICATION.md, "Usage and quota").</summary>
+    public bool AiEnabled { get; set; }
+
+    /// <summary>Why it is suspended (<c>Manual</c> or <c>Billing</c>); null in every other status.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public SuspensionCause? SuspensionCause { get; set; }
+
+    /// <summary>The stable code of the last change the system made (for example <c>billing.past_due</c>).</summary>
+    public string? StatusReasonCode { get; set; }
+
+    public DateTime? CancelledAt { get; set; }
+
+    /// <summary>When the deletion of a cancelled company's data is due.</summary>
+    public DateTime? DataDeletionDueAt { get; set; }
+
+    /// <summary>When it started; from then on the company cannot be reactivated.</summary>
+    public DateTime? DataDeletionStartedAt { get; set; }
+
+    /// <summary>The subscription's status (null: none yet) and its dunning stage (docs/BILLING.md).</summary>
+    public SubscriptionStatus? BillingStatus { get; set; }
+
+    public DunningStage? DunningStage { get; set; }
+
+    public string? BillingPlanCode { get; set; }
+
     public static TenantSummaryResponse From(TenantAdminSummary s) => new()
     {
         Id = s.Id,
@@ -132,6 +182,17 @@ public class TenantSummaryResponse
         StatusChangedAt = s.StatusChangedAt,
         StatusReason = s.StatusReason,
         SandboxMode = s.SandboxMode,
+        AiEnabled = s.AiEnabled,
+        SuspensionCause = s.SuspensionCause,
+        StatusReasonCode = s.StatusReasonCode,
+        CancelledAt = s.CancelledAt,
+        DataDeletionDueAt = s.DataDeletionDueAt,
+        DataDeletionStartedAt = s.DataDeletionStartedAt,
+        BillingStatus = s.BillingStatus,
+        DunningStage = s.BillingStatus is { } billing
+            ? Conversia.Application.Billing.DunningPolicy.Stage(billing, billing == SubscriptionStatus.PastDue, s.BillingSuspendedAt is not null)
+            : null,
+        BillingPlanCode = s.BillingPlanCode,
     };
 }
 
@@ -160,6 +221,15 @@ public class TenantDetailResponse : TenantSummaryResponse
     public IReadOnlyList<TenantLineResponse> Lines { get; set; } = [];
 
     public IReadOnlyList<AuditEntryResponse> RecentAudit { get; set; } = [];
+
+    /// <summary>The company's limits as they apply now (line quota, AI switch and quota, send rate limit).</summary>
+    public TenantLimitsResponse Limits { get; set; } = new();
+
+    /// <summary>The line licences assigned to the company, numbers masked.</summary>
+    public IReadOnlyList<LineLicenseResponse> Licenses { get; set; } = [];
+
+    /// <summary>The days a cancelled company's data is kept before it is deleted (<c>Tenants:Deletion:RetentionDays</c>).</summary>
+    public int DeletionRetentionDays { get; set; }
 }
 
 public class AuditEntryResponse
@@ -168,9 +238,13 @@ public class AuditEntryResponse
 
     public DateTime OccurredAt { get; set; }
 
-    public Guid AdminId { get; set; }
+    /// <summary>The administrator who made the change; null when the system did (a background job: billing, deletion).</summary>
+    public Guid? AdminId { get; set; }
 
     public string? AdminEmail { get; set; }
+
+    /// <summary>The stable code of why (always there for a system change).</summary>
+    public string? ReasonCode { get; set; }
 
     public string Action { get; set; } = string.Empty;
 
@@ -185,6 +259,7 @@ public class AuditEntryResponse
         OccurredAt = e.OccurredAt,
         AdminId = e.AdminId,
         AdminEmail = e.AdminEmail,
+        ReasonCode = e.ReasonCode,
         Action = e.Action,
         TenantId = e.TenantId,
         Details = ParseDetails(e.Details),

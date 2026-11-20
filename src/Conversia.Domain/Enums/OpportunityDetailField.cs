@@ -6,4 +6,8 @@ public enum OpportunityDetailField
     ServiceInterest = 0,
     InterestReason = 1,
     Objection = 2,
+    ReachedStage = 3,
+    MovedOffChannel = 4,
+    ClosedBy = 5,
+    ClosedOutsideSystem = 6,
 }

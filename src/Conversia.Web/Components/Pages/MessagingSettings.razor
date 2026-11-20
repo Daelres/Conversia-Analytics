@@ -1,0 +1,123 @@
+@page "/organizacion/mensajeria"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Conversations
+@using Conversia.Domain.Enums
+@inherits AuthenticatedPageBase
+
+<PageTitle>Confirmaciones de lectura - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="messaging-settings">
+        <PageHeader Eyebrow="Organización" EyebrowIcon="building" Title="Confirmaciones de lectura"
+                    Description="Lo que el cliente ve en WhatsApp cuando tu equipo atiende desde Conversia.">
+            <a class="btn btn--secondary" href="/organizacion"><Icon Name="arrow-left" />Volver a organización</a>
+        </PageHeader>
+
+        @if (Notice == SavedNotice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">Configuración guardada.</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_settings is not null)
+        {
+            <Card Title="Leído y «escribiendo...»" IconName="message" data-testid="read-receipts-card">
+                <div class="stack">
+                    <p data-testid="read-receipts-state">Ahora: <strong>@(_settings.ReadReceiptsEnabled ? "activadas" : "desactivadas")</strong>.</p>
+                    <p class="muted">
+                        Activadas, al abrir una conversación el cliente ve sus mensajes como leídos (doble check azul), y mientras alguien escribe la
+                        respuesta ve «escribiendo...». Desactivadas (lo predeterminado), el cliente no ve nada de eso. Afecta a toda la empresa.
+                    </p>
+                    @* Always rendered: a POST can only be dispatched to a form that exists in the render tree; the API refuses a caller without the permission. *@
+                    <div hidden="@(!_canManage)">
+                        <EditForm Model="Input" FormName="messaging-settings" OnSubmit="SaveAsync" method="post" class="form" data-testid="read-receipts-form">
+                            <input type="hidden" name="@($"{nameof(Input)}.{nameof(SettingsInput.Enable)}")" value="@(_settings.ReadReceiptsEnabled ? "false" : "true")" />
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn--primary" data-testid="read-receipts-toggle">
+                                    <Icon Name="power" />@(_settings.ReadReceiptsEnabled ? "Desactivar confirmaciones" : "Activar confirmaciones")
+                                </button>
+                            </div>
+                        </EditForm>
+                    </div>
+                    @if (!_canManage)
+                    {
+                        <p class="muted" data-testid="read-receipts-readonly">Solo quien administra la organización puede cambiarlo.</p>
+                    }
+                </div>
+            </Card>
+        }
+    </div>
+}
+
+@code {
+    public const string SavedNotice = "guardado";
+
+    private MessagingSettingsResponse? _settings;
+    private bool _canManage;
+    private SettingsInput? _input;
+
+    public sealed class SettingsInput
+    {
+        public string? Enable { get; set; }
+    }
+
+    [SupplyParameterFromForm(FormName = "messaging-settings")]
+    private SettingsInput Input
+    {
+        get => _input ??= new();
+        set => _input = value;
+    }
+
+    [SupplyParameterFromQuery(Name = "aviso")]
+    public string? Notice { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        if (!IsPost)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var settingsTask = Api.GetMessagingSettingsAsync(Token!);
+        var profileTask = Api.GetMyProfileAsync(Token!);
+        await Task.WhenAll(settingsTask, profileTask);
+        if (await TryFailAsync(settingsTask.Result, profileTask.Result))
+        {
+            return;
+        }
+
+        Shell.Remember(profileTask.Result.Value!);
+        _settings = settingsTask.Result.Value;
+        _canManage = profileTask.Result.Value!.Can(Permission.OrganizationManage);
+    }
+
+    private async Task SaveAsync()
+    {
+        var result = await Api.SetMessagingSettingsAsync(Token!, new SetMessagingSettingsRequest { ReadReceiptsEnabled = Input.Enable == "true" });
+        if (result.IsSuccess)
+        {
+            RedirectTo($"/organizacion/mensajeria?aviso={SavedNotice}");
+            return;
+        }
+
+        await TryFailAsync(result);
+        if (!Redirected && !Denied)
+        {
+            await LoadAsync();
+        }
+    }
+}

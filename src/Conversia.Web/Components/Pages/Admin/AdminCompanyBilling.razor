@@ -1,0 +1,393 @@
+@page "/admin/empresas/{Id:guid}/facturacion"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Application.DTOs.Billing
+@using Conversia.Domain.Common
+@using Conversia.Domain.Entities
+@using Conversia.Domain.Enums
+@using Conversia.Web.Authentication
+@inherits AdminPageBase
+
+<PageTitle>Facturación de la empresa - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (CompanyMissing)
+{
+    <CompanyNotFoundView />
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="admin-company-billing" data-company-id="@Id">
+        <PageHeader Eyebrow="Empresa" EyebrowIcon="card" Title="Facturación" Description="Suscripción, cobros e intentos de pago de la empresa. Nunca datos de la tarjeta.">
+            <a class="btn btn--secondary" href="/admin/empresas/@Id"><Icon Name="arrow-left" />Volver a la empresa</a>
+        </PageHeader>
+
+        @if (Saved)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">Cambio guardado y registrado en la auditoría.</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_account is null)
+        {
+            <Card Title="Activar la suscripción" Subtitle="Cuando la empresa acuerde el plan. Con días gratis, el primer cobro llega al terminar ese periodo." IconName="plus" data-testid="billing-start">
+                @if (_plans.Count == 0)
+                {
+                    <p class="muted">Primero crea un plan en <a href="/admin/facturacion">Planes y paquetes</a>.</p>
+                }
+                else
+                {
+                    <form method="post" @formname="billing-start" @onsubmit="StartAsync" class="form" data-testid="billing-start-form">
+                        <AntiforgeryToken />
+                        <div class="field"><label class="field__label" for="start-plan">Plan</label>
+                            <select id="start-plan" name="Start.PlanId" class="input">
+                                @foreach (var plan in _plans.Where(p => p.IsActive))
+                                {
+                                    <option value="@plan.Id">@plan.Name (@BillingFormat.Pesos(plan.PricePerLinePesos) por línea)</option>
+                                }
+                            </select></div>
+                        <div class="field"><label class="field__label" for="start-trial">Días gratis (0 a @BillingSubscription.MaxTrialDays)</label>
+                            <input id="start-trial" name="Start.TrialDays" class="input" type="number" min="0" max="@BillingSubscription.MaxTrialDays" value="0" /></div>
+                        <div class="field"><label class="field__label" for="start-lines">Líneas facturadas (vacío: el cupo de líneas de la empresa)</label>
+                            <input id="start-lines" name="Start.BilledLinesOverride" class="input" type="number" min="1" /></div>
+                        <div class="form-actions"><button type="submit" class="btn btn--primary" data-testid="billing-start-submit"><Icon Name="check" />Activar la suscripción</button></div>
+                    </form>
+                }
+            </Card>
+        }
+        else
+        {
+            var a = _account;
+            <div class="stack">
+                <Card Title="Suscripción" IconName="card" data-testid="billing-summary">
+                    <dl class="kv">
+                        <div><dt>Plan</dt><dd>@a.PlanName (@a.PlanCode)</dd></div>
+                        <div><dt>Estado</dt><dd><Chip Tone="BillingFormat.SubscriptionTone(a.Status)" data-testid="billing-status">@BillingFormat.Subscription(a.Status)</Chip></dd></div>
+                        <div><dt>Cobranza</dt><dd data-testid="billing-dunning">@BillingFormat.Dunning(a.DunningStage)</dd></div>
+                        <div><dt>Periodo actual</dt><dd>@MetricsFormat.Date(a.CurrentPeriodStart) al @MetricsFormat.Date(a.CurrentPeriodEnd.AddDays(-1))</dd></div>
+                        <div><dt>Líneas facturadas</dt><dd>@a.BilledLines @(a.BilledLinesOverride is null ? "(cupo de la empresa)" : "(fijadas por el administrador)")</dd></div>
+                        <div><dt>Próximo cobro</dt><dd>@(a.NextChargeOn is { } on ? $"{MetricsFormat.Date(on)}: {BillingFormat.Money(a.NextChargeAmountInCents ?? 0)}" : "Ninguno")</dd></div>
+                        <div><dt>Medio de pago</dt><dd data-testid="billing-method">@(a.PaymentMethodLabel ?? "Sin medio de pago")</dd></div>
+                        @if (a.CancelAtPeriodEnd)
+                        {
+                            <div><dt>Cancelación</dt><dd>Al final del periodo</dd></div>
+                        }
+                    </dl>
+                </Card>
+
+                @if (a.Status != SubscriptionStatus.Cancelled)
+                {
+                    <Card Title="Cambiar plan, líneas o paquetes" Subtitle="Se aplica desde el siguiente periodo, sin prorrateos." IconName="settings" data-testid="billing-change">
+                        <form method="post" @formname="billing-change" @onsubmit="ChangeAsync" class="form" data-testid="billing-change-form">
+                            <AntiforgeryToken />
+                            <div class="field"><label class="field__label" for="change-plan">Plan</label>
+                                <select id="change-plan" name="Change.PlanId" class="input">
+                                    @foreach (var plan in _plans.Where(p => p.IsActive || p.Id == a.PlanId))
+                                    {
+                                        <option value="@plan.Id" selected="@(plan.Id == a.PlanId)">@plan.Name</option>
+                                    }
+                                </select></div>
+                            <div class="field"><label class="field__label" for="change-lines">Líneas facturadas (vacío: el cupo de líneas)</label>
+                                <input id="change-lines" name="Change.BilledLinesOverride" class="input" type="number" min="1" value="@a.BilledLinesOverride" /></div>
+                            <div class="field"><label class="field__label" for="change-addon">Paquete de conversaciones con IA</label>
+                                <select id="change-addon" name="Change.AddOnId" class="input">
+                                    <option value="">Ninguno</option>
+                                    @foreach (var addOn in _plans.SelectMany(p => p.AddOns))
+                                    {
+                                        <option value="@addOn.Id" selected="@(addOn.Id == a.AddOnId)">@addOn.Name</option>
+                                    }
+                                </select></div>
+                            <div class="field"><label class="field__label" for="change-qty">Cantidad de paquetes</label>
+                                <input id="change-qty" name="Change.AddOnQuantity" class="input" type="number" min="0" max="@BillingAddOn.MaxQuantity" value="@a.AddOnQuantity" /></div>
+                            <div class="form-actions"><button type="submit" class="btn btn--primary" data-testid="billing-change-submit"><Icon Name="check" />Guardar</button></div>
+                        </form>
+                    </Card>
+                }
+
+                <Card Title="Cobros" IconName="activity" data-testid="billing-charges">
+                    @if (a.Charges.Count == 0)
+                    {
+                        <p class="muted">Aún no hay cobros.</p>
+                    }
+                    else
+                    {
+                        <div class="table-wrap" role="region" aria-label="Cobros" tabindex="0">
+                            <table class="table">
+                                <caption class="sr-only">Cobros de la empresa</caption>
+                                <thead><tr><th scope="col">Periodo</th><th scope="col">Valor</th><th scope="col">Estado</th><th scope="col">Intentos</th></tr></thead>
+                                <tbody>
+                                    @foreach (var charge in a.Charges)
+                                    {
+                                        <tr data-testid="billing-charge" data-charge-status="@charge.Status">
+                                            <td>@MetricsFormat.Date(charge.PeriodStart) al @MetricsFormat.Date(charge.PeriodEnd.AddDays(-1))</td>
+                                            <td>@BillingFormat.Money(charge.AmountInCents)</td>
+                                            <td><Chip Tone="BillingFormat.ChargeTone(charge.Status)">@BillingFormat.Charge(charge.Status)</Chip> @BillingFormat.Settlement(charge.Settlement) @charge.Note</td>
+                                            <td>@charge.Attempts.Count (@charge.AutomaticAttempts automáticos)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </Card>
+
+                @if (a.Charges.Any(c => c.Status is BillingChargeStatus.Open or BillingChargeStatus.Failed))
+                {
+                    <Card Title="Registrar un pago o anular un cobro" Subtitle="Para pagos fuera de la pasarela (transferencia, efectivo) o cobros por error. Los reembolsos se hacen en el panel de Wompi." IconName="check" data-testid="billing-charge-action">
+                        <form method="post" @formname="billing-charge-action" @onsubmit="ChargeActionAsync" class="form" data-testid="billing-charge-action-form">
+                            <AntiforgeryToken />
+                            <div class="field"><label class="field__label" for="action-charge">Cobro</label>
+                                <select id="action-charge" name="ChargeAction.ChargeId" class="input">
+                                    @foreach (var charge in a.Charges.Where(c => c.Status is BillingChargeStatus.Open or BillingChargeStatus.Failed))
+                                    {
+                                        <option value="@charge.Id">@MetricsFormat.Date(charge.PeriodStart): @BillingFormat.Money(charge.AmountInCents) (@BillingFormat.Charge(charge.Status))</option>
+                                    }
+                                </select></div>
+                            <div class="field"><label class="field__label" for="action-kind">Acción</label>
+                                <select id="action-kind" name="ChargeAction.Kind" class="input">
+                                    <option value="paid">Marcar como pagado</option>
+                                    <option value="void">Anular</option>
+                                </select></div>
+                            <div class="field"><label class="field__label" for="action-reason">Motivo (queda en la auditoría)</label>
+                                <input id="action-reason" name="ChargeAction.Reason" class="input" maxlength="@BillingCharge.NoteMaxLength" required /></div>
+                            <div class="form-actions"><button type="submit" class="btn btn--primary" data-testid="billing-charge-action-submit"><Icon Name="check" />Aplicar</button></div>
+                        </form>
+                    </Card>
+                }
+
+                @if (a.Charges.SelectMany(c => c.Attempts).Any(t => t.ReviewReason is not null))
+                {
+                    <Card Title="Pagos por revisar" Subtitle="Verifica cada uno en el panel de Wompi con su referencia antes de decidir." IconName="alert-circle" data-testid="billing-attempt-review">
+                        <form method="post" @formname="billing-attempt-review" @onsubmit="ReviewAttemptAsync" class="form" data-testid="billing-attempt-review-form">
+                            <AntiforgeryToken />
+                            <div class="field"><label class="field__label" for="review-attempt">Intento</label>
+                                <select id="review-attempt" name="AttemptReview.AttemptId" class="input">
+                                    @foreach (var attempt in a.Charges.SelectMany(c => c.Attempts).Where(t => t.ReviewReason is not null))
+                                    {
+                                        <option value="@attempt.Id">@BillingFormat.Review(attempt.ReviewReason) · @attempt.Reference</option>
+                                    }
+                                </select></div>
+                            <label class="checkbox"><input type="checkbox" name="AttemptReview.MarkFailed" value="true" /> <span>No existe en Wompi: cerrarlo como fallido (si sigue pendiente)</span></label>
+                            <div class="field"><label class="field__label" for="review-reason">Qué se hizo (queda en la auditoría)</label>
+                                <input id="review-reason" name="AttemptReview.Reason" class="input" maxlength="200" required /></div>
+                            <div class="form-actions"><button type="submit" class="btn btn--primary" data-testid="billing-attempt-review-submit"><Icon Name="check" />Marcar como revisado</button></div>
+                        </form>
+                    </Card>
+                }
+
+                @if (a.Status != SubscriptionStatus.Cancelled)
+                {
+                    <Card Title="Cancelar la suscripción" IconName="trash" data-testid="billing-cancel">
+                        <div class="stack">
+                            @if (a.CancelAtPeriodEnd)
+                            {
+                                <form method="post" @formname="billing-undo" @onsubmit="UndoAsync">
+                                    <AntiforgeryToken />
+                                    <button type="submit" class="btn btn--secondary" data-testid="billing-undo">Deshacer la cancelación al final del periodo</button>
+                                </form>
+                            }
+                            <form method="post" @formname="billing-cancel" @onsubmit="CancelAsync" class="form" data-testid="billing-cancel-form">
+                                <AntiforgeryToken />
+                                <div class="field"><label class="field__label" for="cancel-when">Cuándo</label>
+                                    <select id="cancel-when" name="Cancel.When" class="input">
+                                        <option value="end">Al final del periodo (la empresa se cancela ese día)</option>
+                                        <option value="now">Ahora (se anulan los cobros pendientes; el estado de la empresa no cambia)</option>
+                                    </select></div>
+                                <div class="field"><label class="field__label" for="cancel-reason">Motivo</label>
+                                    <select id="cancel-reason" name="Cancel.ReasonCode" class="input">
+                                        @foreach (var reasonCode in AdminReasonCodes.All)
+                                        {
+                                            <option value="@reasonCode">@AuditFormat.ReasonCodeLabel(reasonCode)</option>
+                                        }
+                                    </select></div>
+                                <div class="form-actions"><button type="submit" class="btn btn--danger-ghost" data-testid="billing-cancel-submit">Cancelar la suscripción</button></div>
+                            </form>
+                        </div>
+                    </Card>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private AdminBillingAccountResponse? _account;
+    private IReadOnlyList<PlanResponse> _plans = [];
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [SupplyParameterFromQuery(Name = "guardado")]
+    private string? SavedFlag { get; set; }
+
+    private bool Saved => SavedFlag == "1";
+
+    [SupplyParameterFromForm(FormName = "billing-start")]
+    private StartInput? Start { get; set; }
+
+    [SupplyParameterFromForm(FormName = "billing-change")]
+    private ChangeInput? Change { get; set; }
+
+    [SupplyParameterFromForm(FormName = "billing-charge-action")]
+    private ChargeActionInput? ChargeAction { get; set; }
+
+    [SupplyParameterFromForm(FormName = "billing-cancel")]
+    private CancelInput? Cancel { get; set; }
+
+    [SupplyParameterFromForm(FormName = "billing-attempt-review")]
+    private AttemptReviewInput? AttemptReview { get; set; }
+
+    private async Task ReviewAttemptAsync()
+    {
+        var input = AttemptReview ?? new AttemptReviewInput();
+        await AfterAsync(await Api.ReviewAdminAttemptAsync(Token!, Id, input.AttemptId, new ReviewAttemptRequest { MarkFailed = input.MarkFailed, Reason = input.Reason }));
+    }
+
+    public sealed class AttemptReviewInput
+    {
+        public Guid AttemptId { get; set; }
+
+        public bool MarkFailed { get; set; }
+
+        public string? Reason { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (await TryReadTokenAsync())
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var company = await Api.GetAdminTenantAsync(Token!, Id);
+        if (await TryFailAsync(company))
+        {
+            return;
+        }
+
+        var plans = await Api.GetAdminPlansAsync(Token!);
+        if (await TryFailAsync(plans))
+        {
+            return;
+        }
+
+        _plans = plans.Value!;
+        var account = await Api.GetAdminBillingAsync(Token!, Id);
+        if (account.IsSuccess)
+        {
+            _account = account.Value;
+        }
+        else if (account.Status != ApiResultStatus.NotFound)
+        {
+            await TryFailAsync(account);
+        }
+    }
+
+    private async Task StartAsync()
+    {
+        var input = Start ?? new StartInput();
+        await AfterAsync(await Api.StartAdminSubscriptionAsync(Token!, Id, new StartSubscriptionRequest
+        {
+            PlanId = input.PlanId,
+            TrialDays = input.TrialDays,
+            BilledLinesOverride = input.BilledLinesOverride,
+        }));
+    }
+
+    private async Task ChangeAsync()
+    {
+        var input = Change ?? new ChangeInput();
+        await AfterAsync(await Api.ChangeAdminSubscriptionAsync(Token!, Id, new ChangeSubscriptionRequest
+        {
+            PlanId = input.PlanId,
+            BilledLinesOverride = input.BilledLinesOverride,
+            AddOnId = input.AddOnId,
+            AddOnQuantity = input.AddOnId is null ? 0 : input.AddOnQuantity,
+        }));
+    }
+
+    private async Task ChargeActionAsync()
+    {
+        var input = ChargeAction ?? new ChargeActionInput();
+        await AfterAsync(await Api.AdminChargeActionAsync(Token!, Id, input.ChargeId, input.Kind == "paid", new ChargeActionRequest { Reason = input.Reason }));
+    }
+
+    private async Task CancelAsync()
+    {
+        var input = Cancel ?? new CancelInput();
+        await AfterAsync(await Api.AdminCancelSubscriptionAsync(Token!, Id, new AdminCancelSubscriptionRequest { AtPeriodEnd = input.When != "now", ReasonCode = input.ReasonCode }));
+    }
+
+    private async Task UndoAsync() => await AfterAsync(await Api.AdminCancelSubscriptionAsync(Token!, Id, null));
+
+    private async Task AfterAsync<T>(ApiResult<T> result)
+    {
+        if (result.IsSuccess)
+        {
+            RedirectTo($"/admin/empresas/{Id}/facturacion?guardado=1");
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.ValidationFailed)
+        {
+            Message = "Revisa los datos: hay campos vacíos o fuera de rango.";
+            SetStatusCode(StatusCodes.Status400BadRequest);
+            return;
+        }
+
+        if (BillingNotice.Problem(result.ProblemCode) is { } problem || result.Detail is { } detail && (problem = detail) is not null)
+        {
+            Message = problem;
+            SetStatusCode(StatusCodes.Status409Conflict);
+            return;
+        }
+
+        await TryFailAsync(result);
+    }
+
+    public sealed class StartInput
+    {
+        public Guid? PlanId { get; set; }
+
+        public int TrialDays { get; set; }
+
+        public int? BilledLinesOverride { get; set; }
+    }
+
+    public sealed class ChangeInput
+    {
+        public Guid? PlanId { get; set; }
+
+        public int? BilledLinesOverride { get; set; }
+
+        public Guid? AddOnId { get; set; }
+
+        public int AddOnQuantity { get; set; }
+    }
+
+    public sealed class ChargeActionInput
+    {
+        public Guid ChargeId { get; set; }
+
+        public string? Kind { get; set; }
+
+        public string? Reason { get; set; }
+    }
+
+    public sealed class CancelInput
+    {
+        public string? When { get; set; }
+
+        public string? ReasonCode { get; set; }
+    }
+}

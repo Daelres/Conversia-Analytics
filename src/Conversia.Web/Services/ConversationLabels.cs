@@ -61,6 +61,37 @@ public static class ConversationLabels
         _ => Fallback(reason),
     };
 
+    /// <summary>How far a conversation got (docs/CLASSIFICATION.md, "Closing point").</summary>
+    public static string ReachedStage(string? stage) => stage switch
+    {
+        "FirstContact" => "Primer contacto",
+        "NeedsIdentified" => "Necesidad identificada",
+        "PriceShared" => "Se compartió el precio",
+        "ObjectionRaised" => "Planteó una objeción",
+        "AppointmentProposed" => "Se propuso una cita",
+        "AppointmentBooked" => "Cita agendada",
+        "PaymentOrDeposit" => "Pago o abono",
+        _ => Fallback(stage),
+    };
+
+    public static string OffChannelMove(string? move) => move switch
+    {
+        "None" => "No",
+        "PhoneCall" => "Llamada telefónica",
+        "InPerson" => "En persona, en la sede",
+        "OtherChannel" => "Otro canal",
+        _ => Fallback(move),
+    };
+
+    public static string ClosedBy(string? closedBy) => closedBy switch
+    {
+        "Unknown" => "Sin determinar",
+        "Advisor" => "Asesor",
+        "CustomerSelfService" => "El cliente por su cuenta",
+        "AiAssistant" => "Asistente de IA",
+        _ => Fallback(closedBy),
+    };
+
     public static string Objection(string? objection) => objection switch
     {
         "None" => "Ninguna",

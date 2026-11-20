@@ -44,19 +44,33 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
             return null;
         }
 
-        var messages = await db.Messages.AsNoTracking()
+        var rows = await db.Messages.AsNoTracking()
             .Where(m => m.ConversationId == id)
             .OrderBy(m => m.SentAt).ThenBy(m => m.CreatedAt).ThenBy(m => m.Id)
             .Take(ConversationDetailResponse.MaxMessages)
-            .Select(m => new MessageResponse
-            {
-                Id = m.Id,
-                Direction = m.Direction.ToString(),
-                Type = m.Type,
-                Text = m.Text,
-                SentAt = m.SentAt,
-            })
+            .Select(m => new { m.Id, m.Direction, m.Type, m.Text, m.SentAt, m.TemplateName, m.TemplateCategory, m.MediaStatus, m.MediaContentType, m.MediaSizeBytes, m.IsImported })
             .ToListAsync(cancellationToken);
+        var messages = rows.Select(m => new MessageResponse
+        {
+            Id = m.Id,
+            Direction = m.Direction.ToString(),
+            Type = m.Type,
+            Text = m.Text,
+            SentAt = m.SentAt,
+            TemplateName = m.TemplateName,
+            TemplateCategory = m.TemplateCategory?.ToString(),
+            // The file's state and type only: never the provider's media id nor the store's key (docs/MESSAGING.md, "Media").
+            Attachment = m.MediaStatus is { } status
+                ? new MessageAttachmentResponse
+                {
+                    Status = MessageAttachmentResponse.StatusName(status),
+                    Kind = m.Type,
+                    ContentType = status == Domain.Enums.MediaStatus.Stored ? m.MediaContentType : null,
+                    SizeBytes = status == Domain.Enums.MediaStatus.Stored ? m.MediaSizeBytes : null,
+                }
+                : null,
+            Imported = m.IsImported,
+        }).ToList();
 
         // Only what tells whether a message can leave through the channel: the key is reduced to "there is one" in the query itself, so
         // neither it nor anything that identifies the channel is ever loaded for this answer.
@@ -80,6 +94,7 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
             AdvisorName = item.AdvisorName,
             AdvisorAssignedBy = row.Conversation.AdvisorAssignedBy,
             AdvisorAssignedAt = row.Conversation.AdvisorAssignedAt,
+            AiAnalyzedAt = row.Conversation.LlmAnalyzedAt,
             Source = item.Source,
             SourceReference = item.SourceReference,
             Status = item.Status,
@@ -87,6 +102,8 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
             LastMessageAt = item.LastMessageAt,
             FirstInboundAt = item.FirstInboundAt,
             FirstResponseAt = item.FirstResponseAt,
+            LastInboundAt = item.LastInboundAt,
+            LastOutboundAt = item.LastOutboundAt,
             ClosedAt = item.ClosedAt,
             MessageCount = item.MessageCount,
             IsSandbox = item.IsSandbox,
@@ -212,6 +229,8 @@ public sealed class ConversationQueries(ApplicationDbContext db) : IConversation
         LastMessageAt = row.Conversation.LastMessageAt,
         FirstInboundAt = row.Conversation.FirstInboundAt,
         FirstResponseAt = row.Conversation.FirstResponseAt,
+        LastInboundAt = row.Conversation.LastInboundAt,
+        LastOutboundAt = row.Conversation.LastOutboundAt,
         ClosedAt = row.Conversation.ClosedAt,
         MessageCount = row.MessageCount,
         IsSandbox = row.Conversation.IsSandbox,

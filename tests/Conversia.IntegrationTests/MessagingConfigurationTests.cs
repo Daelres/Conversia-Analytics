@@ -72,6 +72,13 @@ public class MessagingConfigurationTests
     [InlineData("Messaging:TenantSendRateLimitPerMinute", "many")]
     [InlineData("Messaging:RecordTimeoutSeconds", "0")]
     [InlineData("Messaging:RecordTimeoutSeconds", "301")]
+    [InlineData("Messaging:TenantSendRateLimitMaxPerMinute", "0")]
+    [InlineData("Messaging:TenantSendRateLimitMaxPerMinute", "119")] // below the deployment default (120)
+    [InlineData("Messaging:TenantSendRateLimitMaxPerMinute", "1000001")]
+    [InlineData("Classification:Quota:SandboxMonthlyUsdPerCompany", "-1")]
+    [InlineData("Classification:Quota:SandboxMonthlyUsdPerCompany", "lots")]
+    [InlineData("PlatformMonitoring:WebhookBacklog", "0")]
+    [InlineData("PlatformMonitoring:OverviewCacheSeconds", "301")]
     [InlineData("Dialog360:SandboxBaseUrl", "not a url")]
     [InlineData("Dialog360:SandboxBaseUrl", "ftp://waba-sandbox.360dialog.io")]
     [InlineData("Dialog360:ProductionBaseUrl", "http://waba-v2.360dialog.io")] // plain http would send the key in clear

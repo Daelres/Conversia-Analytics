@@ -14,6 +14,8 @@ public sealed record AdminListFilters(TenantStatus? Status, string? Search, int 
         ("pendiente", TenantStatus.Pending),
         ("activa", TenantStatus.Active),
         ("suspendida", TenantStatus.Suspended),
+        ("en-pausa", TenantStatus.Paused),
+        ("cancelada", TenantStatus.Cancelled),
     ];
 
     public bool IsFiltered => Status is not null || Search is not null;

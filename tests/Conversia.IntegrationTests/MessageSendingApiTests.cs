@@ -47,6 +47,9 @@ public class MessageSendingApiTests
 
     // ---- What the detail says about the channel ---------------------------------------------------------------------
 
+    /// <summary>A customer message of a minute ago: free text is only sent within 24 hours of it (docs/MESSAGING.md, "Customer service window").</summary>
+    private static long Recent() => DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 60;
+
     [Fact]
     public async Task TheDetail_SaysWhetherItsChannelCanSend_AndNothingElseAboutTheChannel()
     {
@@ -122,6 +125,7 @@ public class MessageSendingApiTests
         Assert.Equal(conversation.ConversationId, stored.ConversationId);
         Assert.Equal(f.Channel.Id, stored.ChannelId);
         Assert.Equal(f.Tenant.Owner.UserId, stored.CreatedBy);
+        Assert.Equal((MessageSender.Conversia, (Guid?)f.Tenant.Owner.UserId, (Guid?)null), (stored.Sender, stored.SentByUserId, stored.SentByAdvisorId));
 
         var updated = Assert.Single(snapshot.Conversations);
         Assert.Equal(stored.SentAt, updated.FirstResponseAt);
@@ -146,7 +150,7 @@ public class MessageSendingApiTests
 
         // The customer writes through the real webhook, so the conversation is the one ingestion made.
         var waId = UniqueWaId();
-        await DeliverAsync(_client, f, Dialog360Samples.InboundText($"wamid.IN-{Guid.NewGuid():N}", waId: waId));
+        await DeliverAsync(_client, f, Dialog360Samples.InboundText($"wamid.IN-{Guid.NewGuid():N}", timestamp: Recent(), waId: waId));
         await DrainAsync(runner);
         var conversationId = Assert.Single((await SnapshotAsync(_factory.Services, f.TenantId)).Conversations).Id;
 
@@ -160,7 +164,8 @@ public class MessageSendingApiTests
 
         var snapshot = await SnapshotAsync(_factory.Services, f.TenantId);
         Assert.Equal(2, snapshot.Messages.Count);
-        Assert.Single(snapshot.Messages, m => m.ProviderMessageId == providerId);
+        var sent = Assert.Single(snapshot.Messages, m => m.ProviderMessageId == providerId);
+        Assert.Equal((MessageSender.Conversia, (Guid?)f.Tenant.Owner.UserId, (Guid?)null), (sent.Sender, sent.SentByUserId, sent.AssignedAdvisorIdAtReceipt)); // the echo changes nothing
         Assert.Single(snapshot.Conversations);
         var echo = snapshot.Events[^1];
         Assert.Equal(WebhookEventStatus.Processed, echo.Status);
@@ -177,7 +182,7 @@ public class MessageSendingApiTests
         await ClearQueueAsync(_factory.Services);
         var runner = RunnerOf(_factory.Services);
         var waId = UniqueWaId();
-        await DeliverAsync(_client, f, Dialog360Samples.InboundText($"wamid.IN-{Guid.NewGuid():N}", waId: waId));
+        await DeliverAsync(_client, f, Dialog360Samples.InboundText($"wamid.IN-{Guid.NewGuid():N}", timestamp: Recent(), waId: waId));
         await DrainAsync(runner);
         var conversationId = Assert.Single((await SnapshotAsync(_factory.Services, f.TenantId)).Conversations).Id;
 
@@ -197,6 +202,7 @@ public class MessageSendingApiTests
         var stored = Assert.Single(snapshot.Messages, m => m.ProviderMessageId == providerId);
         Assert.Equal(stored.Id, (await ReadBodyAsync<MessageResponse>(response)).Id);
         Assert.Equal(2, snapshot.Messages.Count);
+        Assert.Equal((MessageSender.Conversia, (Guid?)f.Tenant.Owner.UserId, (Guid?)null), (stored.Sender, stored.SentByUserId, stored.AssignedAdvisorIdAtReceipt)); // the echo was claimed
     }
 
     // ---- Who may send ------------------------------------------------------------------------------------------------
@@ -457,14 +463,14 @@ public class MessageSendingApiTests
         await ClearQueueAsync(_factory.Services);
         var runner = RunnerOf(_factory.Services);
         var waId = UniqueWaId();
-        await DeliverAsync(_client, f, Dialog360Samples.InboundText($"wamid.IN-{Guid.NewGuid():N}", waId: waId));
+        await DeliverAsync(_client, f, Dialog360Samples.InboundText($"wamid.IN-{Guid.NewGuid():N}", timestamp: Recent(), waId: waId));
         await DrainAsync(runner);
         var conversationId = Assert.Single((await SnapshotAsync(_factory.Services, f.TenantId)).Conversations).Id;
 
         // The customer keeps writing (each delivery a message of its own, a second apart) while a person sends.
         for (var i = 1; i <= deliveries; i++)
         {
-            await DeliverAsync(_client, f, Dialog360Samples.InboundText($"wamid.IN-{Guid.NewGuid():N}", timestamp: Dialog360Samples.T0 + i, waId: waId));
+            await DeliverAsync(_client, f, Dialog360Samples.InboundText($"wamid.IN-{Guid.NewGuid():N}", timestamp: Recent() + i, waId: waId));
         }
 
         var sending = Enumerable.Range(0, sends).Select(i => Task.Run(() => SendMessageAsync(owner, conversationId, $"Respuesta {i}"))).ToList();

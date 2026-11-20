@@ -165,6 +165,28 @@ public class ConversationDetailPageTests
     }
 
     [Fact]
+    public async Task The_closing_point_is_shown_read_only_in_spanish()
+    {
+        using var harness = ConversationsHarness.Create();
+
+        var lost = await harness.OpenAsync(Url(ConversationsStub.Lost));
+        var won = await harness.OpenAsync(Url(ConversationsStub.Won));
+
+        var card = lost.Document.QuerySelector("[data-testid=closing-point]")!;
+        Assert.Equal("Se compartió el precio", card.QuerySelector("[data-testid=reached-stage]")!.Plain().Trim());
+        Assert.Equal("PriceShared", card.QuerySelector("[data-testid=reached-stage]")!.GetAttribute("data-value"));
+        Assert.Contains("Llamada telefónica", card.QuerySelector("[data-testid=moved-off-channel]")!.Plain());
+        Assert.Contains("mensaje 4", card.QuerySelector("[data-testid=moved-off-channel]")!.Plain());
+        Assert.Equal("Sin determinar", card.QuerySelector("[data-testid=closed-by]")!.Plain().Trim());
+        Assert.Equal("Sí", card.QuerySelector("[data-testid=closed-outside]")!.Plain().Trim());
+        Assert.Empty(card.QuerySelectorAll("form, button")); // read-only: manual editing of extracted fields is not built yet
+
+        var unread = won.Document.QuerySelector("[data-testid=closing-point]")!;
+        Assert.Equal(Conversia.Web.Services.MetricsFormat.NoData, unread.QuerySelector("[data-testid=reached-stage]")!.Plain().Trim());
+        Assert.Equal("No", unread.QuerySelector("[data-testid=moved-off-channel]")!.Plain().Trim());
+    }
+
+    [Fact]
     public async Task The_assigned_advisor_and_who_assigned_them_are_shown()
     {
         using var harness = ConversationsHarness.Create();
@@ -476,5 +498,19 @@ public class ConversationDetailPageTests
         Assert.Empty(page.Select("[style]"));
         Assert.Empty(SpanishUi.Leaks(SpanishUi.Extract(page)));
         Assert.NotNull(page.FindLogoutForm());
+    }
+
+    [Fact]
+    public async Task The_detail_says_when_the_ai_last_updated_the_conversation_in_local_time_and_nothing_when_it_never_did()
+    {
+        using var analysed = ConversationsHarness.Create(null, stub => stub.AiAnalyzedAt = new DateTime(2026, 11, 12, 6, 30, 0, DateTimeKind.Utc));
+        var page = (await analysed.OpenAsync(Url(ConversationsStub.Won))).ShouldBe(HttpStatusCode.OK);
+
+        var note = page.Document.QuerySelector("[data-testid=ai-analyzed-at]")!.Plain();
+        Assert.Contains("Análisis de IA: última actualización el 12 nov, 01:30", note); // 01:30 in Bogota
+        Assert.DoesNotContain("lote", note, StringComparison.OrdinalIgnoreCase);
+
+        using var never = ConversationsHarness.Create(null);
+        Assert.Null((await never.OpenAsync(Url(ConversationsStub.Won))).Document.QuerySelector("[data-testid=ai-analyzed-at]"));
     }
 }

@@ -93,7 +93,7 @@ public sealed class AnthropicLlmClient(AnthropicClient client, AnthropicRequestS
             MaxTokens = settings.MaxTokens,
             System = new List<TextBlockParam>
             {
-                new() { Text = request.SystemPrompt },
+                new() { Text = request.SystemPrompt, CacheControl = request.CacheSystemPrompt ? new CacheControlEphemeral() : null },
                 new() { Text = request.ContextBlock, CacheControl = new CacheControlEphemeral() },
             },
             Messages = [new UserMessageParam { Content = request.UserContent }],

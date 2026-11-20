@@ -36,7 +36,8 @@ else
     [CascadingParameter]
     private HttpContext? HttpContext { get; set; }
 
-    private bool AdministrationNotFound => Http.NotFoundMarker.IsMarked(HttpContext, Http.NotFoundMarker.Company);
+    private bool AdministrationNotFound
+        => Http.NotFoundMarker.IsMarked(HttpContext, Http.NotFoundMarker.Company) || Http.NotFoundMarker.IsMarked(HttpContext, Http.NotFoundMarker.License);
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationState { get; set; }

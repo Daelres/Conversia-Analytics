@@ -225,3 +225,35 @@ has nothing to do with this mode.
 - The clean-up has no undo and no partial form: it removes all the sandbox data of the company.
 - **Rolling back the migration** `AddSandboxMode` drops the marks: sandbox rows become indistinguishable from real ones and enter every
   metric. Delete the sandbox data of every company first.
+
+**AI usage rows.** Deleting the sandbox data also deletes the AI distinct-conversation rows (`AiUsageConversations`) of the sandbox
+conversations (design D24); the sandbox monthly totals (`AiUsageMonths` with `IsSandbox`) hold counts only and stay.
+
+## Window, templates, inbox and read receipts (stage 3a)
+
+- **The 24-hour window applies in sandbox mode too** (docs/MESSAGING.md, "Customer service window"): free text to a simulated customer
+  who last wrote more than 24 hours ago is refused with `customer_service_window_closed`, so what a person practices is what happens
+  for real.
+- **Templates:** every channel has the same three fixed templates (`conversia_retomar_conversacion`, `conversia_recordatorio_cita`,
+  `conversia_promocion`, Spanish, approved). They are never stored and never synced; no 360dialog key is needed. The internal sender
+  accepts any of them, records the message like a real template send and injects nothing else (no simulated reply).
+- **Inbox:** `/bandeja` shows only the sandbox conversations while the mode is on, and only real ones otherwise.
+- **Read receipts and typing:** with the company setting on, the internal sender accepts them and the API logs a line; nothing reaches a
+  phone.
+
+## Media (stage 3b)
+
+- The simulated customer can send a **synthetic attachment** (`POST /api/sandbox/conversations/{id}/customer-messages` with
+  `"attachment": "image"` or `"document"`, the text then an optional caption; in the Web, "Adjunto de prueba del cliente" on a sandbox
+  conversation). The delivery carries a media id starting with `sandbox`; the download job asks the internal media client
+  (`SandboxMediaClient`), which makes up an 8x8 PNG or a one-page PDF: no provider is called and no real file exists.
+- An attachment sent by the advisor in sandbox mode is stored in the media store (when one is configured) and recorded in the sandbox
+  conversation; nothing is uploaded or sent.
+- Deleting the sandbox data deletes the stored copies of its messages too (docs/MESSAGING.md, "Media retention and deletion").
+
+## El asistente de IA en el sandbox
+
+Con el asistente activado ([ASSISTANT.md](ASSISTANT.md)), una conversación simulada lo prueba de punta a punta sin ningún proveedor: si
+nadie responde dentro de la espera, contesta un texto de prueba fijo (nunca un modelo) por el remitente interno, y los disparadores de
+traspaso funcionan igual que en real. Borrar los datos de prueba borra también su estado del asistente; sus contadores quedan aparte, marcados
+como sandbox.

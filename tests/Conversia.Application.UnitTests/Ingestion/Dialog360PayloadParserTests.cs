@@ -47,6 +47,78 @@ public class Dialog360PayloadParserTests
     }
 
     [Fact]
+    public void AdReferral_KeepsTheAdsData_AndNotTheClickIdNorTheMedia()
+    {
+        // Shape of Meta's Cloud API "Click to WhatsApp ad" example (developers.facebook.com, webhooks reference, messages, text).
+        var json = Dialog360Samples.InboundFromAd().Replace("\"media_type\": \"image\"", "\"media_type\": \"image\", \"image_url\": \"https://scontent.example/x.jpg\", \"ctwa_clid\": \"Aff-n8ZTODiE79d22KtAwQ\", \"welcome_message\": { \"text\": \"Hi there!\" }", StringComparison.Ordinal);
+        var message = Assert.Single(Dialog360PayloadParser.Parse(json).Messages);
+
+        Assert.Equal(new Domain.Entities.AdReferral("ad", "120200000000000", "https://fb.me/ad-123", "Depilación láser 2x1"), message.Referral!.Ad);
+        var stored = new[] { message.Referral.Reference, message.Referral.Ad!.SourceType, message.Referral.Ad.SourceId, message.Referral.Ad.SourceUrl, message.Referral.Ad.Headline };
+        Assert.All(stored, value => Assert.DoesNotContain("Aff-n8ZTODiE79d22KtAwQ", value ?? string.Empty, StringComparison.Ordinal)); // ctwa_clid is never kept
+        Assert.DoesNotContain(typeof(Domain.Entities.AdReferral).GetProperties(), p => p.Name.Contains("Clid", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("Click", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(typeof(Domain.Entities.Conversation).GetProperties(), p => p.Name.Contains("Clid", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("Click", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void TheAdUrl_KeepsOnlySchemeHostAndPath_InTheDataAndInTheReferenceFallback()
+    {
+        // Tracking parameters and fragments can carry click or user identifiers: they are dropped.
+        var json = Dialog360Samples.InboundFromAd()
+            .Replace("\"https://fb.me/ad-123\"", "\"https://fb.me/ad-123?fbclid=IwAR0abc&utm_source=ig#x\"", StringComparison.Ordinal)
+            .Replace("\"headline\": \"Depilación láser 2x1\"", "\"headline\": \" \"", StringComparison.Ordinal);
+
+        var referral = Assert.Single(Dialog360PayloadParser.Parse(json).Messages).Referral!;
+
+        Assert.Equal("https://fb.me/ad-123", referral.Ad!.SourceUrl);
+        Assert.Equal("https://fb.me/ad-123", referral.Reference);
+    }
+
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("no es una url")]
+    public void AnAdUrlThatIsNotHttp_IsNotKept(string url)
+    {
+        var json = Dialog360Samples.InboundFromAd().Replace("https://fb.me/ad-123", url, StringComparison.Ordinal);
+
+        Assert.Null(Assert.Single(Dialog360PayloadParser.Parse(json).Messages).Referral!.Ad!.SourceUrl);
+    }
+
+    [Fact]
+    public void AnEcho_CarriesNoReferral()
+        => Assert.Null(Assert.Single(Dialog360PayloadParser.Parse(Dialog360Samples.OutboundEcho()).Messages).Referral);
+
+    [Fact]
+    public void MediaMetadata_IsRead_WithoutTheFile()
+    {
+        // Shape of Meta's "image" message reference: id, mime_type, sha256, caption (no file size in the webhook).
+        var image = Assert.Single(Dialog360PayloadParser.Parse(Dialog360Samples.InboundImage()).Messages);
+        var audio = Assert.Single(Dialog360PayloadParser.Parse(Dialog360Samples.InboundAudio()).Messages);
+        var text = Assert.Single(Dialog360PayloadParser.Parse(Dialog360Samples.InboundText()).Messages);
+
+        Assert.Equal(new Domain.Entities.MessageMedia("9999", "image/jpeg", HasCaption: true), image.Media);
+        Assert.Equal(new Domain.Entities.MessageMedia("8888", "audio/ogg", HasCaption: false), audio.Media); // parameters dropped
+        Assert.Null(text.Media);
+    }
+
+    [Theory]
+    [InlineData("document", "{ \"id\": \"77\", \"mime_type\": \"application/pdf\", \"filename\": \"cedula Laura.pdf\" }", "77", "application/pdf")]
+    [InlineData("sticker", "{ \"id\": \"66\", \"mime_type\": \"image/webp\", \"animated\": false }", "66", "image/webp")]
+    [InlineData("video", "{ \"id\": \"55\", \"mime_type\": \"Video/MP4\" }", "55", "video/mp4")]
+    [InlineData("image", "{ \"id\": \"44\", \"mime_type\": \"not a mime\" }", "44", null)]
+    [InlineData("image", "{ \"mime_type\": \"image/png\" }", null, "image/png")]
+    public void EveryMediaType_IsRead_AndOddValuesAreDropped(string type, string body, string? id, string? mime)
+    {
+        var json = Dialog360Samples.InboundImage().Replace("\"type\": \"image\", \"image\": { \"id\": \"9999\", \"mime_type\": \"image/jpeg\", \"sha256\": \"abc\", \"caption\": \"Así quedó\" }",
+            $"\"type\": \"{type}\", \"{type}\": {body}", StringComparison.Ordinal);
+
+        var message = Assert.Single(Dialog360PayloadParser.Parse(json).Messages);
+
+        Assert.Equal((id, mime, false), (message.Media!.ProviderMediaId, message.Media.MimeType, message.Media.HasCaption));
+        Assert.DoesNotContain("cedula", message.Media.ToString(), StringComparison.Ordinal); // a document's file name is never kept
+    }
+
+    [Fact]
     public void MediaMessage_UsesTheCaptionAsText_AndAnAudioHasNone()
     {
         var image = Assert.Single(Dialog360PayloadParser.Parse(Dialog360Samples.InboundImage()).Messages);
@@ -373,4 +445,30 @@ public class Dialog360PayloadParserTests
             }
         }
     }
+
+    // ---- Template status notifications (docs/WEBHOOKS.md, "Template status") ----------------------------------------------
+
+    [Fact]
+    public void TemplateStatusUpdate_IsReadAsATemplateStatus_NotAsAMessage()
+    {
+        var parsed = Dialog360PayloadParser.Parse(Dialog360Samples.TemplateStatusUpdate("PAUSED", "recordatorio_cita", "es_CO", "MARKETING"));
+
+        Assert.Empty(parsed.Messages);
+        var update = Assert.Single(parsed.TemplateStatuses);
+        Assert.Equal(("recordatorio_cita", "es_CO", "PAUSED", "MARKETING"), (update.Name, update.Language, update.Event, update.Category));
+        Assert.Equal(T0, update.OccurredAt); // entry.time: what orders notifications that arrive out of order
+    }
+
+    [Fact]
+    public void TemplateStatusUpdate_WithoutNameOrLanguage_IsSkipped()
+    {
+        var parsed = Dialog360PayloadParser.Parse(Dialog360Samples.TemplateStatusUpdate("APPROVED", name: "", language: ""));
+
+        Assert.Empty(parsed.TemplateStatuses);
+        Assert.Equal(1, parsed.SkippedCount);
+    }
+
+    [Fact]
+    public void AMessagesDelivery_HasNoTemplateStatus()
+        => Assert.Empty(Dialog360PayloadParser.Parse(Dialog360Samples.InboundText()).TemplateStatuses);
 }

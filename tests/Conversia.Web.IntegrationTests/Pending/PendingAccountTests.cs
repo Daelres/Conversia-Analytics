@@ -252,7 +252,7 @@ public class PendingAccountTests(TestApiFactory api)
 
         var nav = page.Document.QuerySelector("nav[aria-label='Navegación principal']")!;
         var locked = nav.QuerySelectorAll("[data-locked=true]").ToList();
-        Assert.Equal(["Panel", "Conversaciones", "Mensajes", "Organización", "Usuarios"], locked.Select(l => l.QuerySelector("span:not(.sr-only)")!.Plain().Trim()));
+        Assert.Equal(["Panel", "Bandeja", "Conversaciones", "Mensajes", "Informes", "Organización", "Usuarios"], locked.Select(l => l.QuerySelector("span:not(.sr-only)")!.Plain().Trim()));
         Assert.All(locked, l =>
         {
             Assert.Equal("true", l.GetAttribute("aria-disabled")); // locked in words as well as in colour

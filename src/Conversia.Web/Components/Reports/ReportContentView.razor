@@ -1,0 +1,37 @@
+@using Conversia.Application.Reports
+
+@* The text of a report as a manager reads it: up to three indicators, the diagnosis, the actions and the AI note. Rendered from the
+   structured content (never from stored HTML), so every text is encoded by Razor. *@
+<section class="report" data-testid="report-content">
+    <ul class="report__indicators" data-testid="report-indicators">
+        @foreach (var indicator in Content.Indicators)
+        {
+            <li class="report__indicator" data-testid="report-indicator">
+                <span class="report__label">@indicator.Label</span>
+                <strong class="report__value">@indicator.Value</strong>
+                <span class="report__note">@indicator.Note</span>
+            </li>
+        }
+    </ul>
+
+    <h2 class="report__heading">Diagnóstico</h2>
+    <p data-testid="report-diagnosis">@Content.Diagnosis</p>
+
+    <h2 class="report__heading">Qué hacer</h2>
+    <ol class="report__actions" data-testid="report-actions">
+        @foreach (var action in Content.Actions)
+        {
+            <li>@action</li>
+        }
+    </ol>
+
+    @if (Content.CoverageNote is { } note)
+    {
+        <p class="muted" data-testid="report-coverage">@note</p>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public ReportContent Content { get; set; } = default!;
+}

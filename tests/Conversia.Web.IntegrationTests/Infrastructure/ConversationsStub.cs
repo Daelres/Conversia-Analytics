@@ -43,7 +43,8 @@ internal sealed class ConversationsStub
             Item(Waiting, "573009990001", null, Norte, "Norte", null, null, "Ads", "Open", Now.AddMinutes(-190), Now.AddMinutes(-190), null, null, Stage("New", "Auto"), 3),
             Item(Won, WonPhone, "Camila R.", Centro, "Centro", Ana, "Ana Torres", "Organic", "Closed", Now.AddDays(-3), Now.AddDays(-3), Now.AddDays(-3).AddMinutes(9), Now.AddDays(-2), Stage("Won", "Auto", 0.92m, service: "depilacion_laser"), 12),
             Item(ClosedSilent, "573009990003", null, Norte, "Norte", null, null, "Unknown", "Closed", Now.AddDays(-12), Now.AddDays(-12), null, Now.AddDays(-5), Stage("Lost", "Auto", 0.4m, loss: "NoResponse"), 1),
-            Item(Lost, "573009990004", "Daniela", Centro, "Centro", Luis, "Luis Pérez", "Ads", "Closed", Now.AddDays(-6), Now.AddDays(-6), Now.AddDays(-6).AddMinutes(75), Now.AddDays(-5), Stage("Lost", "Auto", 0.8m, loss: "Price", objection: "Price"), 8),
+            Item(Lost, "573009990004", "Daniela", Centro, "Centro", Luis, "Luis Pérez", "Ads", "Closed", Now.AddDays(-6), Now.AddDays(-6), Now.AddDays(-6).AddMinutes(75), Now.AddDays(-5), Stage("Lost", "Auto", 0.8m, loss: "Price", objection: "Price") is var lost
+                ? Closing(lost, "PriceShared", "PhoneCall", "Unknown", true) : null!, 8),
             Item(Manual, "573009990005", null, Centro, "Centro", Ana, "Ana Torres", "Ads", "Open", Now.AddHours(-5), Now.AddHours(-5), Now.AddHours(-5).AddMinutes(1), null, Stage("InFollowUp", "Manual", 0.6m, changedBy: Editor), 6),
         ];
     }
@@ -70,6 +71,9 @@ internal sealed class ConversationsStub
     /// <summary>The messages of the conversation the detail page opens, oldest first.</summary>
     public IReadOnlyList<MessageResponse>? Messages { get; set; }
 
+    /// <summary>When the AI last updated the conversation (<see cref="ConversationDetailResponse.AiAnalyzedAt"/>); null: never.</summary>
+    public DateTime? AiAnalyzedAt { get; set; }
+
     /// <summary>The line of the conversations: active, with a key, in production. The detail of a conversation carries its state.</summary>
     public ChannelResponse Channel { get; set; } = new()
     {
@@ -80,11 +84,33 @@ internal sealed class ConversationsStub
     /// <summary>The caller may not look at the organization: the line answers 403, as the real API does without OrganizationView.</summary>
     public bool ChannelForbidden { get; set; }
 
+    /// <summary>Whether the customer service window of the conversations is open (the API stamps it on the detail).</summary>
+    public bool WindowOpen { get; set; } = true;
+
+    /// <summary>The company has read receipts on (the profile says so).</summary>
+    public bool ReadReceipts { get; set; }
+
+    /// <summary>The templates of the line, as <c>GET /api/conversations/{id}/templates</c> answers them.</summary>
+    public Conversia.Application.DTOs.Templates.ChannelTemplatesResponse Templates { get; set; } = new()
+    {
+        Templates =
+        [
+            new() { Name = "recordatorio_cita", Language = "es", Category = "Utility", Status = "Approved", BodyText = "Hola {{1}}, tu cita es el {{2}}.", ParameterNames = ["1", "2"], IsSupported = true, CanBeSent = true },
+            new() { Name = "en_revision", Language = "es", Category = "Marketing", Status = "Pending", BodyText = "Pronto", ParameterNames = [], IsSupported = true, CanBeSent = false },
+        ],
+    };
+
+    /// <summary>The template sends the page made, as the API received them.</summary>
+    public List<SendTemplateMessageRequest> SentTemplates { get; } = [];
+
     /// <summary>The messages the page sent through <c>POST /api/conversations/{id}/messages</c>, as the stub stored them.</summary>
     public List<MessageResponse> Sent { get; } = [];
 
     /// <summary>Answers these paths (with their method, <c>PUT /api/conversations/...</c>) with something else.</summary>
     public Dictionary<string, Func<BackendRequest, HttpResponseMessage>> Overrides { get; } = new();
+
+    /// <summary>The AI sales assistant's state of every conversation (docs/ASSISTANT.md): not available by default.</summary>
+    public Conversia.Application.DTOs.Assistant.ConversationAssistantResponse Assistant { get; set; } = new();
 
     /// <summary>What the write endpoints answered, for the assertions that follow a post.</summary>
     public int Total { get; set; } = -1;
@@ -100,7 +126,17 @@ internal sealed class ConversationsStub
 
         HttpResponseMessage? answer = (request.Method.Method, path) switch
         {
-            ("GET", "/api/users/me") when MemberPermissions is not null => FakeBackend.Answer(HttpStatusCode.OK, Member(request)),
+            ("GET", "/api/users/me") when MemberPermissions is not null || ReadReceipts => FakeBackend.Answer(HttpStatusCode.OK, Member(request)),
+            ("GET", _) when IdOf(path, "/templates") is { } => FakeBackend.Answer(HttpStatusCode.OK, Templates),
+            ("GET", _) when IdOf(path, "/assistant") is { } => FakeBackend.Answer(HttpStatusCode.OK, Assistant),
+            ("POST", _) when IdOf(path, "/template-messages") is { } id => SendTemplate(id, request),
+            ("POST", _) when IdOf(path, "/read") is { } => FakeBackend.Answer(HttpStatusCode.OK, new PresenceResponse { Outcome = PresenceOutcome.Sent }),
+            ("POST", _) when IdOf(path, "/typing") is { } => FakeBackend.Answer(HttpStatusCode.OK, new PresenceResponse { Outcome = PresenceOutcome.Sent }),
+            ("GET", _) when IdOf(path, "/version") is { } id => FakeBackend.Answer(HttpStatusCode.OK, new Conversia.Application.DTOs.Inbox.ConversationVersionResponse
+            {
+                MessageCount = Math.Max(All.First(c => c.Id == id).MessageCount, (Messages ?? DefaultMessages(All.First(c => c.Id == id))).Concat(Sent).Count()),
+                Status = All.First(c => c.Id == id).Status, Version = $"v{Sent.Count}", WindowOpen = WindowOpen,
+            }),
             ("GET", "/api/branches") => FakeBackend.Answer(HttpStatusCode.OK, Branches),
             ("GET", "/api/advisors") => FakeBackend.Answer(HttpStatusCode.OK, Advisors),
             ("GET", "/api/conversations") => List(request),
@@ -150,8 +186,22 @@ internal sealed class ConversationsStub
 
         var messages = (Messages ?? DefaultMessages(item)).Concat(Sent).ToList();
         var detail = ToDetail(item, messages);
+        detail.AiAnalyzedAt = AiAnalyzedAt;
+
+        // The window as the API stamps it (docs/MESSAGING.md): open unless a test closes it.
+        detail.LastInboundAt = DateTime.UtcNow.AddHours(WindowOpen ? -1 : -30);
+        detail.WindowOpen = WindowOpen;
         detail.Channel = new ConversationChannelState { IsActive = Channel.IsActive, HasProviderApiKey = Channel.HasProviderApiKey, ProviderEnvironment = Channel.ProviderEnvironment };
         return FakeBackend.Answer(HttpStatusCode.OK, detail);
+    }
+
+    private HttpResponseMessage SendTemplate(Guid id, BackendRequest request)
+    {
+        var body = System.Text.Json.JsonSerializer.Deserialize<SendTemplateMessageRequest>(request.Body!, FakeBackend.Json)!;
+        SentTemplates.Add(body);
+        var message = new MessageResponse { Id = Guid.NewGuid(), Direction = "Outbound", Type = "template", Text = "Plantilla", SentAt = DateTime.UtcNow, TemplateName = body.TemplateName, TemplateCategory = "Utility" };
+        Sent.Add(message);
+        return FakeBackend.Answer(HttpStatusCode.Created, message);
     }
 
     private HttpResponseMessage Send(Guid id, BackendRequest request)
@@ -182,7 +232,9 @@ internal sealed class ConversationsStub
     private UserProfileResponse Member(BackendRequest request)
     {
         var (user, tenant) = FakeJwt.IdentityOf(request.Header("Authorization")?["Bearer ".Length..]);
-        return new UserProfileResponse { UserId = user, TenantId = tenant, IsOwner = false, Permissions = MemberPermissions! };
+        return MemberPermissions is null
+            ? new UserProfileResponse { UserId = user, TenantId = tenant, IsOwner = true, Permissions = Enum.GetValues<Permission>(), TenantReadReceipts = ReadReceipts }
+            : new UserProfileResponse { UserId = user, TenantId = tenant, IsOwner = false, Permissions = MemberPermissions, TenantReadReceipts = ReadReceipts };
     }
 
     private static Guid? IdOf(string path, string suffix)
@@ -222,6 +274,17 @@ internal sealed class ConversationsStub
         AdvisorAssignedBy = item.AdvisorId is null ? null : Editor, AdvisorAssignedAt = item.AdvisorId is null ? null : item.StartedAt.AddMinutes(30),
     };
 
+    // The closing point read for a conversation (docs/CLASSIFICATION.md, "Closing point").
+    private static OpportunityResponse Closing(OpportunityResponse opportunity, string? reached, string moved, string closedBy, bool outside)
+    {
+        opportunity.ReachedStage = reached;
+        opportunity.MovedOffChannel = moved;
+        opportunity.OffChannelEvidenceIndex = moved == "None" ? null : 4;
+        opportunity.ClosedBy = closedBy;
+        opportunity.ClosedOutsideSystem = outside;
+        return opportunity;
+    }
+
     private static OpportunityResponse Stage(
         string stage, string source, decimal? confidence = null, string? service = null, string? loss = null, string objection = "None", Guid? changedBy = null)
         => new()
@@ -229,6 +292,7 @@ internal sealed class ConversationsStub
             Stage = stage, StageSource = source, StageChangedAt = changedBy is null ? null : DateTime.UtcNow.AddHours(-4), StageChangedBy = changedBy,
             ServiceInterest = service, Objection = objection, LossReason = loss, ClassificationConfidence = confidence,
             ClassifiedAt = confidence is null ? null : DateTime.UtcNow.AddDays(-1), ClassificationRules = confidence is null ? null : "intent.booking,outcome.confirmed",
+            MovedOffChannel = "None", ClosedBy = "Unknown", ReachedStageSource = "Auto", MovedOffChannelSource = "Auto", ClosedBySource = "Auto", ClosedOutsideSystemSource = "Auto",
         };
 
     private static ConversationListItem Item(

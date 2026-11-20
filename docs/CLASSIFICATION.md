@@ -5,13 +5,16 @@ stopped them, and how the conversation ended. Phase 1 has no LLM, so the reader 
 (Colombia) classifier** behind an interface that a future LLM adapter will implement.
 
 ```
-ingestion ──► Conversation.ClassificationDirty = true   (any conversation that received a message)
+ingestion ──► Conversation.ClassificationDirty = true and LlmPending = true   (any conversation that received a message)
                     │   quiet for Classification:DebounceSeconds (60)
-ConversationClassificationService (FOR UPDATE SKIP LOCKED, one transaction per conversation)
+ConversationClassificationService (FOR UPDATE SKIP LOCKED, one transaction per conversation)        ← every company, near real time
                     ▼
    IConversationClassifier.ClassifyAsync(snapshot)  ──►  ClassificationResult (codes and enums only)
                     ▼
    Opportunity.ApplyClassification  (never touches a Manual stage)  ──►  flag cleared
+
+with Classification:Provider=Llm, on each company's schedule (nightly by default):
+LlmAnalysisService ──► LlmAnalysisScheduler ──► LlmAnalysisRunner (three phases, no lock during the call)   ← see "When the AI reads"
 ```
 
 ## What a classification produces
@@ -27,9 +30,96 @@ ConversationClassificationService (FOR UPDATE SKIP LOCKED, one transaction per c
 | `LossReason` | With `Lost` only: `Price`, `Timing`, `Location`, `Competitor`, `NotInterested`, `Other` | `Opportunities.LossReason` |
 | `Confidence` | 0 to 1 | `Opportunities.ClassificationConfidence` |
 | `RuleCodes` | Short codes of the rules that fired (`outcome.won.advisor_confirmation`, `objection.price`, `service.axilas`) | `Opportunities.ClassificationRules` (200 characters, whole codes) |
+| `ClosingPoint` | How far the conversation got and where it stopped (see [Closing point](#closing-point)) | `Opportunities.ReachedStage`, `MovedOffChannel`, `OffChannelEvidenceIndex`, `ClosedBy`, `ClosedOutsideSystem` |
 
 `ClassifiedAt` is set on every run. A run that reads the same thing changes nothing else (the stage keeps its
 `StageChangedAt` and `ClosedAt`), so re-classifying is harmless.
+
+### Closing point
+
+How far each conversation got and where it stopped (roadmap point 10), read automatically, never typed by an advisor. Codes only.
+
+| Field | Values | Meaning |
+|---|---|---|
+| `ReachedStage` | ordered: `FirstContact` < `NeedsIdentified` < `PriceShared` < `ObjectionRaised` < `AppointmentProposed` < `AppointmentBooked` < `PaymentOrDeposit`; null | The **furthest** step reached, whatever the order the steps happened in. Null when the customer never wrote. |
+| `MovedOffChannel` | `None`, `PhoneCall`, `InPerson`, `OtherChannel` | The latest explicit move out of the chat. |
+| `OffChannelEvidenceIndex` | 1-based position, or null | The message that shows the move, among the messages read (the latest 200), as the LLM cites lines. Null with `None`. |
+| `ClosedBy` | `Unknown`, `Advisor`, `CustomerSelfService`, `AiAssistant` | Who closed the deal. `AiAssistant` is the AI sales assistant (docs/ASSISTANT.md): the rules set it for a Won where every business message was the assistant's (`Messages.Sender`), the Won guard keeps it, the model's vocabulary cannot produce it and a person cannot set it. |
+| `ClosedOutsideSystem` | bool | The evidence says the deal continued outside WhatsApp. |
+
+The steps, with Spanish chats:
+
+| Step | Example |
+|---|---|
+| `FirstContact` | `C: Hola buenas tardes` |
+| `NeedsIdentified` | `C: ¿Cuánto vale la depilación de axilas?`, `C: Me caso en diciembre` |
+| `PriceShared` | `A: 80 mil por sesión`, `A: La sesión está en $60.000` (the business gives an amount) |
+| `ObjectionRaised` | `C: uy, está muy caro`, `C: me queda lejos` |
+| `AppointmentProposed` | `A: ¿Te agendo una valoración?`, `C: quiero agendar una cita` |
+| `AppointmentBooked` | `A: Listo, quedó agendada para el sábado a las 10` (the rules' Won), even if cancelled later |
+| `PaymentOrDeposit` | `C: ya hice la transferencia, te envío el comprobante`, `A: recibimos tu abono` |
+
+`info_shared` was left out on purpose: the rules cannot tell information from small talk, and for the pilot the information that
+matters is the price.
+
+**The rules fallback** (`RuleBasedConversationClassifier`, section `closingPoint` of the rules file) reads only obvious cues; when
+unsure it says nothing. It never changes the outcome, the objection, the service, the reason, the confidence or the rule codes (the
+guarantee and golden-set tests are unchanged). Questions and negated phrases never count.
+
+| Reads | From | Does not read |
+|---|---|---|
+| A price | a business message with `$` before a digit, or a number followed by `mil`/`pesos`/`cop`/`millon(es)` **with a price word or a service zone in its clause** (`el valor es de 60 mil`, `piernas 180 mil la sesión`), or a bare amount (`200 mil`) right after a customer message that asks the price | `más de 10 mil pacientes`, `3 millones de clientes`, `mil gracias`, `a las 10`, an amount the customer writes |
+| A payment | completed forms: `ya hice la transferencia`, `ya te envié el comprobante`, `aquí está el comprobante`, `ya cancelé el abono`, `recibimos tu abono`, `pago confirmado` | an intent (`te envío el comprobante`), a condition (`si el pago queda confirmado`, `cuando recibamos tu abono`), a question, a negation, `ya pagué el abono en otro lado` |
+| A phone call | `te llamo y cerramos`, `llámame`, `sí, te llamo ya mismo` | a condition or a deferral in the same clause (`te llamo si me decido`, `te llamo cuando salga del trabajo`, `si quieres te llamo`), `¿me pueden llamar?`, `no me llamen`, `me llamo Ana` |
+| In person | `pasa por la sede`, `paso por la sede y pago allá`, `acércate a la sede` | `paso por la sede cuando pueda`, `¿atienden en persona?` |
+| Another channel | a contact verb and a channel noun in the same clause, at most 4 words apart, the noun right after a preposition (optionally with one determiner): `escríbeme al otro número`, `te mando la info por correo`, `escríbeme a mi correo` | `te mando el correo de la sede`, `te paso el correo con la cotización` (an address), `los vi por Instagram` (the origin) |
+| Self-service | `ya agendé por la página web`, `ya pagué por el link` | `¿puedo agendar por la página?`, `no agendé por la página` |
+
+The condition and deferral words (`si`, `cuando`, `después`, `luego`, `más tarde`, `apenas`, `en cuanto`, ...) count only in the clause
+of the cue: `sí, te llamo` is a yes (the comma ends the clause; normalization drops the accent of `sí`, so a `si` in the same clause always
+blocks, on purpose). A differential test (`ClosingPointIsolationTests`) classifies the golden set and 4,000 generated chats with the
+`closingPoint` section emptied and loaded and requires the same outcome, loss reason, objection, service, reason, confidence and rule codes.
+
+**Who closed it and whether it went on outside** follow the outcome, the same for the rules and (through the Won guard) for the LLM:
+
+| Outcome | `ClosedBy` | `ClosedOutsideSystem` |
+|---|---|---|
+| `Won` (the booking was confirmed in the chat) | `Advisor`, whatever else was said (a self-service cue, a move) | `false` |
+| `Lost` | `Unknown` | `false` |
+| `InFollowUp` / `Undetermined` with a self-service cue | `CustomerSelfService` | `true` |
+| `InFollowUp` / `Undetermined` with a move that is the last commercial step (no later customer message about the sale; `ok, gracias` does not count) | `Unknown` (who closed it on the phone or at the branch cannot be told) | `true` |
+| `InFollowUp` / `Undetermined` otherwise | `Unknown` (the LLM may say `Advisor` when the text shows it) | `false` |
+
+`TheCloser_AndWhetherItContinuedOutside_FollowTheOutcome` pins every row.
+
+**The LLM** answers the same fields (schema version 2: `reached_stage`, `moved_off_channel`, `off_channel_evidence_line`, `closed_by`
+without `ai_assistant`, `closed_outside_system`; system prompt revision `es-CO.2`). The mapper is strict as for the other fields: an
+unknown code, `ai_assistant`, a non-boolean, a move without its line (or a line without a move) or a line not shown in the prompt
+rejects the whole answer. An answer with **none** of the five properties (a canned answer of schema 1) leaves the closing point unread.
+
+**The Won guard keeps its semantics** (the rules have the last word on Won) and keeps the closing point coherent with the stage it
+allows: a Won reached at least `AppointmentBooked` and an `Unknown` closer becomes `Advisor`; a downgraded Won (the rules did not read
+it) falls from `AppointmentBooked` to `AppointmentProposed` and loses its closer unless the deal continued outside the system.
+
+**How far is monotonic.** The classifiers read the latest 200 messages of a conversation, so a very long chat whose early steps fall
+out of the window could read a lower stage than before. An `Auto` `ReachedStage` a classifier produced is therefore **never lowered
+while the outcome stays the same**; a reading that changes the outcome (the stage it moves to) replaces it, higher or lower. A value
+a person set and handed back to `Auto` is the next reading's to replace. `MovedOffChannel` and the other fields are not monotonic: they
+describe the latest state.
+
+**Provenance** is per field, as for the other extracted fields: `ReachedStageSource`/`ReachedStageClassifiedBy`,
+`MovedOffChannelSource`/`MovedOffChannelClassifiedBy`, `ClosedBySource`/`ClosedByClassifiedBy`,
+`ClosedOutsideSystemSource`/`ClosedOutsideSystemClassifiedBy`. A `Manual` field is never overwritten; an explicit rules fallback
+never erases a non-empty LLM value (a stage, a move, a known closer, `true`). The domain has the manual setters and the revert
+(`SetManualReachedStage`, `SetManualMovedOffChannel`, `SetManualClosedBy`, `SetManualClosedOutsideSystem`, `RevertDetailToAuto`),
+but the API and the Web have no editing of extracted fields yet: the conversation detail shows the closing point **read-only**
+("Hasta dónde llegó"). **Upgrade note.** The migration `AddClosingPointAndAnalysisCapture` queues, outside its schema transaction and in batches of 10,000,
+every conversation with a customer message that is neither flagged already nor waiting for the LLM (`LlmPending`), so the rules give
+the history its closing point. A conversation waiting for the LLM is left exactly as it was (its request time is what phase 3 compares,
+and changing it would discard an answer that may already be paid in a batch); it gets its closing point from the LLM or at its next
+message. Expect a **one-off rules backlog** right after the upgrade: the administrator's monitoring may raise `classification_backlog`
+(500 waiting by default) until it drains; it is not an incident. The request time is the migration's, so the "oldest waiting" flag
+(60 minutes) is raised only if the backlog takes that long. No LLM call is caused by the migration.
 
 ### Outcome semantics
 
@@ -236,7 +326,7 @@ every Unicode space to an ASCII space. Look-alike or invisible characters cannot
 | White space collapsed; a character repeated more than 3 times keeps 3; a run of emoji keeps 3; a message of only symbols keeps 3 | `siiiiii` → `siii`, `!!!!!!` → `!!!`, `👍👍👍👍👍` → `👍👍👍` | Emphasis survives, the repetition costs tokens. A thumbs-up alone is kept: it can be a confirmation. |
 | Links become `[URL]` (already masked ones stay) | `https://…?utm=…` → `[URL]` | A link carries no extraction value and is token-heavy. |
 | An advisor message identical to an earlier one (ignoring case, accents, punctuation, emoji, spacing) becomes `=n` | a price list sent again → `9 A: =3` | Templates, price lists and greetings are re-sent constantly. Only exact copies: a list with a different price is not a copy. |
-| A long advisor message keeps its beginning, its end and every clause holding a phrase the rules read in a business message, around `[...]` | catalogue boilerplate between a greeting and `quedó agendada…` | The confirmation usually sits at the end; services, days and booking statements are never cut. |
+| A long advisor message keeps its beginning, its end and every clause holding a phrase the rules read in a business message, around `[...]` | catalogue boilerplate between a greeting and `quedó agendada…` | The confirmation usually sits at the end; services, days, booking statements, payments and moves off the chat are never cut. A price list keeps **one** clause with an amount (`80 mil`, `$60.000`): one price is enough to show a price was shared. |
 | Consecutive messages of one side share a line | `1 C: hola \| quiero info \|4 ¿cuánto vale?` | One prefix instead of three. Each segment keeps its number (implicit when consecutive, `\|4` when not). |
 | Over the token budget the oldest middle lines are left out and marked | `[... 37 messages omitted]` | Long chats; the first customer message (origin, interest) and the latest lines are always kept. A back-reference to a message the budget left out shows that message's text instead. |
 
@@ -252,8 +342,9 @@ one the budget left out). `PromptTextNeutralizer` guarantees no message text can
 - Customer messages are never collapsed as repeats and never cut beyond the existing 1,000-character cap.
 - No phrase the rules classifier relies on: `PreprocessorQualityGuardTests` runs the pseudonymizer and the preprocessor over the golden set,
   4,000 generated chats and 200 long synthetic chats and checks, **in the same message** (back-references resolved), that every phrase of the
-  rules file that the classifier reads on that side (all of them for the customer; services, proposals, days and hours, confirmations for the
-  business) and that appears in the pseudonymized message still appears in what is shown for it. A phrase lost from one message fails even if it
+  rules file that the classifier reads on that side (all of them for the customer; services, proposals, days and hours, confirmations and
+  the closing point's price units, payments, phone, in-person and channel cues for the business; long chats include a boilerplate
+  message with those cues in its middle) and that appears in the pseudonymized message still appears in what is shown for it. A phrase lost from one message fails even if it
   survives in another. Messages left out by the budget are reported separately (none in that corpus).
 
 ### Measured reduction
@@ -263,8 +354,10 @@ Estimated tokens are characters / 3, rounded up (conservative for Spanish); "bef
 | Corpus | Characters before → after | Estimated tokens before → after | Reduction |
 |---|---|---|---|
 | Golden set (111 short chats) | 63.8 → 58.7 | 21.6 → 19.9 | 7.9% |
-| Long synthetic chats (200, 30 to 90 messages, re-sent price lists, emoji, media, links) | 5,238 → 1,847 | 1,746 → 616 | 64.7% |
-| Whole corpus (4,311 chats) | 394.7 → 220.8 | 131.9 → 73.9 | 44.1% |
+| Long synthetic chats (200, 30 to 90 messages, re-sent price lists and closing boilerplate, emoji, media, links) | 6,272 → 2,267 | 2,091 → 756 | 63.8% |
+| Whole corpus (4,311 chats) | 442.8 → 240.3 | 147.9 → 80.4 | 45.6% |
+
+(Measured again with preprocessor version 2, 2026-11-13; the long corpus now also holds a boilerplate message with closing cues.)
 
 Short chats gain little (the compact line prefix and merged lines); the savings are in long chats with templates. All chats are synthetic;
 measure again on pilot data before tuning the defaults.
@@ -287,27 +380,33 @@ the snapshot hash (`SnapshotHasher`): changing either invalidates the reuse of s
 
 `Classification:Provider=Llm` reads conversations with Claude Haiku 5.5 (`claude-haiku-5-5`) through the official Anthropic C# SDK, with the
 rules as fallback and as the Won guard. **Stage A: Development only.** The API refuses `Llm` in any other environment until the release gate
-of the design is lifted (the hardening slice, the golden-set evaluation, the per-tenant switch and quota with their screens, the privacy
-entry). `Shadow` (rules and LLM side by side) is not available yet.
+of the design is lifted (the golden-set evaluation, the company's own usage screen, the privacy entry; the hardening slice (three phases,
+bounded concurrency, hash reuse) and the per-company switch, schedule, quota and caps with their administrator screens exist, see "When the
+AI reads" and "Usage and quota"). `Shadow` (rules and LLM side by side) is not available yet.
 
 ### End to end
 
 ```
-worker claims a conversation (FOR UPDATE SKIP LOCKED, after Classification:Llm:DebounceSeconds)
+the rules pass (every company, near real time): rules reading applied as an explicit fallback (LLM-sourced fields kept), rules flag cleared
+the LLM, in the company's window (see "When the AI reads"):
+phase 1 (short transaction) claims a PENDING conversation of the company (FOR UPDATE SKIP LOCKED, quiet for Classification:Llm:DebounceSeconds,
+        not leased, not attempted yet in this window)
   └─ snapshot WITH the known values (contact name and number, advisor, branch, channel number)
-       └─ ClassificationCoordinator
-            1. rules read the REAL snapshot (always: fallback + Won guard reference)
-            2. sandbox conversation and IncludeSandbox=false ............ plain rules, no call
+       └─ ClassificationCoordinator.PlanAsync
+            1. rules read the REAL snapshot (the Won guard's reference)
+            2. sandbox conversation and IncludeSandbox=false ............ skipped, no call
                real client and a NON-sandbox conversation, unless
-               AllowRealClientNonSandbox=true ............................ plain rules, no call (Information line with ids)
-            3. tenant admission (Stage A: NullAiUsageMeter admits everyone) . not admitted: rules, fallback protection, cleared
+               AllowRealClientNonSandbox=true ............................ skipped, no call (Information line with ids)
+            3. tenant admission (AiUsageMeter: switch, cap, quota, ceiling) . not admitted: skipped (the rules stand)
             4. Pseudonymizer -> ConversationPreprocessor -> LlmPromptBuilder
-               no customer line left ..................................... plain rules, no call
+               no customer line left ..................................... skipped, no call
                snapshot hash == Conversation.LastLlmSnapshotHash .......... nothing changed: no call, stored reading kept
-            5. circuit breaker open / probe in flight .................... rules (fallback), deferred, no call
-            6. ONE call (ILlmClient, <= 8 s, no retry) -> LlmResultMapper (strict) -> WonGuard
-  └─ apply to the opportunity + complete the conversation (+ profile marked PENDING on it), commit (still the claim transaction)
-  └─ log line of the call, with the claim-transaction duration (Warning above ClaimWarningMilliseconds)
+            5. circuit breaker open / probe in flight .................... deferred, no call
+            6. a call is needed: LEASE (LlmLeaseUntil = now + RetryDelaySeconds), commit; no lock and no connection are kept
+phase 2 (no lock): ONE call (ILlmClient, <= TimeoutSeconds) -> LlmResultMapper (strict) -> WonGuard; usage recorded at once (own scope)
+phase 3 (short transaction): relock by id FOR UPDATE SKIP LOCKED (3 tries, 200 ms apart; else the lease expires and it is claimed again);
+        apply ONLY IF the snapshot hash, ClassificationRequestedAt and the opportunity's stage are unchanged since phase 1, else DISCARD
+  └─ log line of the call (claim, call and apply durations)
   └─ AFTER the commit: contact profile (age range, gender) in its own short transaction, Contact row only; then the pending marker cleared
 when nothing is due: write one profile left pending by a failed write or a crash (no model call)
 ```
@@ -316,24 +415,29 @@ when nothing is due: write one profile left pending by a failed write or a crash
 SDK; `ReplayLlmClient` (Infrastructure, Development only) answers without a key. `IConversationClassifier` stays the rules' port: the LLM path
 needs the failure kind, the usage and the hash, which a `ClassificationResult` cannot carry.
 
-**Stage A limit.** The call runs inside the claim transaction (one worker, one attempt, at most `TimeoutSeconds`): ingestion, a manual edit
-or the auto-closer touching that conversation waits up to the call time. The hardening slice moves the call out of the transaction before the
-gate is lifted (docs/WEBHOOKS.md, "Lock order").
+**No lock during the call (design H1).** Since the scheduled runner, the call is made between two short transactions: ingestion, a manual edit
+or the auto-closer touching the conversation never waits for the model (docs/WEBHOOKS.md, "Lock order"). What changes meanwhile is caught in
+phase 3, and the answer is then thrown away rather than applied over newer facts.
 
 ### What is applied
 
-| Decision | Opportunity | Conversation |
-|---|---|---|
-| LLM reading | guarded LLM reading; each written field's producer is `Llm` | flag cleared, `LlmFailures = 0`, `LastLlmSnapshotHash` stored; then the contact profile |
-| Content failure (`Refused`, `Truncated`, `InvalidOutput`) | rules reading as an explicit fallback: a non-empty LLM-sourced service, reason or objection is kept; stage, loss reason and confidence come from the rules | `LlmFailures + 1`; stays flagged while `LlmFailures <= MaxFallbackRetries`, then cleared with the rules standing |
-| Transport failure (`Timeout`, `RateLimited`, `Unavailable`) | rules reading as a fallback | `LlmFailures` unchanged; stays flagged, retried after `RetryDelaySeconds`; feeds the breaker |
-| Misconfiguration (`Misconfigured`: 401 authentication, 403 permission, 404 model not found) | rules reading as a fallback | `LlmFailures` unchanged; stays flagged; opens the breaker at once (one Error line per window naming the condition, never the key) |
-| Breaker open | rules reading as a fallback, no call | stays flagged, `AttemptedAt = reopen time - RetryDelay + 0..30 s` (claimable about the reopen time, spread out) |
-| Breaker half-open, another conversation is the probe | rules reading as a fallback, no call | stays flagged, claimable again in 30 s |
-| Unchanged snapshot hash | nothing | flag cleared, hash kept |
-| No customer text, sandbox excluded, real conversation kept from the real client | plain rules reading (no fallback flag), no failure counted | flag cleared, hash forgotten |
+The rules pass has already written its reading (as an explicit fallback: a non-empty LLM-sourced service, reason or objection is kept; stage,
+loss reason and confidence come from the rules). The LLM runner only writes LLM readings over it:
 
-A rules reading (plain or fallback) forgets the stored hash, so the next claim calls the model again. The profile is written only from an
+| Decision (phase 3, nothing changed since phase 1) | Opportunity | Conversation |
+|---|---|---|
+| LLM reading | guarded LLM reading overwrites the `Auto` fields (each written field's producer is `Llm`; `Manual` fields are never touched) | `LlmPending` cleared, `LlmFailures = 0`, `LastLlmSnapshotHash` and `LlmAnalyzedAt` stored; then the contact profile |
+| Content failure (`Refused`, `Truncated`, `InvalidOutput`) | nothing (the rules reading stands) | `LlmFailures + 1`, attempt recorded: pending again in the next window while `LlmFailures <= MaxFallbackRetries`, then the rules stand |
+| Transport failure (`Timeout`, `RateLimited`, `Unavailable`) | nothing | `LlmFailures` unchanged; leased until `now + RetryDelaySeconds` (retried in the same window if it is still open); feeds the breaker |
+| Misconfiguration (`Misconfigured`: 401 authentication, 403 permission, 404 model not found) | nothing | as a transport failure; opens the breaker at once (one Error line per window naming the condition, never the key) |
+| Breaker open | nothing, no call | leased until about the reopen time plus 0..30 s |
+| Breaker half-open, another conversation is the probe | nothing, no call | leased 30 s |
+| Unchanged snapshot hash | nothing | `LlmPending` cleared, hash and `LlmAnalyzedAt` kept |
+| No customer text, sandbox excluded, kept from the real client, not admitted | nothing | `LlmPending` cleared, hash forgotten |
+| **Something changed during the call** (new message, stage changed by the auto-closer or a person, hash) | nothing | DISCARDED: lease released, attempt recorded, still pending: read in the next window |
+
+A conversation keeps its LLM fields until the next LLM reading replaces them: with the AI on, the dashboard's stage stays current (rules, near
+real time) and the descriptive fields are refreshed by the window. The profile is written only from an
 LLM reading, never erases a value and never overwrites a manual one. It is recorded on the conversation as **pending** (`ProfilePending`,
 `PendingAgeRange`, `PendingGender`) in the classification commit and written afterwards in its own Contact-only transaction; the marker is
 cleared in a separate Conversation-only write, only if it still holds those values. If the write fails, or the process dies in between, the
@@ -346,10 +450,172 @@ provider until `Classification:Llm:AllowRealClientNonSandbox=true` is set, and t
 agreement (docs/decisiones.md). Sandbox text is typed by staff and may still contain real data (a real name, a real number): it goes through the
 same pseudonymizer as any conversation, so never paste real customer chats into the sandbox.
 
+**The AI sales assistant** (docs/ASSISTANT.md, "The model") reuses this hardening: the same `AnthropicLlmClient` (key and base URL explicit,
+telemetry off, no SDK retry), the same Development gate, privacy approval and sandbox-only rule (`Assistant:Llm:*`), the pseudonymizer and the
+preprocessor; it has its own usage category (`AssistantUsageMonths`, its own per-company cap) and its own circuit breaker, and its spend counts
+against `Classification:Quota:DeploymentMonthlyUsdCap` together with the analysis.
+
 **Endpoint and environment.** The SDK reads `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, profiles, federation and OpenTelemetry variables
 from the environment. The client is built with the key, the base URL (`Classification:Llm:BaseUrl`, https only, default
 `https://api.anthropic.com`) and telemetry (off) set explicitly, so no environment variable can redirect the prompts and the key, change the
 credential or export prompt content (pinned by `AnthropicEnvironmentTests`).
+
+## When the AI reads (the per-company schedule)
+
+The owner's rule: **cost and quality first.** The rules read every conversation near real time (cheap; the dashboard stays current); the
+LLM reads a company's conversations **once per window** of its schedule, which the platform administrator sets per company
+(`PUT /api/admin/tenants/{id}/ai-schedule`, audited `tenant.ai_schedule_changed` with the reason; docs/PLATFORM_ADMIN.md, "Limits"):
+
+| Mode (`Tenant.AiAnalysisMode`) | Windows | When to use it |
+|---|---|---|
+| `Nightly` (default) | Once a day from the local hour (`Tenant.AiAnalysisNightlyHour`, default `Classification:Schedule:DefaultNightlyHour` = 01:00 America/Bogota) for `Classification:Schedule:NightlyWindowHours` (5) | Every company: spreads the server load, and goes in Message Batches (half price) |
+| `EveryHours` (1 to 24) | Every N hours counted from local midnight (the last window of the day is cut at midnight: every 5 h = 00, 05, 10, 15, 20) | A company that needs fresher AI fields during the day |
+| `NearRealTime` | Always open: `Classification:Llm:DebounceSeconds` (300) after the last message, like the first LLM stage | Special cases only (each burst of messages can cost a call) |
+
+- **One analysis per window.** A scheduled window never claims a conversation already attempted inside it (`Conversation.LlmAttemptedAt`): a
+  conversation that keeps receiving messages during the day is analysed once at night, not once per message. A conversation unchanged since
+  its applied reading is never re-sent (`LastLlmSnapshotHash`, design H2): it is finished without a call.
+- **Not admitted is not done.** A conversation the company may not analyse at claim time (AI off, quota, USD ceiling, sandbox or deployment
+  cap) stays pending: a scheduled company retries it in the next window, a near-real-time one an hour later. Companies with the AI off are
+  not even looked at: their pending conversations are analysed in the first window after the AI is switched on.
+- **The rules-only provider.** With `Classification:Provider=Rules` the rules pass also clears `LlmPending`: nothing piles up for an LLM that
+  does not run. Switching a deployment from `Rules` to `Llm` therefore queues nothing old: each conversation is analysed after its next
+  message. The migration only queued the conversations still waiting under the first LLM stage (flagged ones).
+- **Selection.** Companies with the AI on, active, with pending conversations (`Conversation.LlmPending`, set by every new message) and an
+  open window. Admission (the switch, the deployment cap, the company's quota and USD ceiling, the sandbox rules) is checked per conversation
+  in phase 1, as before.
+- **Fairness and load.** Each company's windows open a stable 0..`Classification:Schedule:SpreadMinutes` (60, at most half the window)
+  minutes late, so not every company starts at 01:00:00. Companies are served round robin (one conversation each in turn, the one with
+  the fewest analysed in the window first), at most `Classification:Schedule:MaxConversationsPerWindow` (2,000) per company and window
+  (the rest wait for the next window). The cap counts **calls made and requests batched** (`AiAnalysisRuns.Calls`): deferrals of an open
+  breaker, unchanged and skipped conversations cost nothing and do not use it up. At most `Classification:Llm:MaxConcurrent` (4) analyses
+  are in flight per API instance: the permit is taken BEFORE the claim (design D20) by `Classification:Workers` workers (default =
+  `MaxConcurrent`); one company has at most `Classification:Llm:PerCompanyConcurrency` (2) of them.
+- **A window that closes** before every pending conversation was reached leaves them pending for the next one; nothing is lost.
+- **Time zone.** `Classification:Schedule:TimeZone` (America/Bogota, no daylight saving). In a zone with daylight saving, a local hour that
+  does not exist opens at the first valid instant after it.
+- **Changing the schedule** takes effect at the next window. Turning the AI on for a company analyses its pending conversations (those that
+  received a message since the last LLM reading) in its next window, bounded by the per-window cap and the quota.
+- **The company sees** only when its AI fields were last updated: "Análisis de IA: última actualización …" on the panel
+  (`GET /api/tenant/ai-analysis`, `MetricsView`) and on the conversation (`ConversationDetailResponse.AiAnalyzedAt`). Never the mode, counts
+  or costs.
+- **The administrator sees** per company the schedule, the next window, the pending conversations and the last window's counts (claimed,
+  analysed, unchanged, skipped, discarded, failed, deferred, batched; `AiAnalysisRuns`, counts only) and, platform-wide, the batches by
+  state (docs/PLATFORM_ADMIN.md, "Monitoring").
+
+### The three phases (design H1)
+
+| Phase | Lock | What |
+|---|---|---|
+| 1 | Conversation row, a few ms | Claim (`FOR UPDATE SKIP LOCKED`), snapshot, plan (admission, call reduction, breaker), then a **lease** (`LlmLeaseUntil = now + Classification:RetryDelaySeconds`) and commit. Decisions without a call are applied here. |
+| 2 | none | Pseudonymize, preprocess, call (`TimeoutSeconds` x (`MaxRetries` + 1)), record the usage. |
+| 3 | Conversation row, a few ms | Relock by id `FOR UPDATE SKIP LOCKED`, up to 3 tries 200 ms apart (still locked: the lease expires and the conversation is claimed again). Re-read the snapshot; apply **only if** the snapshot hash, `ClassificationRequestedAt` and the opportunity's stage (`Stage`, `StageChangedAt`, `StageSource`) equal phase 1's; otherwise **discard** and leave it pending for the next window. |
+
+Phase 3 also checks that the answer is **still this conversation's business**: the conversation must still be pending and hold the very
+lease phase 1 took (a lease that expired and was replaced by another worker's, or a reading applied meanwhile, means someone else owns it:
+nothing is touched), and the company must still be Active with the AI on (and, with the real client before the privacy review, the
+conversation a sandbox one). Otherwise the answer is discarded (it was paid) and the conversation stays pending.
+
+A worker that dies after phase 1 leaves only its lease: the conversation is claimable again once it expires. The lease must outlive the call:
+`TotalBudget = TimeoutSeconds x (MaxRetries + 1) + OtherWaitsSeconds` must be shorter than `RetryDelaySeconds` (validated at startup; the
+transaction timeout no longer bounds the call, so `TimeoutSeconds` may be 1 to 15 and `MaxRetries` 0 or 1).
+
+**Why the same three phases for every mode.** `NearRealTime` uses them too (its claim waits for the LLM debounce and retries an attempt after
+`RetryDelaySeconds` instead of once per window): one path to test, and no mode holds the row during a call. The only behaviour difference with
+the first stage is that the rules reading appears first (after `Classification:DebounceSeconds`) and the LLM reading replaces its `Auto`
+fields when it arrives.
+
+**Accepted costs.** An answer discarded in phase 3 was paid for (recorded as a usable call for a synchronous one, as a failed call for a
+batched one) and the conversation is analysed again in the next window. Admission is still a read without a reservation (design D12): a
+company can go over its quota by the calls in flight (`MaxConcurrent` per instance, or a whole batch).
+
+### Batch mode (Nightly companies)
+
+With `Classification:Llm:Batch:Enabled=true` (the default), the night window's requests of `Nightly` companies are sent as Message Batches
+instead of one call each:
+
+1. **Phase 1** claims as above but, instead of calling, writes an `LlmBatchRequests` row (the conversation, the phase-1 hash, request time
+   and stage; the custom id) under an `LlmBatches` row (`Preparing`), leases the conversation for 25 hours (the provider's 24-hour window
+   plus a margin) and keeps the prompt in memory.
+2. Up to `Classification:Llm:Batch:MaxRequests` (1,000) requests are **submitted** in one batch (`Submitted`, with the provider's id and
+   expiry). A batch that cannot be sent is `Failed`: its requests are `Errored` and their conversations released at once.
+3. Every `Classification:Llm:Batch:PollSeconds` (60) the scheduler **polls** submitted batches; an ended one is **collected**: each result
+   goes through phase 3 with the same staleness checks (the conversation is read again; if its hash is unchanged, the prompt that was sent is
+   rebuilt exactly and the answer is read like a synchronous one: mapper, Won guard). Usage is recorded at
+   `Classification:Llm:Batch:DiscountFactor` (0.5) of the list price.
+4. `errored`, `expired` and `canceled` results (not billed) and requests the provider returned no result for release their conversation:
+   the next claim of that request takes the **synchronous path** (in the same window if it is still open). An answer for a conversation
+   that changed after the batch was sent is discarded (its cost is recorded) and the conversation is read **once more, synchronously**, while
+   the window is open. An answer for a conversation that no longer exists (a suppressed contact) is recorded as a failed call: it never adds
+   the id back to the distinct set (design D24).
+5. **Once per result, one process per batch.** Each batch is polled, collected and recovered under a PostgreSQL advisory lock on its id
+   (several API instances can run the scheduler). Each request is taken by one collector with an atomic `Pending → Collecting` step; its
+   usage is recorded **once**, after phase 3 (an applied reading as a success, anything else as a failed call). A request a collector took and
+   never resolved (a crash) is released after 10 minutes without recording its usage again. A request whose conversation stayed locked goes
+   back to `Pending` and is collected on a later poll.
+6. **No duplicate batches.** Creating a batch is not idempotent, so the batch client never retries (`AnthropicLlmBatchClient.SdkMaxRetries
+   = 0`); the synchronous fallback is the retry. Before the upload the batch records `SubmitStartedAt` and its final `RequestCount`; after the
+   provider accepted it, its id is logged at once and saved (three tries), only onto a batch still `Preparing` (one failed meanwhile is
+   canceled at the provider). The last upload of a pass gets at most 20 s of the host's shutdown.
+7. **Recovery.** A batch left `Preparing` more than 10 minutes after its upload started (never while this process uploads it) is looked up
+   in the provider's list back to that moment: a batch none of ours with the same number of requests (and, if it ended, only our custom ids)
+   is **adopted** and collected as usual; other unknown batches of that moment are **canceled**; with no match (or never uploaded) the batch
+   is failed and its conversations released (only those still holding its lease). Matching an in-progress batch by its time and size is a
+   heuristic: the provider keeps no metadata of ours on a batch.
+8. **Poison batches.** A batch that can no longer be polled or read (404, results gone after 29 days) is failed once its expiry plus
+   `Classification:Llm:Batch:PoisonGraceHours` (48) has passed, and its conversations released; the monitoring counts failed batches.
+9. **Reservation.** Until it is resolved, every batched request is **reserved** in admission: counted as an analysed conversation of its
+   company and at its estimated cost (its prompt's estimated input plus 400 tokens of answer, at the batch price) for the company's USD
+   ceiling, the sandbox ceiling and the deployment cap. Each phase-1 admission sees the requests already batched, so a batch never
+   goes over the company's quota or the caps by its size.
+10. **Retention.** Resolved batches (collected or failed) and their requests older than `Classification:Llm:Batch:RetentionDays` (30) are
+    deleted by the usage retention job; the costs stay in `AiUsageMonths`.
+11. **Restart.** Everything lives in the two tables: a new process polls `Submitted` batches and collects `Ended` ones, skipping requests
+    already resolved (`Applied`, `Discarded`, ...).
+
+`EveryHours` and `NearRealTime` companies always call synchronously. The Replay client has a Replay batch client (answers at once, kept in
+memory) for local runs.
+
+### Message Batches API: verified facts
+
+Checked on 2026-11-12 against the official documentation and the installed `Anthropic` 13.3.0 package (XML documentation and a compile
+plus a fake-HTTP test through the SDK, `AnthropicLlmBatchClientTests`); **the real API was not called**.
+
+| Question | Answer | Source |
+|---|---|---|
+| Discount | All usage at 50% of the standard prices; Haiku 5.5 batch: $0.05 input / $0.25 output per MTok (prompts up to 100K tokens) | [Batch processing, Pricing](https://platform.claude.com/docs/en/build-with-claude/batch-processing) |
+| Limits | 100,000 requests or 256 MB per batch, whichever first | same page, "Batch limitations" |
+| Processing window | Most batches end within 1 hour; results when all are done or after 24 hours; unfinished requests then `expired` | same page |
+| Results retention | 29 days after creation | same page |
+| `custom_id` | 1 to 64 characters, `^[a-zA-Z0-9_-]{1,64}$`, unique in the batch; results come back in any order | same page, "Prepare and create your batch" |
+| Haiku 5.5 | Listed in the supported models (`claude-haiku-5-5`); "All active models support the Message Batches API" | same page (supportedModels) |
+| Structured output (`output_config.format`) | Supported in batches ("Process structured outputs at scale with a 50 percent discount") | [Structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs) |
+| `effort`, thinking | "Almost any request" can be batched, including extended thinking; only `stream`, `speed`, `fallbacks` and `max_tokens: 0` are rejected. The SDK's batch `Params` carries `OutputConfig` (effort) and `Thinking`. Effort inside a batch is **not** named explicitly in the docs: unverified against the real API | batch page, "What can be batched"; SDK `Anthropic.Models.Messages.Batches.Params` |
+| Prompt caching | Supported; batch and cache discounts stack; cache hits are best-effort (30% to 98% typical); identical `cache_control` blocks in every request help; the 1-hour TTL is suggested for long batches (we keep the 5-minute one: measure `CacheReadTokens` in the log lines first) | batch page, "Using prompt caching with Message Batches" |
+| Cancellation | `processing_status` becomes `canceling`, then `ended`, with partial results; canceled requests come back `canceled` (not used by Conversia) | batch page, "Canceling a Message Batch" |
+| Result types | `succeeded` (with the message), `errored` (invalid request or server error, not billed), `canceled` (not billed), `expired` (not billed). A refusal comes back `succeeded` with `stop_reason: refusal` | batch page, "Retrieving batch results"; [Refusals in Message Batches](https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback) |
+| SDK | `client.Messages.Batches.Create(BatchCreateParams { Requests = [Request { CustomID, Params }] })`, `Retrieve(id)` (`ProcessingStatus`, `RequestCounts`, `ExpiresAt`), `ResultsStreaming(id)` (`MessageBatchIndividualResponse`, `Result.TryPickSucceeded/Errored/Expired/Canceled`), `Cancel(id)` | `Anthropic` 13.3.0 XML documentation |
+
+**Our custom id** is `c` + the conversation id (32 hex) + `-` + the first 30 hex characters of the snapshot hash: 64 characters, no personal
+data (the full hash is in `LlmBatchRequests`). Batches are scoped to the API key's workspace and may go slightly over a workspace spend limit
+(documented by the provider): the deployment cap and the per-company quota remain ours.
+
+### Cost estimate per conversation
+
+`EstimatedUsd = (input x InputPerMTok + output x OutputPerMTok + cacheRead x CacheReadPerMTok + cacheWrite x CacheWritePerMTok) / 1,000,000`,
+times 0.5 for a batched request. With the defaults (Haiku 5.5: 0.10 / 0.50 / 0.01 / 0.125 USD per MTok) and the measured preprocessed sizes
+(about 74 estimated tokens of conversation on average, 620 for a long chat, plus the cached prefix of about 2,400 tokens (7,300 characters / 3) and an **assumed** answer of about 150 tokens with effort `low`, not
+measured against the real API):
+
+| Case | Synchronous | Batch (x 0.5) |
+|---|---|---|
+| Average chat, prefix read from the cache | 74 x 0.10 + 150 x 0.50 + 2,400 x 0.01 = **0.000106 USD** | **0.000053 USD** |
+| Long chat, prefix read from the cache | 620 x 0.10 + 150 x 0.50 + 2,400 x 0.01 = **0.000161 USD** | **0.000081 USD** |
+| Average chat, prefix written (cache miss) | 74 x 0.10 + 150 x 0.50 + 2,400 x 0.125 = **0.000382 USD** | **0.000191 USD** |
+
+Per 1,000 conversations a month: about 0.11 to 0.38 USD synchronous, 0.05 to 0.19 USD in batches. These are estimates from synthetic chats
+and list prices: measure the real tokens (`InputTokens`, `CacheReadTokens` in the log lines and `AiUsageMonths`) on pilot data before
+budgeting. The nightly schedule also saves calls: a chat of 20 messages over a day is analysed once instead of up to once per burst.
 
 **Circuit breaker.** Process-local. Five consecutive transport failures open it for 300 s, counted from the time each failed call ENDED; a
 misconfiguration opens it at once. Only a **usable** answer closes it and resets the count; a refused, truncated or invalid answer neither
@@ -372,10 +638,11 @@ one Information line per window, not one per conversation.
 ### Logs
 
 One Information line per call, starting with `LLM classification`, with structured properties only: `ConversationId`, `TenantId`, `Sandbox`
-(true for internal sandbox traffic: filter it out of real usage), `Provider`, `Model`, `Status` (`succeeded`, `timeout`, `rate_limited`,
+(true for internal sandbox traffic: filter it out of real usage), `Mode` (the company's schedule), `Batch` (true for a batched answer; its
+`EstimatedUsd` includes the discount), `Outcome` (`analysed`, `discarded`, `failed`, `deferred`, `left_locked`), `CallMs`, `ApplyTransactionMs`, `Provider`, `Model`, `Status` (`succeeded`, `timeout`, `rate_limited`,
 `unavailable`, `refused`, `truncated`, `invalid_output`), `Completion`, `Error` (a mapper code or the SDK exception type), `InputTokens`,
 `OutputTokens`, `CacheReadTokens`, `CacheWriteTokens`, `EstimatedUsd` (from `Classification:Llm:Pricing:*`), `LatencyMs`, `ClaimTransactionMs`
-(how long the conversation row was held: ingestion and sends on it waited that long; a Warning above `ClaimWarningMilliseconds`), `WonDowngraded`, and
+(phase 1; with `ApplyTransactionMs`, the only time the conversation row is held; a Warning above `ClaimWarningMilliseconds`), `WonDowngraded`, and
 the preprocessor's `MessagesIn`, `CharactersBefore`, `CharactersAfter`, `TokensBefore`, `TokensAfter`, `Dropped`, `Collapsed`, `Deduplicated`,
 `Truncated`, `Merged`, `OmittedByBudget`. Never message text, names or numbers. A decision without a call is a Debug line with its reason
 (a real conversation kept from the real client is an Information line with ids). `Status` also takes `misconfigured`.
@@ -394,23 +661,105 @@ Read only with `Classification:Provider=Llm`; every value is validated at startu
 | `Classification:Llm:Effort` | `low` | `low` to `max` | Thinking depth and token spend. |
 | `Classification:Llm:Thinking` | `Adaptive` | `Adaptive`, `Disabled` | `Disabled` only with effort `low`, `medium` or `high`. |
 | `Classification:Llm:MaxTokens` | `2048` | 256 to 16,000 | Ceiling of the answer, thinking included. Hitting it is a `Truncated` failure. |
-| `Classification:Llm:TimeoutSeconds` | `8` | 1 to 8 (Stage A) | HTTP timeout of the one call. |
-| `Classification:Llm:MaxRetries` | `0` | 0 (Stage A) | HTTP retries inside a call. |
-| `Classification:Llm:OtherWaitsSeconds` | `5` | 0 to 60 | Other waits of the claim transaction. `TotalBudget = TimeoutSeconds x (MaxRetries + 1) + OtherWaitsSeconds` (13 s) must be shorter than `ProcessingTimeoutSeconds` and `RetryDelaySeconds`; no relation with any debounce. |
+| `Classification:Llm:TimeoutSeconds` | `8` | 1 to 15 | HTTP timeout of one call (made outside any lock). |
+| `Classification:Llm:MaxRetries` | `0` | 0 to 1 | HTTP retries inside a call. |
+| `Classification:Llm:OtherWaitsSeconds` | `5` | 0 to 60 | Other waits of one analysis. `TotalBudget = TimeoutSeconds x (MaxRetries + 1) + OtherWaitsSeconds` (13 s) must be shorter than `RetryDelaySeconds` (the lease); no relation with the transaction timeout or any debounce. |
+| `Classification:Llm:MaxConcurrent` | `4` | 1 to 16 | Analyses in flight per API instance (the permit is taken before the claim). |
+| `Classification:Workers` | `MaxConcurrent` | 1 to 16 | Workers of the LLM scheduler. The connection string's `Maximum Pool Size` must be at least `MaxConcurrent x 2 + 1 + Workers + 20` (checked at startup). |
+| `Classification:Llm:Batch:Enabled` | `true` | bool | Nightly companies go in Message Batches. |
+| `Classification:Llm:Batch:MaxRequests` | `1000` | 1 to 100,000 | Requests per batch. |
+| `Classification:Llm:Batch:PollSeconds` | `60` | 1 to 3600 | How often submitted batches are polled. |
+| `Classification:Llm:Batch:DiscountFactor` | `0.5` | 0 to 1 | Share of the list price a batched request costs (the provider's 50%). |
+| `Classification:Llm:Batch:PoisonGraceHours` | `48` | 1 to 1440 | After a batch's expiry, how long polling failures are retried before it is failed. |
+| `Classification:Llm:Batch:RetentionDays` | `30` | 1 to 3650 | Resolved batches older than this are deleted. |
+| `Classification:Llm:PerCompanyConcurrency` | `2` | 1 to 16 | Analyses of one company in flight at once (synchronous mode). |
+
+Outside Development (once the release gate is lifted) batch mode requires `Classification:Llm:HashKey`: the custom id carries a prefix of
+the snapshot hash, and only the keyed hash keeps it from being confirmed by hashing a guessed conversation.
 | `Classification:Llm:MaxFallbackRetries` | `2` | 0 to 10 | Counted content failures allowed after the first attempt. |
 | `Classification:Llm:Breaker:Failures` | `5` | 1 to 100 | Consecutive transport failures that open the breaker. |
 | `Classification:Llm:Breaker:CooldownSeconds` | `300` | 1 to 3600 | How long it stays open. |
-| `Classification:Llm:DebounceSeconds` | `300` | 0 to 86,400 | Quiet period before a conversation is read on the LLM path (`Classification:DebounceSeconds` keeps applying to the rules). |
+| `Classification:Llm:DebounceSeconds` | `300` | 0 to 86,400 | Quiet period before the LLM reads a conversation, in every mode (`NearRealTime`: the delay after the last message; `Classification:DebounceSeconds` keeps applying to the rules). |
 | `Classification:Llm:IncludeSandbox` | `true` in Development, else `false` | bool | Sandbox conversations (docs/SANDBOX.md) go through the LLM, so tests with the internal sandbox exercise it. Their log lines say `Sandbox=True`. |
 | `Classification:Llm:ExtractAgeRange` | `false` | bool | Ask the age range. `true` requires the next key. |
 | `Classification:Llm:AgeRangeLegalRef` | *(empty)* | text | Reference of the legal sign-off (the range includes `under_18`, Ley 1581 art. 7). |
 | `Classification:Llm:AllowRealClientNonSandbox` | `false` | bool | With the real client: let non-sandbox conversations reach it. Only after the privacy review and the processor agreement. |
 | `Classification:Llm:BaseUrl` | `https://api.anthropic.com` | https URL | Endpoint of the real client; never taken from `ANTHROPIC_BASE_URL`. No credentials, query or fragment. |
 | `Classification:Llm:HashKey` | *(none)* | base64, 32+ bytes | Secret of the stored snapshot hash (HMAC-SHA256), like `Messaging:CredentialEncryptionKey`: `openssl rand -base64 32`. Without it the plain hash is stored. Changing it invalidates stored hashes (one extra call per conversation). |
-| `Classification:Llm:ClaimWarningMilliseconds` | `5000` | 100 to 60,000 | A claim transaction on the LLM path longer than this is logged as a Warning. |
+| `Classification:Llm:ClaimWarningMilliseconds` | `5000` | 100 to 60,000 | A phase 1 or phase 3 transaction longer than this is logged as a Warning. |
 | `Classification:Llm:ReplayPath` | *(none)* | file | Canned answers of the replay client: `{"responses": {"<snapshot hash>": {<answer>}}}`. Checked at startup. |
 | `Classification:Llm:Pricing:InputPerMTok` / `OutputPerMTok` / `CacheReadPerMTok` / `CacheWritePerMTok` | `0.10` / `0.50` / `0.01` / `0.125` | 0 to 1000 | USD per million tokens for `EstimatedUsd` (Haiku 5.5 up to 100K-token prompts). An estimate: check the price page before budgeting. |
 | `Classification:Llm:Preprocessing:*` | see above | see above | The preprocessor. |
+
+The schedule keys are read **whatever the provider** (the administrator sees each company's windows):
+
+| Key | Default | Range | Meaning |
+|---|---|---|---|
+| `Classification:Schedule:TimeZone` | `America/Bogota` | IANA id | The zone of the windows. |
+| `Classification:Schedule:DefaultNightlyHour` | `1` | 0 to 23 | Local hour the night window opens for a company without its own. |
+| `Classification:Schedule:NightlyWindowHours` | `5` | 1 to 12 | How long the night window stays open. |
+| `Classification:Schedule:SpreadMinutes` | `60` | 0 to 180 | Each company's stable delay inside its windows (at most half the window). |
+| `Classification:Schedule:MaxConversationsPerWindow` | `2000` | 1 to 1,000,000 | Conversations of one company analysed in one window, at most. |
+
+The quota keys are read **whatever the provider** (the administrator sees each company's effective quota):
+
+| Key | Default | Range | Meaning |
+|---|---|---|---|
+| `Classification:Quota:DefaultMonthlyConversations` | `500` | 0 to 1,000,000 | The monthly quota of a company without its own. |
+| `Classification:Quota:TenantMonthlyUsdPerQuotaUnit` | `0.02` | 0 to 100 | The company's USD ceiling per conversation of its quota (500 = 10 USD). |
+| `Classification:Quota:DeploymentMonthlyUsdCap` | `20` | 0 to 1,000,000 | The deployment's monthly USD cap, sandbox included. 0 = no LLM at all. |
+| `Classification:Quota:TimeZone` | `America/Bogota` | IANA id | The zone of the month. |
+| `Classification:Quota:SandboxMonthlyUsdPerCompany` | `2` | 0 to 10,000 | The most a company's sandbox conversations may spend a month. |
+
+### Usage and quota
+
+Every call to the model is **recorded**, not only logged (`AiUsageMeter`, design D12, D13, D18), and every company is **admitted** before a call:
+
+1. **The switch.** `Tenant.AiEnabled` is **off by default**; only the platform administrator turns it on, with a reason and the version of the
+   AI terms the company accepted (audited as `tenant.ai_enabled_changed`, docs/PLATFORM_ADMIN.md, "Limits"). Off = the rules read everything
+   (a normal state, nothing counted). This applies in Development too: to try the LLM locally, switch the AI on for the company first.
+2. **The deployment cap.** When the estimated USD of every company this month (sandbox included: it is real money with the real client)
+   reaches `Classification:Quota:DeploymentMonthlyUsdCap`, every company is read by the rules until the month ends (one Warning per month and
+   instance).
+3. **The company's quota and ceiling** (real conversations only). The quota is distinct conversations analysed successfully in the month
+   (`Tenant.AiMonthlyConversationQuota`, default `Classification:Quota:DefaultMonthlyConversations`; 0 = none); the ceiling is the quota
+   times `Classification:Quota:TenantMonthlyUsdPerQuotaUnit`. Reaching either = rules only until the month ends (the moment is kept and
+   logged once).
+
+The **month** is the America/Bogota month (`Classification:Quota:TimeZone`) at the moment of the increment: a call admitted at 23:59:58 on 31
+October that succeeds at 00:00:02 on 1 November counts in November.
+
+**What is recorded** (`AiUsageMonths`, one row per company, month and sandbox flag; never text):
+
+| Event | Conversations analysed | Calls | Failed calls | Tokens and USD |
+|---|---|---|---|---|
+| Usable answer | +1 the first time the conversation is read that month (`AiUsageConversations` keeps the distinct set) | +1 | | the provider's usage and its estimated cost |
+| Unusable answer (refused, truncated, invalid) | | +1 | +1 | the usage it billed |
+| Timeout or 5xx without usage | | +1 | +1 | the **estimated input** of the prompt sent (characters / 3), since it may have been processed |
+| 429 or 401/403/404 | | +1 | +1 | 0 (refused at the door) |
+| Not admitted, unchanged hash, no customer text, breaker open | nothing (no call) | | | |
+
+The record runs in a scope and a short transaction of its own (the month row is created if missing and locked, the conversation inserted
+`ON CONFLICT DO NOTHING`, the counters incremented), so a rollback of the classification never loses it, concurrent calls never lose an
+increment, and a failure to record is logged (ids, tokens, USD) without stopping the classification. **Sandbox usage** (docs/SANDBOX.md) is
+recorded in its own row (`IsSandbox`): it never counts against the company's quota or ceiling, but it has its own per-company bound
+(`Classification:Quota:SandboxMonthlyUsdPerCompany`, reached = `SandboxUsdCeiling`, the rules read the sandbox until the month ends) and it
+counts against the deployment cap.
+
+**Never lost silently.** Once the provider answered, the cost exists: the record is written whatever happened to the classification's budget
+(it has its own 3-second limit, then the classification honours its cancellation), and the circuit breaker is told the outcome first. A record
+that cannot be written is logged at Error with event id 4101 `AiUsageNotRecorded` (ids, tokens and USD, never text; alert on it) and counted
+in the administrator's overview (`ai_usage_lost`); the classification goes on.
+
+**Retention.** The month rows stay (they are the evidence of what was spent). The distinct conversation sets are kept for the current and
+the previous month only (purged every 6 hours). Suppressing a contact deletes its conversation ids from them (design D24;
+docs/USERS_TENANTS_PERMISSIONS.md, "Contact suppression"), and deleting a cancelled company deletes both tables' rows of it
+(docs/PLATFORM_ADMIN.md, "Deleting a company's data"); the month rows of a suppressed contact's company stay, since they hold counts only.
+
+**Known limits.** Admission is a read without a reservation: with N instances (and `MaxConcurrent` analyses in flight each, or a whole batch), a company can go
+over its quota by the calls in flight, and the deployment over its cap by those calls' cost (design D12). `NullAiUsageMeter` (admits every
+company, records nothing) remains only for unit tests and the hand-built coordinators of the integration tests. The tenant's own
+usage page (`GET /api/tenant/ai-usage`) is not built yet; the administrator sees each company's usage (docs/PLATFORM_ADMIN.md, "Monitoring").
 
 ### Running it locally
 

@@ -38,6 +38,7 @@ public static class IconSet
         ["arrow-left"] = "<path d=\"M19 12H5M11 6l-6 6 6 6\"/>",
         ["chevron-left"] = "<path d=\"m14.5 6-6 6 6 6\"/>",
         ["chevron-right"] = "<path d=\"m9.5 6 6 6-6 6\"/>",
+        ["card"] = "<rect x=\"3\" y=\"5.5\" width=\"18\" height=\"13\" rx=\"2\"/><path d=\"M3 10h18\"/><path d=\"M7 15h3\"/>",
         ["building"] = "<rect x=\"4.5\" y=\"3.5\" width=\"10\" height=\"17\" rx=\"1.5\"/><path d=\"M14.5 9.5H19a1.5 1.5 0 0 1 1.5 1.5v9.5h-6\"/><path d=\"M8 8h3M8 12h3M8 16h3\"/>",
         ["sparkles"] = "<path d=\"m10 4 1.6 4.4L16 10l-4.4 1.6L10 16l-1.6-4.4L4 10l4.4-1.6z\"/><path d=\"m18 14.5.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z\"/>",
         ["zap"] = "<path d=\"M13 3 5 13.5h6L10.5 21 19 10h-6z\"/>",

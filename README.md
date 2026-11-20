@@ -22,7 +22,7 @@ adapted to PostgreSQL and rewritten around this product.
   conversation and extracts the service asked about, the reason for interest, the
   objection and the outcome: won, lost or in follow-up
   ([`docs/CLASSIFICATION.md`](docs/CLASSIFICATION.md)).
-- **Metrics** — conversion by branch, advisor and source; first-response time;
+- **Metrics** — conversion by branch, advisor and source; how far the conversations without a sale got (closing point); first-response time;
   unanswered conversations; top reasons for not closing; volume by day and hour; and
   alerts ([`docs/METRICS.md`](docs/METRICS.md)).
 - **Executive dashboard** — `/panel` shows six headline numbers, alerts and the breakdowns.
@@ -44,6 +44,10 @@ adapted to PostgreSQL and rewritten around this product.
   pipeline, the advisor's messages are recorded without reaching any phone, and the
   dashboard shows only that test data, which is marked and never mixed with real numbers
   ([`docs/SANDBOX.md`](docs/SANDBOX.md)).
+- **AI sales assistant** — off by default; once the owner switches it on, it attends a customer nobody answered within the
+  company's delay, from the company's published knowledge base, and leaves the conversation pending human review when it gets
+  out of hand. Never claims to be a person; advisors can take over at any moment. Unit 5a is deterministic (no model yet)
+  ([`docs/ASSISTANT.md`](docs/ASSISTANT.md)).
 - **Data separation** — every record belongs to a company (tenant); access is controlled
   per company and per permission. The design takes the Colombian data-protection law
   (Ley 1581 de 2012) into account; the project makes no certification claim.
@@ -90,8 +94,9 @@ tests/
   Conversia.Web.IntegrationTests       the Web against the real API + PostgreSQL (Testcontainers)
   Conversia.WebhookSimulator.UnitTests the simulator's chats, plan, payloads and commands (no network)
 tools/
+  Conversia.AssistantEval              the AI sales assistant's evaluation set and runner (Replay by default; --real with a key) (docs/ASSISTANT.md)
   Conversia.WebhookSimulator           dev-only: fills a local API with believable WhatsApp conversations (docs/SIMULATOR.md)
-docs/                                    ARCHITECTURE, WEBHOOKS, METRICS, CLASSIFICATION, SIMULATOR, DOCKER, ...
+docs/                                    ARCHITECTURE, WEBHOOKS, METRICS, CLASSIFICATION, ASSISTANT, SIMULATOR, DOCKER, ...
 docker-compose.yml, .env.example         full local stack
 docker/healthcheck.sh                    container health probe (bash /dev/tcp, no curl in the image)
 scripts/docker-build.sh                  builds the conversia-api, -migrator and -web images
@@ -226,6 +231,8 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `PlatformAdmin:TokenMinutes` | API | `60` | Lifetime of the administrator's token (1 to 720). |
 | `RateLimiting:Login:PermitLimit` | API | `10` | Login requests allowed per IP per window. Whole number >= 1, otherwise the API will not start. |
 | `RateLimiting:Login:WindowSeconds` | API | `60` | Length of the login rate-limit window in seconds. Whole number >= 1. |
+| `Reports:WebBaseUrl` | API | `http://localhost:5112` | Public address of the Web for the links of the manager reports (https outside Development unless loopback). Other `Reports:*` keys: `docs/REPORTS.md`. |
+| `Email:Provider` | API | `None` | Email of the manager reports: `None`, `Smtp` (TLS required; `Email:FromAddress`, `Email:Smtp:Host`, ... ) or `Pickup` (Development: `.eml` files). `docs/REPORTS.md`. |
 | `ErrorLogging:Enabled` | API | `true` | Store unexpected errors. `false`: the code is still generated, returned and logged, nothing is stored. `true`/`false` only, otherwise the API will not start. |
 | `ErrorLogging:RetentionDays` | API | `90` | Error rows older than this are purged. 1 to 3650. |
 | `ErrorLogging:MaxPerFingerprintPerMinute` | API | `20` | Rows stored per defect and minute; beyond it an error still gets a code and a log entry. Whole number >= 1. |
@@ -236,6 +243,20 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Messaging:CredentialEncryptionKey` | API | *(unset)* | Master key that encrypts each channel's 360dialog API key: base64 of exactly 32 random bytes (`openssl rand -base64 32`). **Unset: the API runs and sending answers `503`**; malformed: the API does not start. In compose it comes from `CREDENTIAL_ENCRYPTION_KEY`. Set it as a secret, never in a committed file. |
 | `Messaging:CredentialEncryptionKeyId` | API | `1` | Id written in front of every value the master key encrypts. 1 to 32 letters, digits, `-` or `_`. |
 | `Messaging:SendRateLimitPerMinute`, `Messaging:TenantSendRateLimitPerMinute` | API | `30`, `120` | `POST /api/conversations/{id}/messages` per minute and user, and per minute and company (sliding windows); the next one answers `429` with `Retry-After`. Whole numbers >= 1. |
+| `Assistant:TermsVersion` | API | `asistente-2026-11` | The AI sales assistant terms an owner accepts to switch it on. Other `Assistant:*` keys (job pace, lease, timeout): `docs/ASSISTANT.md`. |
+| `Assistant:Generator` | API | `None` | `Llm`: the AI sales assistant answers with Claude Haiku 5.5 (Development only; needs `Assistant:Llm:PrivacyApproved=true` and, with `Assistant:Llm:Client=Anthropic`, `Anthropic__ApiKey`; `Replay` needs no key). Real conversations only with `Assistant:Llm:AllowRealClientNonSandbox`. Caps, prompts, checks and evaluation: `docs/ASSISTANT.md`, "The model". |
+| `Licensing:RequireAssignedLicense` | API | `false` | `true`: a company can switch a line on only with a 360dialog licence assigned to it for that number, and releasing the licence switches the line off. `false`: lines work as before and licences are linked for reporting only. `docs/PLATFORM_ADMIN.md`, "Line licences". |
+| `Usage:Retention:Enabled`, `Messaging:TenantSendLimitRefresh:Enabled` | API | `true`, `true` | The purge of the AI distinct conversation sets (older than the previous month) and of the send counters (older than 90 days), every 6 hours; and the reload of the per-company send limits every 30 s. Switch them off only in tests: without the reload an instance only knows the limits saved through itself. |
+| `Privacy:HashKey` (compose: `PRIVACY_HASH_KEY`), `Privacy:HashKeyId` (`PRIVACY_HASH_KEY_ID`) | API | none, `1` | **Required outside Development**: base64 of at least 32 random bytes (`openssl rand -base64 32`) that keys the hashes kept of suppressed customers' numbers and deleted companies' names. Unset in Development: a fixed non-secret key and a startup warning. To rotate, set a new key and id and move the old one to `Privacy:RetiredHashKeys:<old id>` (docs/USERS_TENANTS_PERMISSIONS.md, "Contact suppression"). Add `PRIVACY_HASH_KEY` to your `.env` before upgrading: compose refuses to start without it. |
+| `Tenants:Deletion:RetentionDays` | API | `30` | Days a cancelled company's data is kept before it is deleted (1 to 365; it can be reactivated until the deletion starts). docs/PLATFORM_ADMIN.md, "Deleting a company's data". |
+| `Tenants:Deletion:Enabled`, `Tenants:Deletion:IntervalMinutes`, `Tenants:Deletion:BatchSize` | API | `true`, `60`, `1000` | The deletion job: runs at startup, every interval (1 to 1440 minutes) and when an administrator asks to delete now; rows per batch (100 to 10,000), each batch its own short transaction. Switch it off only in tests. |
+| `Billing:Wompi:Environment` | API | (unset) | `Sandbox` or `Production`: switches the Wompi gateway on (fixed base URL per environment). Unset: charges are created but nothing is sent and the events endpoint answers 404. docs/BILLING.md. |
+| `Billing:Wompi:PublicKey`, `Billing:Wompi:PrivateKey`, `Billing:Wompi:EventsSecret`, `Billing:Wompi:IntegritySecret` | API | | Required with the environment, each with its environment's prefix (`pub_test_`, `prv_test_`, `test_events_`, `test_integrity_` or `_prod_`); the API refuses to start otherwise. Secrets: environment variables or Key Vault, never the repository. |
+| `Billing:Dunning:RetryDays`, `Billing:Dunning:GraceDays`, `Billing:Dunning:CancelAfterSuspendedDays`, `Billing:Dunning:AttemptHourLocal` | API | `1,3,5`, `7`, `30`, `9` | Retries after the due date, days before the billing suspension, days suspended before cancelling for non-payment (0 = never), local hour of the automatic attempts. |
+| `Billing:Job:Enabled`, `Billing:Job:IntervalSeconds`, `Billing:Job:BatchSize`, `Billing:PaymentLinkValidDays` | API | `true`, `60`, `100`, `3` | The billing job (switch it off only in tests) and the validity of a payment link. |
+| `Billing:Events:RateLimitPerMinute`, `Billing:Events:FailedRateLimitPerMinute`, `Billing:Events:MaxAgeHours` | API | `600`, `30`, `72` | Verified events per minute (platform-wide), forged or stale ones per client address, and the oldest signed event accepted. |
+| `PlatformMonitoring:*` | API | see docs | Thresholds of the administrator's monitoring flags (`OverviewCacheSeconds` 20, the per-process cache of the overview, 0 to 300; `WebhookBacklog` 500, `WebhookOldestPendingMinutes` 10, `ClassificationBacklog` 500, `ClassificationOldestMinutes` 60, `FailedDeliveryRatePercent` 5 with `MinDeliveriesForRate` 20, `SilentLineHours` 24, `ErrorsLast24h` 20, `SendFailureRatePercent` 20 with `MinSendsForRate` 10). Validated at startup. `docs/PLATFORM_ADMIN.md`, "Monitoring". |
+| `Messaging:TenantSendRateLimitMaxPerMinute` | API | 10 x `TenantSendRateLimitPerMinute` (1200) | The most a company's own send limit (set by the platform administrator) may be. At least `TenantSendRateLimitPerMinute`, at most 1,000,000. |
 | `Messaging:RecordTimeoutSeconds` | API | `30` | Limit of each statement and lock wait of the transaction that records a sent message; past it the answer is `500` `message_sent_not_recorded`. 1 to 300. |
 | `Dialog360:SandboxBaseUrl`, `Dialog360:ProductionBaseUrl` | API | `https://waba-sandbox.360dialog.io`, `https://waba-v2.360dialog.io` | Where a channel of each environment sends. Absolute `https` URL (`http` only for loopback). |
 | `Dialog360:TimeoutSeconds` | API | `15` | Time limit of a call to 360dialog. 1 to 120. |
@@ -273,7 +294,12 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Classification:Llm:AllowRealClientNonSandbox` | API | `false` | With the real client (`Anthropic`), only sandbox conversations are sent until this is `true` (only after the privacy review and the processor agreement). |
 | `Classification:Llm:HashKey` | API | *(none)* | Optional secret (base64, 32+ bytes) of the stored conversation hash (HMAC-SHA256). Unset: plain SHA-256 (Development). |
 | `Classification:Llm:BaseUrl` | API | `https://api.anthropic.com` | Endpoint of the real client, https only; `ANTHROPIC_BASE_URL` is never read. |
-| `Classification:Llm:*` (others) | API | see docs | Model, effort, thinking, timeout (Stage A: at most 8 s, no retry), breaker, age range (needs `AgeRangeLegalRef`), pricing, preprocessing: `docs/CLASSIFICATION.md`. |
+| `Classification:Schedule:DefaultNightlyHour` | API | `1` | Local hour (America/Bogota) the nightly AI window opens for companies without their own; each company's schedule (nightly, every N hours, near real time) is set by the platform administrator. 0 to 23. |
+| `Classification:Schedule:*` (others) | API | see docs | `TimeZone`, `NightlyWindowHours` (5), `SpreadMinutes` (60), `MaxConversationsPerWindow` (2000): `docs/CLASSIFICATION.md`, "When the AI reads". |
+| `Classification:Llm:MaxConcurrent` | API | `4` | LLM analyses in flight per API instance (1 to 16); `Classification:Workers` defaults to it. The connection pool must hold `MaxConcurrent x 2 + 1 + Workers + 20`. |
+| `Classification:Llm:Batch:Enabled` | API | `true` | Nightly companies are analysed in Message Batches (half price, results within 24 h). `Batch:MaxRequests` (1000), `Batch:PollSeconds` (60), `Batch:DiscountFactor` (0.5). |
+| `Classification:Llm:*` (others) | API | see docs | Model, effort, thinking, timeout (1 to 15 s, at most one retry, shorter than the retry delay), breaker, age range (needs `AgeRangeLegalRef`), pricing, preprocessing: `docs/CLASSIFICATION.md`. |
+| `Classification:Quota:DefaultMonthlyConversations`, `TenantMonthlyUsdPerQuotaUnit`, `DeploymentMonthlyUsdCap`, `TimeZone`, `SandboxMonthlyUsdPerCompany` | API | `500`, `0.02`, `20`, `America/Bogota`, `2` | The AI quota of a company without its own, its USD ceiling per quota unit, the deployment's monthly USD cap (sandbox included), the zone of the month and the most a company's sandbox may spend a month. Read whatever the provider. Every company starts with the AI **off** until the platform administrator switches it on. `docs/CLASSIFICATION.md`, "Usage and quota". |
 | `Classification:RulesPath` | API | *(embedded rules)* | Path of a JSON file with the classifier's dictionaries (another vertical or country). Validated at startup. |
 | `Classification:DebounceSeconds` | API | `60` | A conversation is classified once its classification request (the arrival of its last message) is at least this old. 0 to 86400. |
 | `Classification:PollIntervalMilliseconds` | API | `2000` | Pause of the classification worker when nothing is due. 10 to 600000. |
@@ -296,6 +322,13 @@ environment variable (`:` becomes `__`, e.g. `Jwt__SigningKey`).
 | `Support:ContactText` | Web | *(unset)* | Optional, one line of plain text (up to 300 characters, no control characters; longer or invalid stops the Web at startup) shown on the pending and suspended page as "Cómo contactar al equipo", for example `Escríbenos a soporte@empresa.co o al +57 300 000 0000`. Shown as text, never as markup. Compose: `SUPPORT_CONTACT_TEXT`. |
 | `Api:BaseUrl` | Web | `https://localhost:7199/` | Absolute http(s) URL of the API. Required. |
 | `Api:TimeoutSeconds` | Web | `10` | Timeout of each API call, 1 to 300. |
+| `Templates:SyncEnabled`, `Templates:SyncIntervalMinutes` | API | `true`, `360` | The periodic sync of every channel's templates from 360dialog (15 to 10080 minutes; `docs/MESSAGING.md`, "Templates"). |
+| `Media:Store` | API | `None` | Where WhatsApp media is kept: `None` (not downloaded, no attachments), `Local` (encrypted files, `Media:Local:RootPath` + `Media:Local:EncryptionKey`) or `Azure` (private Blob container, `Media:Azure:ServiceUri` with managed identity or `Media:Azure:ConnectionString`). `docs/MESSAGING.md`, "Media"; `docs/DOCKER.md`. |
+| `Media:RetentionDays` | API | `90` | Platform default of how long stored media is kept (a company may get its own from the administrator). |
+| `Webhooks:Processing:MaxHistoryMessagesPerDelivery` | API | `5000` | Bound of a shared-history delivery (coexistence; `docs/WEBHOOKS.md`, "History import"). |
+| `Inbox:PollIntervalSeconds` | Web | `5` | How often `/bandeja` and an open conversation poll for changes (2 to 300). |
+| `Inbox:PollRateLimitPerMinute` | API, Web | `60` | Requests per user and minute to each polled endpoint (inbox, conversation version, template lists; the Web's `/bandeja/lista`, `/version`, `/escribiendo`, `/leido`). |
+| `Messaging:PresenceRateLimitPerMinute` | API | `30` | Read receipts and typing indicators per user and minute. |
 | `Api:SendTimeoutSeconds` | Web | `60` | Timeout of sending a WhatsApp message, the one call that waits for the provider. Keep it above `Dialog360:TimeoutSeconds` plus `Messaging:RecordTimeoutSeconds` (`docs/MESSAGING.md`). 1 to 600. |
 
 ## API endpoints
@@ -313,6 +346,9 @@ policy in their own tenant.
 | POST | `/api/admin/auth/login` | anonymous, rate limited | `200` platform administrator token (60 min, own audience) | `400`, `401`, `429` |
 | GET | `/api/admin/tenants`, `/api/admin/tenants/{id}`, `/api/admin/audit` | platform administrator only | `200` companies (filter by status and name), one company with its lines and recent audit, the audit trail | `400`, `401`, `403`, `404` |
 | PUT | `/api/admin/tenants/{id}/status`, `/line-quota` | platform administrator only | `200` the company | `400`, `401`, `404`, `409` invalid transition / quota below the active lines |
+| PUT | `/api/admin/tenants/{id}/ai-enabled`, `/ai-quota`, `/send-rate-limit` | platform administrator only | `200` the company | `400`, `401`, `404` |
+| GET | `/api/admin/monitoring`, `/api/admin/tenants/{id}/monitoring` | platform administrator only | `200` counts only (no content) | `401`, `404` |
+| GET, POST | `/api/admin/licenses`, `/{id}`, `/{id}/assign`, `/{id}/release`, `/{id}/retire` | platform administrator only | `200`/`201` the licence (number masked) | `400`, `401`, `404`, `409` `license_duplicate` / `license_not_available` / `license_not_assigned` / `license_assigned` / `concurrent_change` |
 | PUT | `/api/admin/tenants/{id}/sandbox-mode` | platform administrator only | `200` the company; `{enabled, reason}` switches the internal sandbox mode, reason required (`docs/SANDBOX.md`) | `400`, `401`, `404` |
 | POST | `/api/admin/tenants/{id}/channels/{channelId}/deactivate` | platform administrator only | `200` the line, off | `401`, `404` |
 | GET | `/api/users/me` | any authenticated user, in every status | `200` profile (id, tenant, owner flag, permissions) | `401`, `404` |
@@ -325,7 +361,7 @@ policy in their own tenant.
 | GET | `/api/advisors`, `/api/advisors/{id}` | `OrganizationView` | `200` advisors / one advisor | `401`, `403`, `404` |
 | POST | `/api/advisors` | `OrganizationManage` | `201` advisor + `Location` | `400` (also unknown branch or user), `401`, `403` |
 | GET | `/api/channels`, `/api/channels/{id}` | `OrganizationView` | `200` WhatsApp channels; key and webhook path only with `OrganizationManage`, never the secret | `401`, `403`, `404` |
-| POST | `/api/channels/{id}/deactivate`, `/activate` | `OrganizationManage` | `200` channel (webhook answers 401 while inactive); `activate` also needs an Active company and a free slot of the line quota | `401`, `403`, `404`, `409` quota full (`activate`) |
+| POST | `/api/channels/{id}/deactivate`, `/activate` | `OrganizationManage` | `200` channel (webhook answers 401 while inactive); `activate` also needs an Active company, a free slot of the line quota and, with `Licensing:RequireAssignedLicense`, a licence assigned for that number | `401`, `403`, `404`, `409` quota full / `license_required` (`activate`) |
 | POST | `/api/channels/{id}/rotate-secret` | `OrganizationManage` | `200` channel + the NEW `webhookSecret` (once); the old one stops at once | `401`, `403`, `404` |
 | PUT, DELETE | `/api/channels/{id}/provider-credentials` | `OrganizationManage` | `200` channel; `PUT` stores the 360dialog API key (encrypted, **never returned**) and the environment (`Sandbox`, `Production`), `DELETE` forgets the key (`docs/MESSAGING.md`) | `400`, `401`, `403`, `404`, `503` no master key |
 | POST | `/api/channels` | `OrganizationManage` | `201` channel, **inactive**, + `webhookSecret` (shown only once) | `400` (also unknown branch), `401`, `403` |
@@ -336,10 +372,18 @@ policy in their own tenant.
 | GET | `/api/conversations/{id}` | `ConversationsView` | `200` conversation + opportunity (stage, outcome source, service, reason, objection, loss reason, classifier confidence and rule codes, `stageChangedBy`) + `advisorAssignedBy`/`advisorAssignedAt` (user ids only; null when the system did it) + `channel` (`isActive`, `hasProviderApiKey`, `providerEnvironment`: whether a message can leave through its number, nothing else about it) + messages (text included) | `401`, `403`, `404` unknown or other-tenant conversation |
 | PUT | `/api/conversations/{id}/advisor` | `ConversationsManage` | `200` conversation (`{"advisorId": null}` unassigns); records who did it (`advisorAssignedBy`, `advisorAssignedAt`) | `400` unknown/other-tenant/inactive advisor or one from another branch, `401`, `403`, `404` |
 | PUT | `/api/conversations/{id}/opportunity` | `ConversationsManage` | `200` opportunity; a manual `Won`, `Lost` (needs `lossReason`) or `InFollowUp`, which the classifier never overwrites; records who decided (`stageChangedBy`) | `400`, `401`, `403`, `404` |
-| POST | `/api/conversations/{id}/messages` | `ConversationsManage` | `201` the stored Outbound message; a person sends a plain text (1 to 4096 characters) to the customer through 360dialog. Manual, not a bot (`docs/MESSAGING.md`) | `400`, `401`, `403`, `404`, `409` closed / inactive channel / no or invalid key / sandbox and real data do not mix (`sandbox_conversation`, `sandbox_mode_active`, `sandbox_data_deleted`), `422` recipient not allowed or rejected, `429`, `500` sent but not recorded, `503` outcome unknown: verify before resending |
+| GET | `/api/inbox` | `ConversationsView` | `200` the open conversations by priority (awaiting reply first) with window badges, `ETag`/`304`; `?since=` only what changed (`docs/MESSAGING.md`, "Inbox") | `400`, `401`, `403` |
+| POST | `/api/conversations/{id}/media-messages` | `ConversationsManage` | `201` the stored Outbound image or document; multipart `file` and `caption`, checked, stored, uploaded to 360dialog and sent by id (`docs/MESSAGING.md`, "Sending media") | `400`, `401`, `403`, `404`, `409` as a text send, `413` `media_too_large`, `415` `media_type_not_allowed`, `429`, `503` `media_storage_unavailable` / outcome unknown |
+| GET | `/api/conversations/{id}/messages/{messageId}/media` | `ConversationsView` | `200`/`206` the stored file of the message, streamed (`nosniff`, `private`, documents as attachment) | `401`, `403`, `404` |
+| PUT | `/api/channels/{id}/history-import` | owner only | `200` channel; turns the history import on (`legalBasisConfirmed` required) or off (`docs/MESSAGING.md`, "History import") | `400`, `401`, `403`, `404` |
+| PUT | `/api/admin/tenants/{id}/media-retention` | platform admin | `200` company; its own media retention in days (`null` = default) with a reason, audited | `400`, `401`, `404` |
+| POST | `/api/conversations/{id}/template-messages` | `ConversationsManage` | `201` the stored template message; an approved template of the channel with its values (`docs/MESSAGING.md`, "Templates") | `400`, `401`, `403`, `404`, `409` `template_unavailable` and the codes of a text send, `422`, `429`, `500`, `503` |
+| GET, POST | `/api/channels/{id}/templates`, `/api/channels/{id}/templates/sync` | `OrganizationView`, `OrganizationManage` | The channel's synced templates; the sync reads them from 360dialog with the channel's key | `401`, `403`, `404`, `409`, `429`, `503` |
+| POST | `/api/conversations/{id}/read`, `/api/conversations/{id}/typing` | `ConversationsManage` | `200` an `outcome`: read receipt / typing indicator when the company has them on (`GET`/`PUT /api/tenant/messaging-settings`, off by default) | `401`, `403`, `404` |
+| POST | `/api/conversations/{id}/messages` | `ConversationsManage` | `201` the stored Outbound message; a person sends a plain text (1 to 4096 characters) to the customer through 360dialog. Manual, not a bot (`docs/MESSAGING.md`) | `400`, `401`, `403`, `404`, `409` closed / outside the 24-hour window (`customer_service_window_closed`) / inactive channel / no or invalid key / sandbox and real data do not mix (`sandbox_conversation`, `sandbox_mode_active`, `sandbox_data_deleted`), `422` recipient not allowed or rejected, `429`, `500` sent but not recorded, `503` outcome unknown: verify before resending |
 | POST | `/api/sandbox/conversations`, `/api/sandbox/conversations/{id}/customer-messages` | `ConversationsManage`; only while the company is in sandbox mode; rate limited like sending | `202` a simulated customer's message is in the ingestion queue (`docs/SANDBOX.md`) | `400`, `401`, `403`, `404`, `409` `sandbox_mode_off` / `not_sandbox_conversation` / `conversation_closed` / `channel_inactive`, `429` |
 | DELETE | `/api/sandbox/data` | `OrganizationManage` | `200` how many sandbox conversations, messages, contacts and deliveries were deleted; nothing real is touched | `401`, `403` |
-| GET | `/api/metrics/summary`, `/conversion`, `/first-response`, `/loss-reasons`, `/volume`, `/alerts` | `MetricsView` | `200` the numbers of `docs/METRICS.md` for `from`/`to` (local dates between 2015-01-01 and today + 366 days, `to` exclusive, at most 366 days, default the last 30) and the filters `branchId`, `advisorId`, `unassigned`, `source` | `400`, `401`, `403`, `429` (per-user limit), `503` (a query ran out of time) |
+| GET | `/api/metrics/summary`, `/conversion`, `/first-response`, `/loss-reasons`, `/volume`, `/alerts`, `/closing-point` | `MetricsView` | `200` the numbers of `docs/METRICS.md` for `from`/`to` (local dates between 2015-01-01 and today + 366 days, `to` exclusive, at most 366 days, default the last 30) and the filters `branchId`, `advisorId`, `unassigned`, `source` | `400`, `401`, `403`, `429` (per-user limit), `503` (a query ran out of time) |
 | POST | `/api/webhooks/360dialog/{channelKey}` | anonymous; the channel's secret in the header `X-Webhook-Secret` or as the password of `Authorization: Basic` (never in the URL); rate limited (`docs/WEBHOOKS.md`) | `200` (also for a body already received) | `400` not a JSON object, `401` unknown/inactive channel, wrong secret or malformed `Authorization` (same answer), `413`, `429` |
 | GET | `/health` | anonymous | `200` `Healthy` / `Degraded`, `503` `Unhealthy` (webhook queue; status word only) | |
 | POST | `/api/diagnostics/errors` | header `X-Error-Report-Key`, rate limited; off without `ErrorLogging:ReportKey` | `201` `{code,persisted}` | `400`, `401`, `404` (off), `413` over 64 KB, `429` (`Retry-After`) |
@@ -372,10 +416,11 @@ Docker smoke test.
 
 ## Documentation
 
-- `docs/PLATFORM_ADMIN.md` — the platform administrator: company approval, per-line quota, admin API and Web area, sessions, bootstrap, security model, runbook.
+- `docs/PLATFORM_ADMIN.md` — the platform administrator: company approval, per-company limits (lines, AI, sends), the 360dialog licence inventory, monitoring without private content, admin API and Web area, sessions, bootstrap, security model, runbook.
 - `docs/WEBHOOKS.md` — the 360dialog webhook: endpoint, mapping, retries, closing of conversations.
-- `docs/MESSAGING.md` — sending a message by hand through 360dialog: endpoints, per-channel encrypted keys, errors, sandbox limits.
+- `docs/MESSAGING.md` — sending a message by hand through 360dialog: endpoints, per-channel encrypted keys, errors, sandbox limits; media (storage, download job, serving, attachments, retention), coexistence and the history import.
 - `docs/SANDBOX.md` — the internal sandbox mode: how it is switched, what is simulated and what is real, the data rules, and how it differs from the 360dialog sandbox and the webhook simulator.
+- `docs/REPORTS.md` — the automatic manager reports: definitions, schedule, data pack, grounding of the model's text, template fallback, email (SMTP over TLS, one-click unsubscribe) and WhatsApp delivery, privacy, costs, configuration and runbook.
 - `docs/METRICS.md` — the exact definition of every dashboard metric, the alerts and their settings.
 - `docs/CLASSIFICATION.md` — the rule-based classifier and how to plug in another one.
 - `docs/DOCKER.md` — the three images (api, migrator, web): build, variables, health checks, troubleshooting.

@@ -36,6 +36,9 @@ public interface IConversationRepository
     /// </summary>
     Task<Conversation?> FindOpenAsync(Guid contactId, Guid channelId, CancellationToken cancellationToken = default);
 
+    /// <summary>The conversation built from the shared chat history of the contact on the channel (closed, imported), locked; null when none.</summary>
+    Task<Conversation?> FindImportedAsync(Guid contactId, Guid channelId, CancellationToken cancellationToken = default);
+
     /// <summary>Persists a new conversation together with its opportunity.</summary>
     Task AddAsync(Conversation conversation, Opportunity opportunity, CancellationToken cancellationToken = default);
 
@@ -74,8 +77,17 @@ public interface IMessageRepository
     /// <summary>Untracked lookup of the message a channel stored under a provider id; null when there is none.</summary>
     Task<Message?> FindAsync(Guid channelId, string providerMessageId, CancellationToken cancellationToken = default);
 
+    /// <summary>Untracked: the message of the caller's company with that id in that conversation; null otherwise.</summary>
+    Task<Message?> GetInConversationAsync(Guid conversationId, Guid messageId, CancellationToken cancellationToken = default);
+
     Task AddAsync(Message message, CancellationToken cancellationToken = default);
+
+    /// <summary>Saves a change to a stored message (its attribution, when the send path claims an echo stored first).</summary>
+    Task UpdateAsync(Message message, CancellationToken cancellationToken = default);
 
     /// <summary>Direction and time of every message of a conversation, for <see cref="ConversationTimeline"/>.</summary>
     Task<IReadOnlyList<(MessageDirection Direction, DateTime SentAt)>> ListTimesAsync(Guid conversationId, CancellationToken cancellationToken = default);
+
+    /// <summary>The provider id and time of the customer's latest message in the conversation (the one a read receipt names); null when none.</summary>
+    Task<(string ProviderMessageId, DateTime SentAt)?> GetLastInboundAsync(Guid conversationId, CancellationToken cancellationToken = default);
 }

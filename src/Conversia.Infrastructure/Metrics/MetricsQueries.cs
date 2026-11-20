@@ -32,9 +32,13 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
     // The first line is not a request's choice (docs/METRICS.md, "Sandbox data"): every number counts real conversations only, unless the
     // company is in sandbox mode, and then sandbox conversations only. It is here, and read from the company's row by the statement itself,
     // so that no aggregation can forget it or be handed the wrong value.
+    // Imported history (coexistence onboarding, docs/METRICS.md "Imported conversations") is never in a number: it was not answered through the
+    // line as it is today, and it would move every rate of its dates at once.
     private const string ConversationFilters = """
         AND c."IsSandbox" = (SELECT t."SandboxMode" FROM "Tenants" t WHERE t."Id" = @tenant)
+        AND NOT c."IsImported"
         AND (@branch IS NULL OR c."BranchId" = @branch)
+        AND (@branches IS NULL OR c."BranchId" = ANY(@branches))
         AND (@advisor IS NULL OR c."AdvisorId" = @advisor)
         AND (NOT @unassigned OR c."AdvisorId" IS NULL)
         AND (@source IS NULL OR c."Source" = @source)
@@ -43,7 +47,7 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
     private const string Cohort = $"""
         WITH cohort AS (
             SELECT c."Id", c."BranchId", c."AdvisorId", c."Source", c."Status", c."StartedAt", c."LastMessageAt", c."FirstInboundAt", c."FirstResponseAt",
-                   o."Stage", o."LossReason", o."Objection"
+                   o."Stage", o."LossReason", o."Objection", o."ReachedStage", o."MovedOffChannel"
             FROM "Conversations" c
             JOIN "Opportunities" o ON o."ConversationId" = c."Id" AND o."TenantId" = @tenant
             WHERE c."TenantId" = @tenant
@@ -188,6 +192,35 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
     {
         var rows = await RunAsync<ObjectionRow>($"""{Cohort} SELECT k."Objection" AS "Objection", count(*)::int AS "Count" FROM cohort k GROUP BY k."Objection" """, Parameters(filter), cancellationToken);
         return rows.Select(r => new ObjectionRaw(r.Objection, r.Count)).ToList();
+    }
+
+    // ---- Closing point -----------------------------------------------------------------------------------------------
+
+    private sealed class ClosingPointRow
+    {
+        public string? ReachedStage { get; set; }
+
+        public string MovedOffChannel { get; set; } = string.Empty;
+
+        public bool Stopped { get; set; }
+
+        public int Count { get; set; }
+    }
+
+    // Stopped: the conversation ended without a sale, Lost or undecided and gone cold (its last message is older than the cutoff), as the
+    // conversion counts "stale".
+    public async Task<IReadOnlyList<ClosingPointRaw>> ClosingPointAsync(MetricsFilter filter, DateTime staleBeforeUtc, CancellationToken cancellationToken = default)
+    {
+        var sql = $"""
+            {Cohort}
+            SELECT k."ReachedStage" AS "ReachedStage", k."MovedOffChannel" AS "MovedOffChannel",
+                   (k."Stage" = '{Lost}' OR (k."Stage" IN ('{InFollowUp}', '{New}') AND k."LastMessageAt" < @staleBefore)) AS "Stopped",
+                   count(*)::int AS "Count"
+            FROM cohort k
+            GROUP BY 1, 2, 3
+            """;
+        var rows = await RunAsync<ClosingPointRow>(sql, [.. Parameters(filter), Timestamp("staleBefore", staleBeforeUtc)], cancellationToken);
+        return rows.Select(r => new ClosingPointRaw(r.ReachedStage, r.MovedOffChannel, r.Stopped, r.Count)).ToList();
     }
 
     // ---- Volume ------------------------------------------------------------------------------------------------------
@@ -420,6 +453,7 @@ public sealed class MetricsQueries(ApplicationDbContext db, ICurrentTenantServic
             Timestamp("fromUtc", filter.FromUtc),
             Timestamp("toUtc", filter.ToUtc),
             new("branch", NpgsqlDbType.Uuid) { Value = (object?)filter.BranchId ?? DBNull.Value },
+            new("branches", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = (object?)filter.BranchIds?.ToArray() ?? DBNull.Value },
             new("advisor", NpgsqlDbType.Uuid) { Value = (object?)filter.AdvisorId ?? DBNull.Value },
             new("unassigned", NpgsqlDbType.Boolean) { Value = filter.Unassigned },
             new("source", NpgsqlDbType.Varchar) { Value = filter.Source is { } source ? source.ToString() : DBNull.Value },

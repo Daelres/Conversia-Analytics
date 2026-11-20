@@ -20,6 +20,11 @@ public static class SendFailure
     public const string SandboxConversation = "sandbox_conversation";
     public const string SandboxModeActive = "sandbox_mode_active";
     public const string SandboxDataDeleted = "sandbox_data_deleted";
+    public const string WindowClosed = "customer_service_window_closed";
+    public const string TemplateUnavailable = "template_unavailable";
+    public const string MediaTypeNotAllowed = "media_type_not_allowed";
+    public const string MediaTooLarge = "media_too_large";
+    public const string MediaStorageUnavailable = "media_storage_unavailable";
 
     public const string CredentialsUnavailableMessage =
         "Las credenciales del proveedor no están disponibles en este momento. No depende de tu cuenta: contacta al equipo de Conversia.";
@@ -31,12 +36,24 @@ public static class SendFailure
     public const string OutcomeUnknown =
         "No se recibió una respuesta del servicio y no se sabe si el mensaje salió. Verifica en el teléfono de la línea si el mensaje llegó antes de enviarlo de nuevo.";
 
-    /// <summary>The codes <c>POST /api/conversations/{id}/messages</c> may answer with. The API client carries these and no other.</summary>
+    /// <summary>
+    /// The codes a send (<c>POST /api/conversations/{id}/messages</c>, <c>/template-messages</c>, <c>/media-messages</c>) may answer with: every
+    /// messaging problem (an attachment's own three only come from a media send). The API client carries these and no other.
+    /// </summary>
     public static readonly IReadOnlySet<string> SendCodes = new HashSet<string>(StringComparer.Ordinal)
     {
         ConversationClosed, ChannelInactive, CredentialsMissing, CredentialsInvalid, RecipientNotAllowed, ProviderRejected,
         ProviderLimitReached, ProviderUnavailable, CredentialsUnavailable, SentNotRecorded, SandboxConversation, SandboxModeActive,
-        SandboxDataDeleted,
+        SandboxDataDeleted, WindowClosed, TemplateUnavailable, MediaTypeNotAllowed, MediaTooLarge, MediaStorageUnavailable,
+    };
+
+    /// <summary>The codes <c>POST /api/conversations/{id}/media-messages</c> may answer with: those of a send and the attachment's own.</summary>
+    public static readonly IReadOnlySet<string> MediaSendCodes = SendCodes;
+
+    /// <summary>The codes <c>POST /api/channels/{id}/templates/sync</c> may answer with.</summary>
+    public static readonly IReadOnlySet<string> TemplateSyncCodes = new HashSet<string>(StringComparer.Ordinal)
+    {
+        CredentialsMissing, CredentialsInvalid, ProviderRejected, ProviderLimitReached, ProviderUnavailable, CredentialsUnavailable,
     };
 
     /// <summary>The one code the provider-credentials endpoints may answer with: the installation has no usable master key.</summary>
@@ -53,14 +70,19 @@ public static class SendFailure
         CredentialsMissing => "El número de WhatsApp de esta conversación no tiene clave de API del proveedor. Configúrala en Organización para poder enviar mensajes.",
         CredentialsInvalid => "360dialog no reconoce la clave de API de este número. Revísala o reemplázala en Organización; en el sandbox, la clave cambia cada vez que se pide una nueva.",
         RecipientNotAllowed => "360dialog no permite escribirle a este cliente desde este número. En el sandbox solo se puede escribir al número vinculado a la clave.",
-        ProviderRejected => "360dialog no aceptó el mensaje. Una causa frecuente es que hayan pasado más de 24 horas desde el último mensaje del cliente.",
+        ProviderRejected => "360dialog no aceptó el mensaje. Revisa el texto o los valores de la plantilla e inténtalo de nuevo.",
         ProviderLimitReached => "Se alcanzó el límite de envíos de 360dialog para la clave de este número. El sandbox de 360dialog permite 25 solicitudes en total por clave, y las rechazadas también cuentan: para seguir probando se necesita una clave nueva.",
         ProviderUnavailable => "360dialog no respondió o falló, y no se sabe si el mensaje salió. Verifica en el teléfono de la línea si el mensaje llegó antes de enviarlo de nuevo.",
         CredentialsUnavailable => CredentialsUnavailableMessage,
         SentNotRecorded => "El mensaje se envió al cliente, pero no se pudo registrar en esta conversación. No lo envíes de nuevo.",
         SandboxConversation => "Esta conversación es de prueba (sandbox) y solo admite mensajes mientras el modo sandbox de tu empresa está activo.",
         SandboxDataDeleted => "Esta conversación de prueba se eliminó mientras escribías. El mensaje no se guardó ni se envió a ningún teléfono.",
+        WindowClosed => "Pasaron más de 24 horas desde el último mensaje del cliente, así que WhatsApp no permite enviarle texto libre. Elige una plantilla aprobada para retomar la conversación; tu texto quedó guardado.",
+        TemplateUnavailable => "La plantilla elegida ya no está disponible: no existe para este número, no está aprobada o Conversia aún no puede enviarla. Sincroniza las plantillas en Organización y elige otra.",
         SandboxModeActive => "Tu empresa está en modo sandbox y no se envían mensajes reales. Esta conversación es real: podrás escribir en ella cuando el modo sandbox se desactive.",
+        MediaTypeNotAllowed => "Ese archivo no se puede enviar: solo se admiten imágenes JPEG o PNG y documentos PDF, de Office o de texto, y su contenido debe corresponder a su tipo.",
+        MediaTooLarge => "El archivo es demasiado grande para WhatsApp: hasta 5 MB para imágenes y 100 MB para documentos.",
+        MediaStorageUnavailable => "El almacenamiento de archivos no está configurado, así que no se pueden enviar adjuntos. No depende de tu cuenta: contacta al equipo de Conversia.",
         _ => null,
     };
 

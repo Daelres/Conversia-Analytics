@@ -13,6 +13,7 @@ public static class ValidationMessages
     public const string Range = "El campo {0} debe estar entre {1} y {2}.";
     public const string EnumValue = "El campo {0} no es un valor reconocido.";
     public const string NullCharacter = "El campo {0} no puede contener caracteres nulos.";
+    public const string MaxItems = "El campo {0} admite como máximo {1} elementos.";
 
     public static readonly string DisplayPhoneNumber = $"El campo {{0}} {Domain.Entities.WhatsAppChannel.DisplayPhoneNumberRuleText}.";
 

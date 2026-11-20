@@ -9,6 +9,15 @@ namespace Conversia.Application.Messaging;
 public interface IWhatsAppMessageSender
 {
     Task<WhatsAppSendResult> SendTextAsync(WhatsAppTextMessage message, CancellationToken cancellationToken = default);
+
+    /// <summary>Sends an approved template (the only kind of message WhatsApp delivers outside the customer service window).</summary>
+    Task<WhatsAppSendResult> SendTemplateAsync(WhatsAppTemplateMessage message, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks a customer's message (and the earlier ones) as read on WhatsApp and, with <see cref="WhatsAppReadReceipt.Typing"/>, shows the
+    /// typing indicator for up to 25 seconds. The answer carries no message id.
+    /// </summary>
+    Task<WhatsAppSendStatus> MarkReadAsync(WhatsAppReadReceipt receipt, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -39,6 +48,41 @@ public sealed class WhatsAppTextMessage(WhatsAppChannel channel, string recipien
     public override string ToString() => $"WhatsAppTextMessage {{ ChannelId = {Channel.Id}, TextLength = {Text.Length} }}";
 }
 
+/// <summary>An approved template for one customer of a channel, with the values of its placeholders in the order the template lists them.</summary>
+public sealed class WhatsAppTemplateMessage(
+    WhatsAppChannel channel, string recipientWaId, string name, string language, IReadOnlyList<WhatsAppTemplateParameter> parameters)
+{
+    public WhatsAppChannel Channel { get; } = channel;
+
+    public string RecipientWaId { get; } = recipientWaId;
+
+    public string Name { get; } = name;
+
+    /// <summary>Meta's language code of the template (<c>es</c>, <c>es_CO</c>).</summary>
+    public string Language { get; } = language;
+
+    public IReadOnlyList<WhatsAppTemplateParameter> Parameters { get; } = parameters;
+
+    public override string ToString() => $"WhatsAppTemplateMessage {{ ChannelId = {Channel.Id}, Name = {Name}, Parameters = {Parameters.Count} }}";
+}
+
+/// <summary>One body value of a template. <see cref="Name"/> is set for a named placeholder (<c>{{first_name}}</c>), null for a positional one.</summary>
+public sealed class WhatsAppTemplateParameter(string? name, string value)
+{
+    public string? Name { get; } = name;
+
+    public string Value { get; } = value;
+
+    public override string ToString() => $"WhatsAppTemplateParameter {{ Name = {Name}, Length = {Value.Length} }}";
+}
+
+/// <param name="ProviderMessageId">The provider's id of the customer's message to mark as read (<c>wamid.</c>...).</param>
+/// <param name="Typing">Also show the typing indicator (it marks the message as read too).</param>
+public sealed record WhatsAppReadReceipt(WhatsAppChannel Channel, string ProviderMessageId, bool Typing)
+{
+    public override string ToString() => $"WhatsAppReadReceipt {{ ChannelId = {Channel.Id}, Typing = {Typing} }}";
+}
+
 public enum WhatsAppSendStatus
 {
     /// <summary>The provider accepted the message.</summary>
@@ -55,6 +99,12 @@ public enum WhatsAppSendStatus
 
     /// <summary>The provider refused the message for another reason; sending the same message again will not help.</summary>
     Rejected,
+
+    /// <summary>
+    /// The provider refused a free-form message because more than 24 hours passed since the customer last wrote (Meta's error 131047):
+    /// only a template can be sent.
+    /// </summary>
+    WindowClosed,
 
     /// <summary>
     /// The provider could not be reached, timed out or failed. Whether the message left is unknown after a timeout, so nothing is

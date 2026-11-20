@@ -1,0 +1,18 @@
+@using Conversia.Application.DTOs.Admin
+@* One window of webhook deliveries: counts only. *@
+<tr data-testid="delivery-row" data-label="@Label">
+    <th scope="row">@Label</th>
+    <td data-label="Entregas">@MetricsFormat.Whole(Counts.Events)</td>
+    <td data-label="Mensajes guardados">@MetricsFormat.Whole(Counts.StoredMessages)</td>
+    <td data-label="Duplicados">@MetricsFormat.Whole(Counts.DuplicateMessages)</td>
+    <td data-label="Omitidos">@MetricsFormat.Whole(Counts.SkippedMessages)</td>
+    <td data-label="Fallidas">@MetricsFormat.Whole(Counts.FailedEvents)</td>
+</tr>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public DeliveryCountsResponse Counts { get; set; } = new();
+}

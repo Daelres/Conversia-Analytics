@@ -76,12 +76,44 @@ services:
       # Optional. Master key (base64 of 32 random bytes) that encrypts each channel's 360dialog API key. Unset: sending messages and
       # setting a channel's key answer 503. A malformed value stops the API. See docs/MESSAGING.md.
       Messaging__CredentialEncryptionKey: ${CREDENTIAL_ENCRYPTION_KEY:-}
+      # Required. The privacy key (base64 of 32 random bytes) that keys the hashes kept of suppressed customers' numbers and of deleted
+      # companies' names. Keep it: changing it without moving the old one to Privacy__RetiredHashKeys__<id> forgets every suppression.
+      # See docs/USERS_TENANTS_PERMISSIONS.md, "Contact suppression".
+      Privacy__HashKey: ${PRIVACY_HASH_KEY:?Set PRIVACY_HASH_KEY in .env (openssl rand -base64 32).}
+      Privacy__HashKeyId: ${PRIVACY_HASH_KEY_ID:-1}
       # Optional. Both set: the API creates this platform administrator at startup if no one has the email (it never changes an existing
       # one). Empty = no bootstrap. The password needs at least 12 characters and must not be a placeholder. See docs/PLATFORM_ADMIN.md.
       PlatformAdmin__Email: ${PLATFORM_ADMIN_EMAIL:-}
       PlatformAdmin__Password: ${PLATFORM_ADMIN_PASSWORD:-}
       # Alternative to the password above: the path, inside the container, of a file that holds it (a Docker secret mounted by you). Use one or the other.
       PlatformAdmin__PasswordFile: ${PLATFORM_ADMIN_PASSWORD_FILE:-}
+      # Optional. Where WhatsApp media is kept (docs/DOCKER.md, "Media storage"): None (default: received files are not downloaded and
+      # attachments cannot be sent), Local (encrypted files in the api-media volume, for development) or Azure (a private Blob container).
+      Media__Store: ${MEDIA_STORE:-None}
+      Media__Local__RootPath: /var/lib/conversia/media
+      # Local only: base64 of 32 random bytes (openssl rand -base64 32). Losing it makes the stored files unreadable.
+      Media__Local__EncryptionKey: ${MEDIA_ENCRYPTION_KEY:-}
+      # Local outside Development needs this yes: the local store is for one instance only (this compose stack).
+      Media__Local__AllowOutsideDevelopment: ${MEDIA_LOCAL_ALLOW_OUTSIDE_DEVELOPMENT:-false}
+      # Azure only: exactly one of the connection string or the service URL (https://<account>.blob.core.windows.net, managed identity).
+      Media__Azure__ConnectionString: ${MEDIA_AZURE_CONNECTION_STRING:-}
+      Media__Azure__ServiceUri: ${MEDIA_AZURE_SERVICE_URI:-}
+      Media__Azure__ManagedIdentityClientId: ${MEDIA_AZURE_MANAGED_IDENTITY_CLIENT_ID:-}
+      Media__Azure__Container: ${MEDIA_AZURE_CONTAINER:-conversia-media}
+      Media__RetentionDays: ${MEDIA_RETENTION_DAYS:-90}
+      # Manager reports (docs/REPORTS.md). The public address of the Web for the links of the emails and WhatsApp notices (https outside
+      # a local machine). Email: None (default, nothing is sent), Smtp (TLS required) or Pickup (Development only, .eml files).
+      Reports__WebBaseUrl: ${REPORTS_WEB_BASE_URL:-http://localhost:5112}
+      Email__Provider: ${EMAIL_PROVIDER:-None}
+      Email__FromAddress: ${EMAIL_FROM_ADDRESS:-}
+      Email__FromName: ${EMAIL_FROM_NAME:-Conversia}
+      Email__Smtp__Host: ${EMAIL_SMTP_HOST:-}
+      Email__Smtp__Port: ${EMAIL_SMTP_PORT:-587}
+      Email__Smtp__Security: ${EMAIL_SMTP_SECURITY:-StartTls}
+      Email__Smtp__UserName: ${EMAIL_SMTP_USERNAME:-}
+      Email__Smtp__Password: ${EMAIL_SMTP_PASSWORD:-}
+    volumes:
+      - api-media:/var/lib/conversia/media
     ports:
       - "${API_PORT:-5030}:8080"
     depends_on:
@@ -120,3 +152,4 @@ services:
 volumes:
   postgres-data:
   web-keys:
+  api-media:

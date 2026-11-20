@@ -1,0 +1,177 @@
+@page "/admin/asistente"
+@page "/admin/empresas/{Id:guid}/asistente"
+@attribute [Authorize(Policy = AuthenticationExtensions.AdminPolicy)]
+@layout AdminLayout
+@using Conversia.Application.Assistant
+@using Conversia.Domain.Entities
+@using Conversia.Web.Authentication
+@inherits AdminPageBase
+
+<PageTitle>Asistente de IA - Administración de Conversia</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
+
+@if (CompanyMissing)
+{
+    <CompanyNotFoundView />
+}
+else if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page page--narrow" data-page="admin-assistant" data-scope="@(Id is null ? "platform" : "company")">
+        <PageHeader Eyebrow="@(Id is null ? "Monitoreo" : "Empresa")" EyebrowIcon="sparkles" Title="Asistente de IA"
+                    Description="Interruptores de emergencia y conteos del asistente. Solo números: nunca conversaciones ni mensajes.">
+            <a class="btn btn--secondary" href="@(Id is null ? "/admin/monitoreo" : $"/admin/empresas/{Id}")"><Icon Name="arrow-left" />Volver</a>
+        </PageHeader>
+
+        @if (Notice == SavedNotice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">Cambio guardado y auditado.</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_view is not null)
+        {
+            <Card Title="Estado" IconName="power" data-testid="admin-assistant-state">
+                <dl class="kv">
+                    <div><dt>Para todas las empresas</dt><dd data-testid="assistant-global">@(_view.GloballyEnabled ? "Activo" : "Detenido")</dd></div>
+                    @if (Id is not null)
+                    {
+                        <div><dt>Para esta empresa</dt><dd data-testid="assistant-company">@(_view.CompanyBlocked == true ? "Detenido por el administrador" : "Permitido")</dd></div>
+                        <div><dt>La empresa lo activó</dt><dd>@(_view.CompanyEnabled == true ? "Sí" : "No") · líneas con asistente: @_view.LinesWithAssistant</dd></div>
+                    }
+                    else
+                    {
+                        <div><dt>Empresas que lo activaron</dt><dd data-testid="assistant-companies">@_view.CompaniesEnabled</dd></div>
+                    }
+                    <div><dt>Esperando ahora</dt><dd>@_view.Waiting (preparando respuesta: @_view.Generating)</dd></div>
+                    <div><dt>Pendientes de revisión</dt><dd data-testid="assistant-pending">@_view.PendingReview</dd></div>
+                </dl>
+                <EditForm Model="Input" FormName="admin-assistant" OnSubmit="SaveAsync" method="post" class="form" data-testid="admin-assistant-form">
+                    <input type="hidden" name="@($"{nameof(Input)}.{nameof(SwitchInput.Enable)}")" value="@(Running ? "false" : "true")" />
+                    <label class="field">
+                        <span>Motivo (obligatorio, queda en la auditoría; no incluyas datos personales de clientes)</span>
+                        <textarea name="@($"{nameof(Input)}.{nameof(SwitchInput.Reason)}")" class="input" rows="2" maxlength="@Tenant.AiChangeReasonMaxLength" data-testid="admin-assistant-reason">@Input.Reason</textarea>
+                    </label>
+                    <div class="form-actions">
+                        <button type="submit" class="@(Running ? "btn btn--danger" : "btn btn--primary")" data-testid="admin-assistant-submit">
+                            <Icon Name="power" />@(Running ? "Detener el asistente" : "Permitir el asistente")@(Id is null ? " para todas las empresas" : " para esta empresa")
+                        </button>
+                    </div>
+                </EditForm>
+            </Card>
+
+            <Card Title="@($"Actividad de los últimos {_view.Days} días")" IconName="activity" data-testid="admin-assistant-counts">
+                @if (_view.Counts.Count == 0)
+                {
+                    <p class="muted">Sin actividad.</p>
+                }
+                else
+                {
+                    <table class="table">
+                        <thead><tr><th>Evento</th><th>Real</th><th>Sandbox</th></tr></thead>
+                        <tbody>
+                            @foreach (var row in _view.Counts)
+                            {
+                                <tr data-testid="assistant-count" data-metric="@row.Metric"><td>@MetricLabel(row.Metric)</td><td>@row.Real</td><td>@row.Sandbox</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </Card>
+        }
+    </div>
+}
+
+@code {
+    public const string SavedNotice = "guardado";
+
+    private AssistantAdminResponse? _view;
+    private SwitchInput? _input;
+
+    public sealed class SwitchInput
+    {
+        public string? Enable { get; set; }
+
+        public string? Reason { get; set; }
+    }
+
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    [SupplyParameterFromForm(FormName = "admin-assistant")]
+    private SwitchInput Input { get => _input ??= new(); set => _input = value; }
+
+    [SupplyParameterFromQuery(Name = "aviso")]
+    public string? Notice { get; set; }
+
+    private bool Running => Id is null ? _view?.GloballyEnabled == true : _view?.CompanyBlocked != true;
+
+    private static string MetricLabel(string metric) => metric switch
+    {
+        AssistantMetrics.TimerArmed => "Esperas iniciadas",
+        AssistantMetrics.TimerFired => "Esperas vencidas",
+        AssistantMetrics.Replied => "Respuestas enviadas",
+        AssistantMetrics.HandoffLineSent => "Frases de traspaso enviadas",
+        AssistantMetrics.Superseded => "Respuestas descartadas (alguien escribió)",
+        AssistantMetrics.SendFailed => "Envíos fallidos",
+        AssistantMetrics.TakenOver => "Conversaciones tomadas por un asesor",
+        AssistantMetrics.HandedBack => "Conversaciones devueltas al asistente",
+        _ when metric.StartsWith(AssistantMetrics.HandoffPrefix, StringComparison.Ordinal) => $"Traspaso: {metric[AssistantMetrics.HandoffPrefix.Length..]}",
+        _ when metric.StartsWith(AssistantMetrics.Discarded + ".", StringComparison.Ordinal) => $"Espera descartada: {metric[(AssistantMetrics.Discarded.Length + 1)..]}",
+        _ => metric,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        // On a post too: a POST is dispatched only to a form that exists in the render tree.
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = Id is { } id ? await Api.GetTenantAssistantAsync(Token!, id) : await Api.GetAdminAssistantAsync(Token!);
+        if (await TryFailAsync(result))
+        {
+            return;
+        }
+
+        _view = result.Value;
+    }
+
+    private async Task SaveAsync()
+    {
+        var request = new SetAssistantSwitchRequest { Enabled = Input.Enable == "true", Reason = Input.Reason };
+        var result = Id is { } id ? await Api.SetTenantAssistantAsync(Token!, id, request) : await Api.SetAdminAssistantAsync(Token!, request);
+        if (result.IsSuccess)
+        {
+            RedirectTo((Id is null ? "/admin/asistente" : $"/admin/empresas/{Id}/asistente") + $"?aviso={SavedNotice}");
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.ValidationFailed)
+        {
+            SetStatusCode(StatusCodes.Status400BadRequest);
+            Message = result.ValidationErrors.Count > 0 ? string.Join(" ", result.ValidationErrors.SelectMany(e => e.Value)) : result.Detail ?? UiMessages.InvalidRequest;
+        }
+        else
+        {
+            await TryFailAsync(result);
+        }
+
+        if (!Redirected && !Denied && !CompanyMissing)
+        {
+            await LoadAsync();
+        }
+    }
+}

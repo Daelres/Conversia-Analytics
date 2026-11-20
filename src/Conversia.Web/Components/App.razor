@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#0a0d16" media="(prefers-color-scheme: dark)" />
     <base href="/" />
     @* Applies the saved theme before the first paint (no flash) and tells the CSS that scripts run. *@
-    <script>(function(d){try{var t=localStorage.getItem("dr-theme");if(t==="light"||t==="dark"){d.dataset.theme=t}}catch(e){}d.classList.add("js")})(document.documentElement)</script>
+    <script nonce="@Conversia.Web.Http.SecurityHeadersMiddleware.Nonce(HttpContext)">(function(d){try{var t=localStorage.getItem("dr-theme");if(t==="light"||t==="dark"){d.dataset.theme=t}}catch(e){}d.classList.add("js")})(document.documentElement)</script>
     <ResourcePreloader />
     <link rel="stylesheet" href="@Assets["css/tokens.css"]" />
     <link rel="stylesheet" href="@Assets["css/base.css"]" />
@@ -25,6 +25,13 @@
     <Routes />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     <script src="@Assets["js/shell.js"]" defer></script>
+    <script src="@Assets["js/billing.js"]" defer></script>
+    <script src="@Assets["js/inbox.js"]" defer></script>
 </body>
 
 </html>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+}

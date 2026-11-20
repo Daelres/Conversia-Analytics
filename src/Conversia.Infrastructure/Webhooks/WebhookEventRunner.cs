@@ -82,18 +82,19 @@ public sealed class WebhookEventRunner(
         var now = UtcNow();
 
         // Across all tenants on purpose: the queue is shared. LIMIT is inside the locking query, so only the claimed row is locked.
-        // Only the events of companies that are Active: those of a pending or suspended one stay pending, untouched, and are picked up
-        // again when the company is activated (the EXISTS is not in the FROM, so it locks nothing of Tenants).
-        var active = nameof(TenantStatus.Active);
+        // Only the events of companies that receive (TenantIngestion: Active, Paused, Suspended for a late payment): those of a pending, a
+        // manually suspended or a cancelled one stay pending, untouched (the EXISTS is not in the FROM, so it locks nothing of Tenants).
+#pragma warning disable EF1002 // the spliced condition is TenantIngestion's constant, built from enum names; the time is a parameter
         var claimed = await db.WebhookEvents
-            .FromSql($"""
+            .FromSqlRaw($$"""
                 SELECT * FROM "WebhookEvents"
-                WHERE "Status" = 'Pending' AND "NextAttemptAt" <= {now}
-                  AND EXISTS (SELECT 1 FROM "Tenants" WHERE "Tenants"."Id" = "WebhookEvents"."TenantId" AND "Tenants"."Status" = {active})
+                WHERE "Status" = 'Pending' AND "NextAttemptAt" <= {0}
+                  AND EXISTS (SELECT 1 FROM "Tenants" WHERE "Tenants"."Id" = "WebhookEvents"."TenantId" AND {{TenantIngestion.AcceptsWebhooksSql}})
                 ORDER BY "NextAttemptAt", "ReceivedAt"
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
-                """)
+                """, now)
+#pragma warning restore EF1002
             .IgnoreQueryFilters()
             .ToListAsync(cancellationToken);
 
@@ -168,6 +169,14 @@ public sealed class WebhookEventRunner(
 
         webhookEvent.RecordParseCounts(result.Skipped, result.Statuses, result.MessagesStored, result.MessagesAlreadyStored);
         webhookEvent.MarkProcessed(UtcNow());
+        if (result.Suppressed > 0)
+        {
+            // The raw delivery carries the messages of a suppressed contact (it was queued before the suppression, or re-sent): it goes now,
+            // in the same transaction. Whatever else it carried is already stored as messages; only its raw copy is lost.
+            db.WebhookEvents.Remove(webhookEvent);
+            logger.LogInformation("Webhook event {EventId} carried messages of a suppressed contact and was deleted after processing.", webhookEvent.Id);
+        }
+
         await db.SaveChangesAsync(budget.Token);
         await transaction.CommitAsync(budget.Token);
 

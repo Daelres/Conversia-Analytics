@@ -19,7 +19,7 @@ services:
       Classification__Llm__Client: Replay
       # Local only: records that sending pseudonymized conversations to a provider was approved (docs/decisiones.md). Replay sends nothing.
       Classification__Llm__PrivacyApproved: "true"
-      # Stage A limits (design D4): one attempt, at most 8 s, inside the claim transaction.
+      # One attempt, at most 8 s; the call runs outside any lock (three phases, docs/CLASSIFICATION.md "When the AI reads").
       Classification__Llm__TimeoutSeconds: "8"
       Classification__Llm__MaxRetries: "0"
 

@@ -40,6 +40,8 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<Message> Messages => Set<Message>();
 
+    public DbSet<MessageTemplate> MessageTemplates => Set<MessageTemplate>();
+
     public DbSet<Opportunity> Opportunities => Set<Opportunity>();
 
     public DbSet<WebhookEvent> WebhookEvents => Set<WebhookEvent>();
@@ -50,8 +52,79 @@ public class ApplicationDbContext : DbContext
     /// <summary>Platform-level trail of the administrators' changes. Names a tenant as data, so it is deliberately unfiltered.</summary>
     public DbSet<PlatformAuditLog> PlatformAuditLogs => Set<PlatformAuditLog>();
 
+    /// <summary>Platform-level licence inventory: the company it is assigned to is data (<c>AssignedTenantId</c>), so it is not filtered.</summary>
+    public DbSet<LineLicense> LineLicenses => Set<LineLicense>();
+
+    public DbSet<AiUsageMonth> AiUsageMonths => Set<AiUsageMonth>();
+
+    public DbSet<AiUsageConversation> AiUsageConversations => Set<AiUsageConversation>();
+
+    public DbSet<AssistantUsageMonth> AssistantUsageMonths => Set<AssistantUsageMonth>();
+
+    public DbSet<MessageSendOutcome> MessageSendOutcomes => Set<MessageSendOutcome>();
+
+    /// <summary>The marks of suppressed contacts (a per-company hash of the number): tenant-scoped.</summary>
+    public DbSet<ContactSuppression> ContactSuppressions => Set<ContactSuppression>();
+
+    /// <summary>Platform-level tombstones of deleted companies: the company is gone, so it is deliberately unfiltered.</summary>
+    public DbSet<TenantDeletion> TenantDeletions => Set<TenantDeletion>();
+
+    /// <summary>Platform-level plan catalogue (docs/BILLING.md).</summary>
+    public DbSet<BillingPlan> BillingPlans => Set<BillingPlan>();
+
+    public DbSet<BillingAddOn> BillingAddOns => Set<BillingAddOn>();
+
+    public DbSet<BillingSubscription> BillingSubscriptions => Set<BillingSubscription>();
+
+    public DbSet<BillingCharge> BillingCharges => Set<BillingCharge>();
+
+    public DbSet<BillingPaymentAttempt> BillingPaymentAttempts => Set<BillingPaymentAttempt>();
+
+    /// <summary>Platform-level: an event names no company until its transaction is matched.</summary>
+    public DbSet<BillingEvent> BillingEvents => Set<BillingEvent>();
+
+    public DbSet<AiQuotaGrant> AiQuotaGrants => Set<AiQuotaGrant>();
+
+    /// <summary>Platform-level: an unmatched payment names no company.</summary>
+    public DbSet<BillingReviewItem> BillingReviewItems => Set<BillingReviewItem>();
+
+    public DbSet<AiAnalysisRun> AiAnalysisRuns => Set<AiAnalysisRun>();
+
+    /// <summary>Platform-level: one Message Batch mixes companies (its requests are tenant-scoped).</summary>
+    public DbSet<LlmBatch> LlmBatches => Set<LlmBatch>();
+
+    public DbSet<LlmBatchRequest> LlmBatchRequests => Set<LlmBatchRequest>();
+
     /// <summary>Operations table: not tenant-filtered, see <c>ErrorLogConfiguration</c>.</summary>
     public DbSet<ErrorLog> ErrorLogs => Set<ErrorLog>();
+
+    /// <summary>Stored media objects whose messages are gone, waiting to be deleted from the media store (docs/MESSAGING.md, "Media").</summary>
+    public DbSet<MediaObjectDeletion> MediaObjectDeletions => Set<MediaObjectDeletion>();
+
+    /// <summary>The manager reports (docs/REPORTS.md): definitions, recipients, generated reports and their deliveries. Tenant-scoped.</summary>
+    public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
+
+    public DbSet<ReportRecipient> ReportRecipients => Set<ReportRecipient>();
+
+    public DbSet<ManagerReport> ManagerReports => Set<ManagerReport>();
+
+    public DbSet<ReportDelivery> ReportDeliveries => Set<ReportDelivery>();
+
+    public DbSet<ReportLedgerEntry> ReportLedgerEntries => Set<ReportLedgerEntry>();
+
+    /// <summary>The AI sales assistant (docs/ASSISTANT.md): settings, per-conversation state and timer, knowledge base versions, counters. Tenant-scoped.</summary>
+    public DbSet<AssistantSettings> AssistantSettings => Set<AssistantSettings>();
+
+    public DbSet<ConversationAssistant> ConversationAssistants => Set<ConversationAssistant>();
+
+    public DbSet<AssistantKnowledgeVersion> AssistantKnowledgeVersions => Set<AssistantKnowledgeVersion>();
+
+    public DbSet<AssistantActivityCount> AssistantActivityCounts => Set<AssistantActivityCount>();
+
+    public DbSet<AssistantAuditEntry> AssistantAuditEntries => Set<AssistantAuditEntry>();
+
+    /// <summary>Platform-level switches the administrator flips at run time (the assistant's global kill switch).</summary>
+    public DbSet<PlatformSwitch> PlatformSwitches => Set<PlatformSwitch>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -79,8 +152,31 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Contact>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<Conversation>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<Message>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<MessageTemplate>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<Opportunity>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
         modelBuilder.Entity<WebhookEvent>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AiUsageMonth>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AiUsageConversation>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AssistantUsageMonth>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<MessageSendOutcome>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ContactSuppression>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<BillingSubscription>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<BillingCharge>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<BillingPaymentAttempt>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AiQuotaGrant>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AiAnalysisRun>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<LlmBatchRequest>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<MediaObjectDeletion>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ReportDefinition>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ReportRecipient>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ManagerReport>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ReportDelivery>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ReportLedgerEntry>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AssistantSettings>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<ConversationAssistant>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AssistantKnowledgeVersion>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AssistantAuditEntry>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
+        modelBuilder.Entity<AssistantActivityCount>().HasQueryFilter(e => e.TenantId == _currentTenantService.TenantId);
 
         base.OnModelCreating(modelBuilder);
     }
@@ -103,6 +199,14 @@ public class ApplicationDbContext : DbContext
                 case EntityState.Added:
                     entry.Entity.CreatedAt = now;
                     entry.Entity.CreatedBy = currentUserId;
+
+                    // A conversation's last change is what the inbox's change token and delta read (docs/MESSAGING.md, "Inbox"): a new one has
+                    // changed now, so the column is never null and its index serves those queries without COALESCE.
+                    if (entry.Entity is Conversation)
+                    {
+                        entry.Entity.UpdatedAt = now;
+                    }
+
                     break;
                 case EntityState.Modified:
                     entry.Entity.UpdatedAt = now;

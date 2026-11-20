@@ -33,6 +33,16 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .IsRequired()
             .HasDefaultValue(false);
 
+        // The WhatsApp opt-in of the manager reports (docs/REPORTS.md): the number exists only together with the consent.
+        builder.Property(u => u.ReportsWhatsAppNumber).HasMaxLength(LineLicense.PhoneDigitsMaxLength);
+        builder.Ignore(u => u.ReceivesReportsOnWhatsApp);
+        builder.Property(u => u.ReportsWhatsAppCodeHash).HasMaxLength(64);
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_Users_ReportsWhatsAppOptIn", "(\"ReportsWhatsAppNumber\" IS NULL) = (\"ReportsWhatsAppOptInAt\" IS NULL)");
+            t.HasCheckConstraint("CK_Users_ReportsWhatsAppVerified", "\"ReportsWhatsAppVerifiedAt\" IS NULL OR \"ReportsWhatsAppNumber\" IS NOT NULL");
+        });
+
         builder.Property(u => u.CreatedAt).IsRequired();
         builder.Property(u => u.UpdatedAt);
 

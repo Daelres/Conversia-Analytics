@@ -25,6 +25,8 @@ builder.Services.AddScoped<DashboardLoader>();
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<OneTimeSubmissions>();
 builder.Services.AddHealthChecks();
+builder.Services.AddInboxPolling(builder.Configuration);
+builder.Services.AddReportUnsubscribeRateLimiting();
 
 var app = builder.Build();
 
@@ -47,10 +49,12 @@ if (!app.Environment.IsDevelopment())
 app.UseStatusCodePagesWithReExecute("/status/{0}", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
 app.UseNoStoreForDynamicResponses();
+app.UseSecurityHeaders();
 
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
+app.UseRateLimiter();
 app.UseRejectedFormPage();
 
 app.MapStaticAssets();
@@ -60,6 +64,9 @@ app.MapHealthChecks("/health");
 
 app.MapLogout();
 app.MapPermissionEndpoints();
+app.MapInboxEndpoints();
+app.MapMediaEndpoints();
+app.MapReportEndpoints();
 app.MapRazorComponents<App>();
 
 app.Run();

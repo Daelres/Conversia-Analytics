@@ -9,7 +9,7 @@ namespace Conversia.Application.Classification.Llm;
 /// </summary>
 public sealed class ExtractionSchema
 {
-    public const string Version = "1";
+    public const string Version = "2";
 
     public ExtractionSchema(LlmCatalog catalog, bool extractAgeRange)
     {
@@ -61,6 +61,15 @@ public sealed class ExtractionSchema
 
         properties["confidence"] = new JsonObject { ["type"] = "number" };
         properties["won_evidence_line"] = new JsonObject { ["type"] = new JsonArray("integer", "null") };
+        properties["reached_stage"] = new JsonObject
+        {
+            ["type"] = new JsonArray("string", "null"),
+            ["enum"] = Codes(ExtractionVocabulary.ReachedStages.Select(s => s.Code).Append(null)),
+        };
+        properties["moved_off_channel"] = new JsonObject { ["type"] = "string", ["enum"] = Codes(ExtractionVocabulary.OffChannelMoves.Select(s => s.Code)) };
+        properties["off_channel_evidence_line"] = new JsonObject { ["type"] = new JsonArray("integer", "null") };
+        properties["closed_by"] = new JsonObject { ["type"] = "string", ["enum"] = Codes(ExtractionVocabulary.Closers.Select(s => s.Code)) };
+        properties["closed_outside_system"] = new JsonObject { ["type"] = "boolean" };
 
         return new JsonObject
         {

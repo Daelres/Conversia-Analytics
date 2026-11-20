@@ -34,6 +34,11 @@ public class SandboxCustomerMessageRequest
     [Display(Name = "Texto")]
     [TrimmedText(Message.TextMaxLength)]
     public string? Text { get; set; }
+
+    /// <summary>A synthetic attachment of the simulated customer: <c>image</c> or <c>document</c> (docs/SANDBOX.md). With it, the text is an optional caption.</summary>
+    [Display(Name = "Adjunto de prueba")]
+    [RegularExpression("^(image|document)$", ErrorMessage = "El adjunto de prueba debe ser una imagen o un documento.")]
+    public string? Attachment { get; set; }
 }
 
 /// <summary>

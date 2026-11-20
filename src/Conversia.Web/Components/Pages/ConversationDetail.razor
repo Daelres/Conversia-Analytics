@@ -72,8 +72,10 @@ else if (!Redirected)
             <div class="stack">
                 @if (_conversation is not null)
                 {
-                    <Card Title="Chat" Subtitle="@ChatSubtitle" IconName="message" data-testid="chat-card">
-                        <ChatThread Messages="_conversation.Messages" ToLocal="TimeZone.ToLocal" />
+                    <Card Title="Chat" Subtitle="@ChatSubtitle" IconName="message" data-testid="chat-card"
+                          data-version-url="@($"/conversaciones/{Id}/version")" data-version="@ConversationVersion.Of(_conversation.MessageCount, _conversation.Status, _conversation.WindowOpen)"
+                          data-read-url="@(_readReceipts && CanManage && _conversation.AwaitingReply ? $"/conversaciones/{Id}/leido" : null)">
+                        <ChatThread Messages="_conversation.Messages" ToLocal="TimeZone.ToLocal" ConversationId="Id" />
                         @if (_conversation.MessageCount > _conversation.Messages.Count)
                         {
                             <p class="muted" data-testid="chat-truncated">Se muestran los primeros @MetricsFormat.Whole(_conversation.Messages.Count) de @MetricsFormat.Whole(_conversation.MessageCount) mensajes.</p>
@@ -81,7 +83,13 @@ else if (!Redirected)
                     </Card>
                 }
 
-                <MessageComposer State="_composer" SubmissionId="@_submissionId" Error="@_sendError" ApiErrors="_sendErrors" OnSend="SendAsync" OnInvalid="LoadAsync" />
+                <MessageComposer State="_composer" SubmissionId="@_submissionId" Error="@_sendError" ApiErrors="_sendErrors" OnSend="SendAsync" OnInvalid="LoadAsync"
+                                 NowUtc="_nowUtc" TypingUrl="@(_readReceipts && _composer.CanSend ? $"/conversaciones/{Id}/escribiendo" : null)" />
+
+                <AttachmentComposer ConversationId="Id" Offered="@(_composer.CanSend)" CustomerOffered="@(_customerComposer.CanSend)" NoticeCode="@Adjunto" />
+
+                <TemplateComposer ConversationId="Id" Offered="@(_composer.CanSendTemplate && _composer.WindowClosed)" Templates="_templates" SelectedKey="@Plantilla"
+                                  SubmissionId="@_templateSubmissionId" Error="@_templateError" ApiErrors="_templateErrors" OnSend="SendTemplateAsync" />
 
                 @* The second composer of a sandbox conversation: one person plays both sides. In a scope of its own, so that its form is
                    not the advisor's. Always in the render tree (hidden unless offered): a forged post reaches the API and is refused there. *@
@@ -94,7 +102,7 @@ else if (!Redirected)
             <div class="stack conversation-side">
                 @if (_conversation is not null)
                 {
-                    <OpportunityCard Opportunity="_conversation.Opportunity" ToLocal="TimeZone.ToLocal" />
+                    <OpportunityCard Opportunity="_conversation.Opportunity" ToLocal="TimeZone.ToLocal" AiAnalyzedAt="_conversation.AiAnalyzedAt" />
 
                     <Card Title="Datos de la conversación" IconName="info" data-testid="conversation-facts">
                         <dl class="kv">
@@ -132,12 +140,50 @@ else if (!Redirected)
                             }
                         </dl>
                     </Card>
+
+                    @if (CanSuppress)
+                    {
+                        <Card Title="Datos del cliente" Subtitle="Si el cliente pide borrar sus datos (habeas data)." IconName="shield-check" data-testid="contact-privacy">
+                            <p class="muted">Suprimir elimina para siempre al contacto con todas sus conversaciones y mensajes en tu empresa.</p>
+                            <a class="btn btn--danger-ghost" href="@ConversationLinks.Detail(Id)/suprimir-contacto" data-testid="suppress-contact-link"><Icon Name="trash" />Suprimir datos del cliente</a>
+                        </Card>
+                    }
+                }
+
+                @if (_assistant is { Available: true } assistant)
+                {
+                    <Card Title="Asistente de IA" IconName="sparkles" data-testid="assistant-card" data-assistant="@assistant.State">
+                        <p data-testid="assistant-status">@AssistantStatus(assistant)</p>
+                        @if (assistant.State == "HandedOff")
+                        {
+                            <p class="muted" data-testid="assistant-reason">Motivo: @AssistantReason(assistant.HandoffReason)</p>
+                        }
+                    </Card>
                 }
 
                 @* Always rendered: a POST can only be dispatched to a form that exists in the render tree, and a caller
                    without ConversationsManage who forges one must still reach the API and be refused there, not crash here. *@
                 <div hidden="@(!CanManage)" data-testid="manage-panel">
                     <div class="stack">
+                        <div hidden="@(_assistant is not { Available: true })">
+                            <EditForm Model="AssistantControl" FormName="assistant-control" OnSubmit="AssistantControlAsync" method="post" class="form" data-testid="assistant-control-form">
+                                <input type="hidden" name="@($"{nameof(AssistantControl)}.{nameof(AssistantControlInput.Action)}")" value="@(_assistant?.State == "HumanTookOver" || _assistant?.State == "HandedOff" ? "hand-back" : "take-over")" />
+                                <div class="form-actions">
+                                    @if (_assistant is not { Available: true })
+                                    {
+                                        @* No assistant on this line: the form exists for the POST dispatch only, without a button. *@
+                                    }
+                                    else if (_assistant.State is "HumanTookOver" or "HandedOff")
+                                    {
+                                        <button type="submit" class="btn btn--secondary" data-testid="assistant-hand-back"><Icon Name="sparkles" />Devolver al asistente</button>
+                                    }
+                                    else
+                                    {
+                                        <button type="submit" class="btn btn--primary" data-testid="assistant-take-over"><Icon Name="user" />Tomar la conversación</button>
+                                    }
+                                </div>
+                            </EditForm>
+                        </div>
                         <Card Title="Asignar asesor" Subtitle="Asesores activos de esta sucursal." IconName="user">
                             <EditForm Model="Assign" FormName="assign-advisor" OnValidSubmit="AssignAsync" OnInvalidSubmit="LoadAsync" method="post" class="form" data-testid="assign-form">
                                 <DataAnnotationsValidator />
@@ -218,9 +264,96 @@ else if (!Redirected)
     private string _customerSubmissionId = OneTimeSubmissions.NewId();
     private string? _customerError;
     private IReadOnlyDictionary<string, string[]>? _customerErrors;
+    private Conversia.Application.DTOs.Templates.ChannelTemplatesResponse? _templates;
+    private string _templateSubmissionId = OneTimeSubmissions.NewId();
+    private string? _templateError;
+    private IReadOnlyDictionary<string, string[]>? _templateErrors;
+    private bool _readReceipts;
+
+    /// <summary>The template picked in the template composer: <c>name|language</c>.</summary>
+    /// <summary>The notice of the attachment composer after a send (<c>enviado</c>, <c>simulado</c> or a refusal's code).</summary>
+    [SupplyParameterFromQuery(Name = "adjunto")]
+    public string? Adjunto { get; set; }
+
+    [SupplyParameterFromQuery(Name = "plantilla")]
+    public string? Plantilla { get; set; }
 
     private AssignAdvisorInput? _assign;
     private OutcomeInput? _outcome;
+
+    private Application.DTOs.Assistant.ConversationAssistantResponse? _assistant;
+    private AssistantControlInput? _assistantControl;
+
+    public sealed class AssistantControlInput
+    {
+        public string? Action { get; set; }
+    }
+
+    [SupplyParameterFromForm(FormName = "assistant-control")]
+    private AssistantControlInput AssistantControl
+    {
+        get => _assistantControl ??= new();
+        set => _assistantControl = value;
+    }
+
+    private static string AssistantStatus(Application.DTOs.Assistant.ConversationAssistantResponse a) => a.State switch
+    {
+        "Waiting" when a.Generating => "El asistente está preparando su respuesta.",
+        "Waiting" => "El cliente espera: si nadie responde, el asistente lo atiende.",
+        "Active" => $"El asistente está atendiendo ({a.AssistantTurns} respuestas).",
+        "HandedOff" => "Pendiente de revisión: el asistente pasó la conversación a una persona.",
+        "HumanTookOver" when a.TakenOverExplicitly => "Tomada por un asesor: el asistente no responde hasta que se la devuelvan.",
+        "HumanTookOver" => "Un asesor respondió: el asistente espera un tiempo antes de volver a atender.",
+        _ => "El asistente atiende si nadie responde a tiempo.",
+    };
+
+    private static string AssistantReason(string? reason) => reason switch
+    {
+        "max_turns" => "llegó al máximo de respuestas seguidas",
+        "keyword" => "el cliente mencionó una queja, un reclamo u otro tema sensible",
+        "human_requested" => "el cliente pidió hablar con una persona",
+        "misunderstanding" => "no entendió al cliente varias veces",
+        "window_closed" => "pasaron 24 horas desde el último mensaje del cliente",
+        "injection_suspected" => "el mensaje del cliente intentaba darle instrucciones",
+        "assistant_unavailable" => "el asistente todavía no redacta respuestas",
+        "generator_failed" or "generator_handoff" => "prefirió que una persona respondiera",
+        "send_failed" => "no pudo enviar el mensaje",
+        "quota_exhausted" => "se agotó el cupo del asistente este mes",
+        "off_topic" => "el cliente siguió hablando de temas ajenos a la empresa",
+        "complaint" => "el cliente presentó una queja",
+        "invalid_reply" => "no logró una respuesta con datos verificados",
+        "sale_closed" => "el cliente quiere comprar: falta confirmar la cita o el pago",
+        "model_refused" => "prefirió que una persona respondiera",
+        "media_not_understood" => "el cliente envió un audio o un archivo",
+        "rate_limited" => "llegó al límite de mensajes por hora",
+        _ => "otro motivo",
+    };
+
+    private async Task AssistantControlAsync()
+    {
+        var result = AssistantControl.Action == "hand-back"
+            ? await Api.HandBackConversationAsync(Token!, Id)
+            : await Api.TakeOverConversationAsync(Token!, Id);
+        if (result.IsSuccess)
+        {
+            RedirectTo(ConversationLinks.Detail(Id));
+            return;
+        }
+
+        if (result.Status == ApiResultStatus.Conflict)
+        {
+            Message = result.Detail;
+        }
+        else
+        {
+            await TryFailAsync(result);
+        }
+
+        if (!Redirected && !Denied)
+        {
+            await LoadAsync();
+        }
+    }
 
     [SupplyParameterFromForm(FormName = "assign-advisor")]
     private AssignAdvisorInput Assign
@@ -243,6 +376,8 @@ else if (!Redirected)
     public string? Notice { get; set; }
 
     private bool CanManage { get; set; }
+
+    private bool CanSuppress { get; set; }
 
     private static readonly (string Value, string Label)[] StageChoices =
     [
@@ -309,10 +444,27 @@ else if (!Redirected)
         _conversation = detailTask.Result.Value;
         CanManage = profileTask.Result.Value!.Can(Permission.ConversationsManage);
 
+        // The assistant's state (docs/ASSISTANT.md): best effort, the page works without it.
+        var assistant = await Api.GetConversationAssistantAsync(Token!, Id);
+        _assistant = assistant.IsSuccess ? assistant.Value : null;
+        CanSuppress = profileTask.Result.Value!.Can(Permission.ContactsSuppress);
+
         // The conversation itself says whether its line can send, so a person who may write needs no access to the organization.
         // In sandbox mode (docs/SANDBOX.md) a sandbox conversation needs no provider key, and a real one takes no message; outside it, the reverse.
         var sandboxMode = profileTask.Result.Value!.TenantSandboxMode;
-        _composer = ComposerState.For(CanManage, _conversation!.Status, _conversation.Channel, sandboxMode, _conversation.IsSandbox);
+        _composer = ComposerState.For(CanManage, _conversation!.Status, _conversation.Channel, sandboxMode, _conversation.IsSandbox)
+            .WithWindow(_conversation.WindowOpen, _conversation.WindowClosesAt);
+        _readReceipts = profileTask.Result.Value!.TenantReadReceipts;
+
+        // Outside the window the template composer is what can be sent: its list comes from the conversation's channel.
+        if (_composer.CanSendTemplate && _composer.WindowClosed)
+        {
+            var templates = await Api.GetConversationTemplatesAsync(Token!, Id);
+            _templates = templates.IsSuccess ? templates.Value : null;
+        }
+
+        // The read receipt is not sent by this render (a prefetch or a reload would send it): the page's script posts data-read-url once the
+        // page is visible (docs/MESSAGING.md, "Read receipts and typing"); without JavaScript nothing is marked as read.
         _customerComposer = CustomerComposer.For(CanManage, _conversation.Status, _conversation.Channel, sandboxMode, _conversation.IsSandbox);
 
         // Choosing an advisor needs to see them: without OrganizationView the list is simply empty (the current advisor is still named).
@@ -383,6 +535,61 @@ else if (!Redirected)
                 // the provider all the same, so the person is told what an unavailable provider would tell them. It was already logged and
                 // reported as an upstream failure, and its error code is on the page.
                 _sendError = SendFailure.OutcomeUnknown;
+                SetStatusCode(StatusCodes.Status503ServiceUnavailable);
+                break;
+            default:
+                await TryFailAsync(result);
+                break;
+        }
+
+        if (!Redirected && !_missing && !Denied)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task SendTemplateAsync(SendTemplateInput input)
+    {
+        var sender = HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+        if (!Submissions.TryClaim(sender, $"{Id:N}-template", input.SubmissionId))
+        {
+            _templateError = SendFailure.AlreadySubmitted;
+            await LoadAsync();
+            return;
+        }
+
+        var result = await Api.SendTemplateMessageAsync(Token!, Id, input.ToRequest());
+        if (result.IsSuccess)
+        {
+            RedirectTo(ConversationsNotice.Url(Id, ConversationsNotice.MessageSent));
+            return;
+        }
+
+        switch (result.Status)
+        {
+            case ApiResultStatus.ValidationFailed:
+                _templateErrors = result.ValidationErrors;
+                _templateError = "Revisa los valores de la plantilla: cada uno es obligatorio, sin saltos de línea y de hasta 500 caracteres.";
+                SetStatusCode(StatusCodes.Status400BadRequest);
+                break;
+            case ApiResultStatus.RateLimited when result.ProblemCode is null:
+                _templateError = SendFailure.TooManyMessages(result.RetryAfterSeconds);
+                SetStatusCode(StatusCodes.Status429TooManyRequests);
+                break;
+            case ApiResultStatus.Conflict or ApiResultStatus.Unprocessable or ApiResultStatus.RateLimited or ApiResultStatus.Unavailable
+                when SendFailure.Describe(result.ProblemCode) is { } described:
+                _templateError = described;
+                SetStatusCode(result.Status switch
+                {
+                    ApiResultStatus.Conflict => StatusCodes.Status409Conflict,
+                    ApiResultStatus.Unprocessable => StatusCodes.Status422UnprocessableEntity,
+                    ApiResultStatus.RateLimited => StatusCodes.Status429TooManyRequests,
+                    _ when SendFailure.MessageLeft(result.ProblemCode) => StatusCodes.Status500InternalServerError,
+                    _ => StatusCodes.Status503ServiceUnavailable,
+                });
+                break;
+            case ApiResultStatus.Unavailable:
+                _templateError = SendFailure.OutcomeUnknown;
                 SetStatusCode(StatusCodes.Status503ServiceUnavailable);
                 break;
             default:

@@ -5,7 +5,7 @@ namespace Conversia.Application.DTOs.Tenants;
 
 /// <summary>
 /// The caller's own company as it stands with the platform: whether it may operate and how many WhatsApp lines its agreement allows.
-/// Answered to any signed-in user of the company, also while it is pending or suspended.
+/// Answered to any signed-in user of the company, whatever its status (pending, paused, suspended, cancelled).
 /// </summary>
 public class TenantInfoResponse
 {
@@ -29,4 +29,11 @@ public class TenantInfoResponse
     /// sandbox data only. Only the platform administrator changes it.
     /// </summary>
     public bool SandboxMode { get; set; }
+
+    /// <summary>Why it is suspended: <c>Manual</c> (the Conversia team) or <c>Billing</c> (a payment is pending); null in every other status.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public SuspensionCause? SuspensionCause { get; set; }
+
+    /// <summary>When a cancelled company's data is deleted (unless it is reactivated before); null unless cancelled.</summary>
+    public DateTime? DataDeletionDueAt { get; set; }
 }

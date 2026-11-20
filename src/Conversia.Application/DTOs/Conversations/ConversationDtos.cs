@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Conversia.Application.Validation;
+using Conversia.Domain.Common;
 using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
 
@@ -140,6 +141,24 @@ public class ConversationListItem
     /// <summary>The customer wrote and the conversation closed without any reply.</summary>
     public bool ClosedUnanswered => FirstInboundAt is not null && FirstResponseAt is null && Status == nameof(ConversationStatus.Closed);
 
+    /// <summary>The customer's latest message: WhatsApp's 24-hour customer service window runs from it (docs/MESSAGING.md).</summary>
+    public DateTime? LastInboundAt { get; set; }
+
+    /// <summary>The business's latest message, by any way of sending.</summary>
+    public DateTime? LastOutboundAt { get; set; }
+
+    /// <summary>The customer wrote last: nothing from the business at or after the customer's latest message.</summary>
+    public bool AwaitingReply => LastInboundAt is { } inbound && (LastOutboundAt is not { } outbound || outbound < inbound);
+
+    /// <summary>When the customer service window closes (24 hours after <see cref="LastInboundAt"/>); null when the customer never wrote.</summary>
+    public DateTime? WindowClosesAt => CustomerServiceWindow.ClosesAt(LastInboundAt);
+
+    /// <summary>Whether free text can be sent now, as of when the API answered. Outside the window only a template can be sent.</summary>
+    public bool WindowOpen { get; set; }
+
+    /// <summary>The window is open and closes within two hours.</summary>
+    public bool WindowClosingSoon { get; set; }
+
     public int MessageCount { get; set; }
 
     /// <summary>True for a conversation of the internal sandbox (docs/SANDBOX.md): a simulated customer, never a real one.</summary>
@@ -174,6 +193,9 @@ public class ConversationDetailResponse : ConversationListItem
 
     public DateTime? AdvisorAssignedAt { get; set; }
 
+    /// <summary>When the AI last updated this conversation's fields (its scheduled analysis); null when it never did.</summary>
+    public DateTime? AiAnalyzedAt { get; set; }
+
     /// <summary>Oldest first, at most <see cref="MaxMessages"/>; <see cref="ConversationListItem.MessageCount"/> says how many exist.</summary>
     public IReadOnlyList<MessageResponse> Messages { get; set; } = [];
 
@@ -194,14 +216,88 @@ public class MessageResponse
 
     public DateTime SentAt { get; set; }
 
+    /// <summary>The template a send from Conversia used; null for any other message.</summary>
+    public string? TemplateName { get; set; }
+
+    /// <summary><c>Marketing</c>, <c>Utility</c> or <c>Authentication</c> for a template message: Meta charges it by this category.</summary>
+    public string? TemplateCategory { get; set; }
+
+    /// <summary>The message's media file, when it has one (docs/MESSAGING.md, "Media"): its state and type, never the provider's id nor the store's key.</summary>
+    public MessageAttachmentResponse? Attachment { get; set; }
+
+    /// <summary>The message came from an imported chat history (coexistence onboarding).</summary>
+    public bool Imported { get; set; }
+
+    /// <summary>Who wrote it (docs/MESSAGING.md, "Who sent it"): <c>Customer</c>, <c>Conversia</c>, <c>PhoneApp</c>, <c>AiAssistant</c>, <c>Unknown</c>.</summary>
+    public string Sender { get; set; } = string.Empty;
+
     public static MessageResponse From(Message message) => new()
     {
+        Sender = message.Sender.ToString(),
         Id = message.Id,
         Direction = message.Direction.ToString(),
         Type = message.Type,
         Text = message.Text,
         SentAt = message.SentAt,
+        TemplateName = message.TemplateName,
+        TemplateCategory = message.TemplateCategory?.ToString(),
+        Attachment = MessageAttachmentResponse.From(message),
+        Imported = message.IsImported,
     };
+}
+
+/// <summary>The media file of a message. Served by <c>GET /api/conversations/{id}/messages/{messageId}/media</c> once <see cref="Status"/> is <c>stored</c>.</summary>
+public class MessageAttachmentResponse
+{
+    /// <summary><c>pending</c>, <c>stored</c>, <c>too_large</c>, <c>blocked</c>, <c>expired</c>, <c>failed</c> or <c>purged</c>.</summary>
+    public string Status { get; set; } = string.Empty;
+
+    /// <summary><c>image</c>, <c>audio</c>, <c>video</c>, <c>document</c> or <c>sticker</c>.</summary>
+    public string Kind { get; set; } = string.Empty;
+
+    /// <summary>The type it is served with (checked against its content); null until stored.</summary>
+    public string? ContentType { get; set; }
+
+    public long? SizeBytes { get; set; }
+
+    public static MessageAttachmentResponse? From(Message message)
+        => message.MediaStatus is not { } status
+            ? null
+            : new MessageAttachmentResponse
+            {
+                Status = StatusName(status),
+                Kind = message.Type,
+                ContentType = status == MediaStatus.Stored ? message.MediaContentType : null,
+                SizeBytes = status == MediaStatus.Stored ? message.MediaSizeBytes : null,
+            };
+
+    public static string StatusName(MediaStatus status) => status switch
+    {
+        MediaStatus.TooLarge => "too_large",
+        _ => status.ToString().ToLowerInvariant(),
+    };
+}
+
+/// <summary>
+/// An attachment to send (<c>POST /api/conversations/{id}/media-messages</c>, multipart <c>file</c> and <c>caption</c>). The file's name is never
+/// read: it can carry personal data and nothing needs it.
+/// </summary>
+public sealed class SendMediaMessageRequest
+{
+    /// <summary>WhatsApp's limit of a media caption.</summary>
+    public const int CaptionMaxLength = 1024;
+
+    public static readonly string CaptionRuleMessage = $"El texto del adjunto {Domain.Common.TextRules.RuleText(CaptionMaxLength, required: false)}.";
+
+    /// <summary>The file, seekable (the API's buffered form file): it is read from here, never copied whole into memory.</summary>
+    public Stream Content { get; init; } = Stream.Null;
+
+    /// <summary>The type the browser declared: a hint only, the content decides.</summary>
+    public string? DeclaredContentType { get; init; }
+
+    public string? Caption { get; init; }
+
+    public override string ToString() => $"SendMediaMessageRequest {{ Length = {(Content.CanSeek ? Content.Length : -1)}, HasCaption = {!string.IsNullOrWhiteSpace(Caption)} }}";
 }
 
 /// <summary>
@@ -215,6 +311,26 @@ public class SendMessageRequest
     [Display(Name = "Texto")]
     [TrimmedText(Message.TextMaxLength)]
     public string? Text { get; set; }
+}
+
+/// <summary>
+/// Body of <c>POST /api/conversations/{id}/template-messages</c>: an approved template of the conversation's channel, by name and language,
+/// with one value per placeholder in the order the template lists them (docs/MESSAGING.md, "Templates").
+/// </summary>
+public class SendTemplateMessageRequest
+{
+    [Display(Name = "Plantilla")]
+    [TrimmedText(MessageTemplate.NameMaxLength)]
+    public string? TemplateName { get; set; }
+
+    [Display(Name = "Idioma")]
+    [TrimmedText(MessageTemplate.LanguageMaxLength)]
+    public string? Language { get; set; }
+
+    /// <summary>The values of the placeholders; each one is checked against the template (count, length, no line breaks).</summary>
+    [Display(Name = "Valores")]
+    [MaxLength(MessageTemplate.MaxParameters, ErrorMessage = ValidationMessages.MaxItems)]
+    public List<string?> Parameters { get; set; } = [];
 }
 
 public class OpportunityResponse
@@ -249,6 +365,29 @@ public class OpportunityResponse
     /// <summary>Comma-separated codes of the rules behind the last classification (<c>outcome.lost.refusal,objection.price</c>); never customer text.</summary>
     public string? ClassificationRules { get; set; }
 
+    /// <summary>How far the conversation got (a <c>ReachedStage</c> name, <c>FirstContact</c> ... <c>PaymentOrDeposit</c>); null when not read yet.</summary>
+    public string? ReachedStage { get; set; }
+
+    /// <summary><c>None</c>, <c>PhoneCall</c>, <c>InPerson</c> or <c>OtherChannel</c>.</summary>
+    public string MovedOffChannel { get; set; } = string.Empty;
+
+    /// <summary>The 1-based position, among the messages the classifier read, of the message that shows the move; null without a move.</summary>
+    public int? OffChannelEvidenceIndex { get; set; }
+
+    /// <summary><c>Unknown</c>, <c>Advisor</c>, <c>CustomerSelfService</c> (or <c>AiAssistant</c>, reserved).</summary>
+    public string ClosedBy { get; set; } = string.Empty;
+
+    public bool ClosedOutsideSystem { get; set; }
+
+    /// <summary><c>Auto</c> or <c>Manual</c>, per closing-point field.</summary>
+    public string ReachedStageSource { get; set; } = string.Empty;
+
+    public string MovedOffChannelSource { get; set; } = string.Empty;
+
+    public string ClosedBySource { get; set; } = string.Empty;
+
+    public string ClosedOutsideSystemSource { get; set; } = string.Empty;
+
     public static OpportunityResponse From(Opportunity opportunity) => new()
     {
         Stage = opportunity.Stage.ToString(),
@@ -264,6 +403,15 @@ public class OpportunityResponse
         ClassifiedAt = opportunity.ClassifiedAt,
         ClassificationConfidence = opportunity.ClassificationConfidence,
         ClassificationRules = opportunity.ClassificationRules,
+        ReachedStage = opportunity.ReachedStage?.ToString(),
+        MovedOffChannel = opportunity.MovedOffChannel.ToString(),
+        OffChannelEvidenceIndex = opportunity.OffChannelEvidenceIndex,
+        ClosedBy = opportunity.ClosedBy.ToString(),
+        ClosedOutsideSystem = opportunity.ClosedOutsideSystem,
+        ReachedStageSource = opportunity.ReachedStageSource.ToString(),
+        MovedOffChannelSource = opportunity.MovedOffChannelSource.ToString(),
+        ClosedBySource = opportunity.ClosedBySource.ToString(),
+        ClosedOutsideSystemSource = opportunity.ClosedOutsideSystemSource.ToString(),
     };
 }
 

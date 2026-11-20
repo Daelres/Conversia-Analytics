@@ -1,0 +1,207 @@
+@page "/conversaciones/hasta-donde-llegan"
+@attribute [Authorize]
+@using Conversia.Application.DTOs.Metrics
+@using Conversia.Application.DTOs.Organization
+@using Conversia.Domain.Enums
+@using Conversia.Web.Components.Dashboard
+@inherits AuthenticatedPageBase
+@using Conversia.Web.Time
+@using Conversia.Application.Time
+@inject TenantTimeZone TimeZone
+@inject TimeProvider Clock
+
+<PageTitle>Hasta dónde llegan - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <StatusView DataPage="forbidden" Code="403" Title="Sin acceso a este análisis" Art="locked"
+                Hint="Pide acceso a la persona propietaria de tu empresa.">
+        <ChildContent>Tu cuenta no tiene el permiso «@PermissionLabels.For(Permission.MetricsView)». Con él verás hasta dónde llegan las conversaciones que no terminan en venta.</ChildContent>
+        <Actions>
+            <a class="btn btn--primary" href="/"><Icon Name="home" />Ir al inicio</a>
+        </Actions>
+    </StatusView>
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="closing-point">
+        <PageHeader Eyebrow="Conversaciones" EyebrowIcon="message" Title="Hasta dónde llegan las conversaciones"
+                    Description="De las conversaciones que terminaron sin venta, en qué paso se quedaron: dónde conviene reforzar el proceso comercial.">
+            <a class="btn btn--secondary" href="/conversaciones"><Icon Name="message" />Ver conversaciones</a>
+        </PageHeader>
+
+        <form method="get" action="/conversaciones/hasta-donde-llegan" class="filters" role="search" aria-label="Filtros del análisis" data-testid="closing-point-filters">
+            <div class="field">
+                <label for="period" class="field__label">Periodo</label>
+                <select id="period" name="period" class="input">
+                    @foreach (var preset in PeriodPresets.All)
+                    {
+                        <option value="@PeriodPresets.Code(preset)" selected="@(preset == Preset)">@PeriodPresets.Label(preset)</option>
+                    }
+                </select>
+            </div>
+            @if (_branches is { Count: > 0 })
+            {
+                <div class="field">
+                    <label for="branch" class="field__label">Sucursal</label>
+                    <select id="branch" name="branch" class="input">
+                        <option value="" selected="@(BranchId is null)">Todas las sucursales</option>
+                        @foreach (var branch in _branches)
+                        {
+                            <option value="@branch.Id" selected="@(branch.Id == BranchId)">@branch.Name</option>
+                        }
+                    </select>
+                </div>
+            }
+            @if (_advisors is { Count: > 0 })
+            {
+                <div class="field">
+                    <label for="advisor" class="field__label">Asesor</label>
+                    <select id="advisor" name="advisor" class="input">
+                        <option value="" selected="@(AdvisorId is null)">Todos los asesores</option>
+                        @foreach (var advisor in _advisors)
+                        {
+                            <option value="@advisor.Id" selected="@(advisor.Id == AdvisorId)">@advisor.Name</option>
+                        }
+                    </select>
+                </div>
+            }
+            <div class="field">
+                <label for="source" class="field__label">Origen</label>
+                <select id="source" name="source" class="input">
+                    <option value="" selected="@(Source is null)">Todos los orígenes</option>
+                    @foreach (var source in Enum.GetNames<ConversationSource>())
+                    {
+                        <option value="@source" selected="@(source == Source)">@ConversationLabels.Source(source)</option>
+                    }
+                </select>
+            </div>
+            <button type="submit" class="btn btn--secondary"><Icon Name="filter" />Aplicar</button>
+        </form>
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_data is { } data)
+        {
+            <p class="range" data-testid="stopped">@StoppedText(data)</p>
+            @if (data.MainDropOff is null)
+            {
+                <div data-testid="closing-point-empty">
+                    <EmptyState Title="Aún no hay conversaciones sin venta que analizar" Art="search"
+                                Text="Cuando haya conversaciones perdidas o que se enfriaron en este periodo, verás aquí en qué paso se quedaron." />
+                </div>
+            }
+            else
+            {
+                <section class="stack" aria-labelledby="closing-main">
+                    <h2 id="closing-main" class="section-title"><Icon Name="alert-triangle" />Dónde se quedan más</h2>
+                    <p class="kpi__value" data-testid="main-drop-off">@ConversationLabels.ReachedStage(data.MainDropOff)</p>
+                    <p class="muted">El paso en el que se quedó la mayoría de las conversaciones que no terminaron en venta.</p>
+                </section>
+
+                <section class="stack" aria-labelledby="closing-stages">
+                    <h2 id="closing-stages" class="section-title"><Icon Name="bar-chart" />Hasta dónde llegaron</h2>
+                    <ul class="barlist" aria-label="Conversaciones sin venta por el paso más avanzado que alcanzaron">
+                        @foreach (var stage in data.Stages)
+                        {
+                            <li class="barlist__item" data-testid="stage-row" data-stage="@stage.Stage" data-count="@stage.Count">
+                                <div class="barlist__head">
+                                    <span class="barlist__name">@ConversationLabels.ReachedStage(stage.Stage)</span>
+                                    <span class="barlist__value">@MetricsFormat.Whole(stage.Count) · @MetricsFormat.Percent(stage.SharePercent)</span>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                </section>
+            }
+
+            <section class="stack" aria-labelledby="closing-moved" data-testid="moved-off">
+                <h2 id="closing-moved" class="section-title"><Icon Name="activity" />Salieron del chat</h2>
+                <p>@MovedText(data.MovedOffChannel)</p>
+                @if (data.MovedOffChannel.Count > 0)
+                {
+                    <ul class="cluster">
+                        @foreach (var move in data.MovedOffChannel.ByMove)
+                        {
+                            <li><Chip>@ConversationLabels.OffChannelMove(move.Move): @MetricsFormat.Whole(move.Count)</Chip></li>
+                        }
+                    </ul>
+                }
+            </section>
+        }
+    </div>
+}
+
+@code {
+    private ClosingPointResponse? _data;
+    private IReadOnlyList<BranchResponse>? _branches;
+    private IReadOnlyList<AdvisorResponse>? _advisors;
+
+    [SupplyParameterFromQuery(Name = "period")]
+    public string? PeriodCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "branch")]
+    public string? BranchText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "advisor")]
+    public string? AdvisorText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "source")]
+    public string? SourceText { get; set; }
+
+    private PeriodPreset Preset => PeriodPresets.Parse(PeriodCode);
+
+    private Guid? BranchId => Guid.TryParse(BranchText, out var id) ? id : null;
+
+    private Guid? AdvisorId => Guid.TryParse(AdvisorText, out var id) ? id : null;
+
+    // Only a known origin is sent; anything else is ignored (never echoed to the API).
+    private string? Source => Enum.GetNames<ConversationSource>().FirstOrDefault(s => string.Equals(s, SourceText, StringComparison.Ordinal));
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        var profileResult = await Api.GetMyProfileAsync(Token!);
+        if (await TryFailAsync(profileResult))
+        {
+            return;
+        }
+
+        var profile = profileResult.Value!;
+        Shell.Remember(profile);
+        if (!profile.Can(Permission.MetricsView))
+        {
+            Deny();
+            return;
+        }
+
+        var range = PeriodPresets.Resolve(Preset, TimeZone.Today(Clock));
+        var query = new MetricsQuery { From = range.From, To = range.To, BranchId = BranchId, AdvisorId = AdvisorId, Source = Source };
+        var data = Api.GetMetricsClosingPointAsync(Token!, query);
+        var branches = Api.GetBranchesAsync(Token!);
+        var advisors = Api.GetAdvisorsAsync(Token!);
+        await Task.WhenAll(data, branches, advisors);
+
+        if (await TryFailAsync(data.Result))
+        {
+            return;
+        }
+
+        _data = data.Result.Value;
+        // The filters' lists are extras: without them the page still stands.
+        _branches = branches.Result.IsSuccess ? branches.Result.Value : null;
+        _advisors = advisors.Result.IsSuccess ? advisors.Result.Value : null;
+    }
+
+    private static string StoppedText(ClosingPointResponse data)
+        => $"{MetricsFormat.Conversations(data.Stopped)} {(data.Stopped == 1 ? "terminó" : "terminaron")} sin venta (perdidas, o sin movimiento hace más de una semana) de {MetricsFormat.Whole(data.Conversations)} en el periodo"
+           + (data.NotRead > 0 ? $"; {MetricsFormat.Whole(data.NotRead)} aún sin leer." : ".");
+
+    private static string MovedText(MovedOffChannelSummary moved) => moved.Count == 0
+        ? "Ninguna conversación del periodo pasó a una llamada, a la sede u otro canal."
+        : $"{MetricsFormat.Conversations(moved.Count)} ({MetricsFormat.Percent(moved.SharePercent)} del periodo) {(moved.Count == 1 ? "siguió" : "siguieron")} fuera del chat:";
+}

@@ -1,0 +1,160 @@
+@page "/informes"
+@attribute [Authorize]
+@using Conversia.Application.DTOs
+@using Conversia.Application.DTOs.Reports
+@using Conversia.Domain.Enums
+@using Conversia.Web.Time
+@inherits AuthenticatedPageBase
+@inject Conversia.Application.Time.TenantTimeZone TimeZone
+
+<PageTitle>Informes - Conversia</PageTitle>
+
+@if (Denied)
+{
+    <ForbiddenView />
+}
+else if (!Redirected)
+{
+    <div class="page" data-page="reports">
+        <PageHeader Eyebrow="Informes" EyebrowIcon="bar-chart" Title="Informes para gerentes"
+                    Description="Un resumen corto y automático, por correo o WhatsApp, con los números que importan y qué hacer.">
+            @if (_canManage)
+            {
+                <a class="btn btn--primary" href="/informes/nuevo" data-testid="report-new"><Icon Name="plus" />Nuevo informe</a>
+            }
+            <a class="btn btn--secondary" href="/informes/whatsapp" data-testid="report-whatsapp-link"><Icon Name="phone" />Recibir en mi WhatsApp</a>
+        </PageHeader>
+
+        @if (Notice is SavedNotice or DeletedNotice)
+        {
+            <Alert Kind="AlertKind.Success" data-testid="notice-success">@(Notice == SavedNotice ? "Informe guardado." : "Informe eliminado.")</Alert>
+        }
+
+        <ErrorAlert Message="@Message" />
+
+        @if (_canManage && _definitions is not null)
+        {
+            <Card Title="Informes configurados" IconName="layers" data-testid="report-definitions">
+                @if (_definitions.Count == 0)
+                {
+                    <p class="muted" data-testid="report-definitions-empty">Todavía no hay informes. Crea uno para que tus gerentes lo reciban solos.</p>
+                }
+                else
+                {
+                    <table class="table">
+                        <thead><tr><th>Nombre</th><th>Cuándo</th><th>Próximo envío</th><th>Personas</th><th>Estado</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var definition in _definitions)
+                            {
+                                <tr data-testid="report-definition-row" data-definition-id="@definition.Id">
+                                    <td>@definition.Name</td>
+                                    <td>@ReportLabels.Schedule(definition)</td>
+                                    <td>@(definition.IsActive ? TimeZone.ToLocal(definition.NextSendAt).ToString("dd/MM/yyyy HH:mm") : "—")</td>
+                                    <td>@definition.Recipients.Count</td>
+                                    <td>@(definition.IsActive ? "Activo" : "En pausa")</td>
+                                    <td><a href="/informes/definiciones/@definition.Id" data-testid="report-definition-edit">Editar</a></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </Card>
+        }
+
+        @if (_reports is not null)
+        {
+            <Card Title="Informes enviados" IconName="mail" data-testid="report-history">
+                @if (_reports.Items.Count == 0)
+                {
+                    <p class="muted" data-testid="report-history-empty">Aún no se ha generado ningún informe.</p>
+                }
+                else
+                {
+                    <table class="table">
+                        <thead><tr><th>Periodo</th><th>Informe</th><th>Resumen</th><th>Entregas</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var report in _reports.Items)
+                            {
+                                <tr data-testid="report-row" data-report-id="@report.Id" data-generator="@report.Generator">
+                                    <td>@report.Period.Label</td>
+                                    <td>@report.DefinitionName<br /><span class="muted">@ReportLabels.Generator(report.Generator)</span></td>
+                                    <td>@report.Headline</td>
+                                    <td data-testid="report-row-deliveries">@Deliveries(report.Deliveries)</td>
+                                    <td><a href="/informes/@report.Id" data-testid="report-open">Ver</a></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    <Pager Page="_reports.Page" PageSize="_reports.PageSize" Total="_reports.TotalCount" TotalText="@($"{_reports.TotalCount} informes")" UrlFor="@(p => $"/informes?pagina={p}")" />
+                }
+            </Card>
+        }
+        else if (!_canManage)
+        {
+            <p class="muted" data-testid="report-recipient-note">Los informes que recibes llegan a tu correo o WhatsApp con un enlace para leerlos aquí.</p>
+        }
+    </div>
+}
+
+@code {
+    public const string SavedNotice = "guardado";
+    public const string DeletedNotice = "eliminado";
+
+    private IReadOnlyList<ReportDefinitionResponse>? _definitions;
+    private PagedResponse<ReportSummaryResponse>? _reports;
+    private bool _canManage;
+
+    [SupplyParameterFromQuery(Name = "aviso")]
+    public string? Notice { get; set; }
+
+    [SupplyParameterFromQuery(Name = "pagina")]
+    public int? PageNumber { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!await TryReadTokenAsync())
+        {
+            return;
+        }
+
+        var profile = await Api.GetMyProfileAsync(Token!);
+        if (await TryFailAsync(profile))
+        {
+            return;
+        }
+
+        Shell.Remember(profile.Value!);
+        _canManage = profile.Value!.Can(Permission.ReportsManage);
+        if (_canManage)
+        {
+            var definitions = await Api.GetReportDefinitionsAsync(Token!);
+            if (await TryFailAsync(definitions))
+            {
+                return;
+            }
+
+            _definitions = definitions.Value;
+        }
+
+        if (profile.Value!.Can(Permission.MetricsView))
+        {
+            var reports = await Api.GetReportsAsync(Token!, PageNumber ?? 1);
+            if (await TryFailAsync(reports))
+            {
+                return;
+            }
+
+            _reports = reports.Value;
+        }
+    }
+
+    private static string Deliveries(ReportDeliveryCounts counts)
+    {
+        var parts = new List<string>();
+        if (counts.Sent > 0) parts.Add($"{counts.Sent} enviadas");
+        if (counts.Pending > 0) parts.Add($"{counts.Pending} pendientes");
+        if (counts.Failed > 0) parts.Add($"{counts.Failed} no se pudieron enviar");
+        if (counts.Skipped > 0) parts.Add($"{counts.Skipped} sin enviar");
+        return parts.Count == 0 ? "—" : string.Join(", ", parts);
+    }
+}

@@ -30,6 +30,8 @@ public class TenantService : ITenantService
             ActiveLines = usage.Active,
             RegisteredLines = usage.Registered,
             SandboxMode = tenant.SandboxMode,
+            SuspensionCause = tenant.SuspensionCause,
+            DataDeletionDueAt = tenant.DataDeletionStartedAt is null ? tenant.DataDeletionDueAt : null,
         };
     }
 }

@@ -116,9 +116,11 @@ public class AdminHelpersTests
     // ---- the moves of a status ----
 
     [Theory]
-    [InlineData(TenantStatus.Pending, new[] { "activar", "suspender" })]
-    [InlineData(TenantStatus.Active, new[] { "suspender" })]
-    [InlineData(TenantStatus.Suspended, new[] { "reactivar" })]
+    [InlineData(TenantStatus.Pending, new[] { "activar", "suspender", "cancelar" })]
+    [InlineData(TenantStatus.Active, new[] { "pausar", "suspender", "cancelar" })]
+    [InlineData(TenantStatus.Paused, new[] { "reanudar", "suspender", "cancelar" })]
+    [InlineData(TenantStatus.Suspended, new[] { "reactivar", "cancelar" })]
+    [InlineData(TenantStatus.Cancelled, new[] { "reactivar" })]
     public void The_moves_offered_follow_the_lifecycle_of_the_domain(TenantStatus current, string[] routes)
         => Assert.Equal(routes, TenantStatusLabels.ActionsFor(current).Select(a => a.Route));
 
@@ -150,6 +152,18 @@ public class AdminHelpersTests
 
     private static AuditEntryResponse Entry(string action, string json)
         => new() { Action = action, Details = JsonDocument.Parse(json).RootElement.Clone() };
+
+    [Fact]
+    public void An_ai_schedule_change_reads_both_schedules_in_words_and_the_reason()
+    {
+        var text = AuditFormat.Describe(Entry("tenant.ai_schedule_changed",
+            """{"from":{"mode":"Nightly","nightlyHour":null,"intervalHours":null},"to":{"mode":"EveryHours","nightlyHour":null,"intervalHours":6},"reason":"Campaña"}"""));
+
+        Assert.Equal("Cambió la frecuencia del análisis con IA: cada noche (hora por defecto) → cada 6 horas", text.Title);
+        Assert.Equal("Motivo: Campaña", text.Detail);
+        Assert.Equal("Cambió la frecuencia del análisis con IA: cada noche desde las 03:00 → casi en tiempo real", AuditFormat.Describe(Entry("tenant.ai_schedule_changed",
+            """{"from":{"mode":"Nightly","nightlyHour":3,"intervalHours":null},"to":{"mode":"NearRealTime","nightlyHour":null,"intervalHours":null},"reason":"x"}""")).Title);
+    }
 
     [Fact]
     public void A_status_change_names_both_statuses_and_the_reason_when_there_is_one()

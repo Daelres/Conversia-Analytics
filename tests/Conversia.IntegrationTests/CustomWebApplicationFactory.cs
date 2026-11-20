@@ -93,12 +93,29 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         builder.UseSetting("Webhooks:Retention:Enabled", "false");
         // Background jobs of the conversations are driven by hand in the tests that need them (their runners are called directly).
         builder.UseSetting("Conversations:AutoCloseEnabled", "false");
+        builder.UseSetting("Templates:SyncEnabled", "false"); // the periodic template sync would call 360dialog; tests run it by hand
         builder.UseSetting("Classification:Enabled", "false");
+        builder.UseSetting("Usage:Retention:Enabled", "false");
+        builder.UseSetting("Tenants:Deletion:Enabled", "false"); // the tests run the deleter directly
+        builder.UseSetting("Billing:Job:Enabled", "false"); // the tests run the billing job directly
+        builder.UseSetting("Reports:Job:Enabled", "false"); // the tests run the manager reports job with the time they choose
+        builder.UseSetting("Assistant:JobEnabled", "false"); // the tests run the assistant job with the time they choose
+        builder.UseSetting("Email:Provider", "None"); // no test writes or sends an email unless it brings its own stand-in
+        // A real privacy key, as every deployment outside Development has one (the Development fallback would log a warning).
+        builder.UseSetting("Privacy:HashKey", "dGVzdC1vbmx5LXByaXZhY3ktaGFzaC1rZXktMzItYnl0ZXMhIQ==");
+        builder.UseSetting("Messaging:TenantSendLimitRefresh:Enabled", "false");
+        builder.UseSetting("PlatformMonitoring:OverviewCacheSeconds", "0"); // each test reads its own state
         // Every call from the in-process client shares one address; the webhook rate-limit tests use a derived host with a small budget.
         builder.UseSetting("Webhooks:FailedAuthRateLimitPerMinute", "1000000");
         builder.UseSetting("Webhooks:ChannelRateLimitPerMinute", "1000000");
         // Every metrics and list call of a test comes from one user; the rate-limit tests use a derived host with a small budget.
         builder.UseSetting("Metrics:RateLimitPerMinute", "100000");
+        // Media (docs/MESSAGING.md, "Media"): the local encrypted store in a throw-away directory; the download and retention jobs are run by hand.
+        builder.UseSetting("Media:Store", "Local");
+        builder.UseSetting("Media:Local:RootPath", MediaRoot);
+        builder.UseSetting("Media:Local:EncryptionKey", Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)));
+        builder.UseSetting("Media:JobsEnabled", "false");
+        builder.UseSetting("Media:Local:AllowOutsideDevelopment", "true");
 
         builder.ConfigureServices(services =>
         {
@@ -116,8 +133,15 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         });
     }
 
+    /// <summary>The throw-away directory of the shared host's media store.</summary>
+    internal string MediaRoot { get; } = Path.Combine(Path.GetTempPath(), "conversia-media-it", Guid.NewGuid().ToString("N"));
+
     async Task IAsyncLifetime.DisposeAsync()
     {
         await _postgres.DisposeAsync();
+        if (Directory.Exists(MediaRoot))
+        {
+            Directory.Delete(MediaRoot, recursive: true);
+        }
     }
 }

@@ -75,8 +75,14 @@ public sealed record Dialog360ApiOptions(Uri SandboxBaseUrl, Uri ProductionBaseU
 /// The validated limits of sending under <c>Messaging</c>: messages per minute for one user and for a whole company, and how long the
 /// transaction that records a sent message may take (each statement, and each lock wait).
 /// </summary>
-public sealed record MessageSendingOptions(int SendRateLimitPerMinute, int TenantSendRateLimitPerMinute, int RecordTimeoutSeconds)
+/// <param name="TenantSendRateLimitMaxPerMinute">The most a company's own send limit (set by the platform administrator) may be.</param>
+public sealed record MessageSendingOptions(int SendRateLimitPerMinute, int TenantSendRateLimitPerMinute, int RecordTimeoutSeconds, int TenantSendRateLimitMaxPerMinute = 1200)
 {
+    public const string TenantSendRateLimitMaxPerMinuteKey = SecretProtectionOptions.SectionName + ":TenantSendRateLimitMaxPerMinute";
+
+    /// <summary>The default maximum: this many times the deployment's company limit.</summary>
+    public const int DefaultMaxMultiple = 10;
+
     public const string SendRateLimitPerMinuteKey = SecretProtectionOptions.SectionName + ":SendRateLimitPerMinute";
     public const string TenantSendRateLimitPerMinuteKey = SecretProtectionOptions.SectionName + ":TenantSendRateLimitPerMinute";
     public const string RecordTimeoutSecondsKey = SecretProtectionOptions.SectionName + ":RecordTimeoutSeconds";

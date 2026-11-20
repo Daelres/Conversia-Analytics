@@ -26,7 +26,10 @@ else if (!Redirected)
 {
     <div class="page" data-page="organization">
         <PageHeader Eyebrow="Tu negocio" EyebrowIcon="building" Title="Organización"
-                    Description="Las sucursales, los asesores que atienden y los números de WhatsApp que Conversia lee." />
+                    Description="Las sucursales, los asesores que atienden y los números de WhatsApp que Conversia lee.">
+            <a class="btn btn--secondary" href="/organizacion/mensajeria" data-testid="to-messaging-settings"><Icon Name="message" />Confirmaciones de lectura</a>
+            <a class="btn btn--secondary" href="/organizacion/asistente" data-testid="to-assistant-settings"><Icon Name="sparkles" />Asistente de IA</a>
+        </PageHeader>
 
         @if (OrganizationNotice.Describe(Notice) is { } notice)
         {
@@ -209,7 +212,20 @@ else if (!Redirected)
                                         <tr data-testid="channel-row" data-channel-id="@channel.Id" data-active="@(channel.IsActive ? "true" : "false")">
                                             <th scope="row" data-label="Número" id="ch-@channel.Id">@channel.DisplayPhoneNumber</th>
                                             <td data-label="Sucursal">@BranchName(channel.BranchId)</td>
-                                            <td data-label="Estado"><Chip Tone="@(channel.IsActive ? ChipTone.Success : ChipTone.Neutral)" IconName="@(channel.IsActive ? "check-circle" : "minus")" data-testid="channel-state">@(channel.IsActive ? "Activa" : "Inactiva")</Chip></td>
+                                            <td data-label="Estado">
+                                                <Chip Tone="@(channel.IsActive ? ChipTone.Success : ChipTone.Neutral)" IconName="@(channel.IsActive ? "check-circle" : "minus")" data-testid="channel-state">@(channel.IsActive ? "Activa" : "Inactiva")</Chip>
+                                                <span data-testid="channel-coexistence" data-disconnected="@(channel.ProviderDisconnected ? "true" : "false")">
+                                                    @if (channel.ProviderDisconnected)
+                                                    {
+                                                        <Chip Tone="ChipTone.Danger" IconName="alert-triangle">Desconectada de la API</Chip>
+                                                        <span class="muted">@CoexistenceText.Disconnection(channel.ProviderDisconnectionReason)</span>
+                                                    }
+                                                    @if (channel.HistoryImportEnabled)
+                                                    {
+                                                        <Chip IconName="clock">Importa historial</Chip>
+                                                    }
+                                                </span>
+                                            </td>
                                             <td data-label="Clave de API para enviar" data-testid="channel-key" data-has-key="@(channel.HasProviderApiKey ? "true" : "false")" data-environment="@channel.ProviderEnvironment">
                                                 <Chip Tone="@(channel.HasProviderApiKey ? ChipTone.Success : ChipTone.Neutral)" IconName="@(channel.HasProviderApiKey ? "key" : "minus")">@(channel.HasProviderApiKey ? "Configurada" : "Sin clave")</Chip>
                                                 <span class="muted">@KeyDetail(channel)</span>
@@ -229,6 +245,8 @@ else if (!Redirected)
                                                         }
                                                         <a href="/organizacion/canales/@channel.Id/rotar-secreto" id="cr-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="cr-@channel.Id ch-@channel.Id"><Icon Name="key" Class="icon--sm" />Rotar secreto</a>
                                                         <a href="/organizacion/canales/@channel.Id/clave-api" id="ck-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="ck-@channel.Id ch-@channel.Id"><Icon Name="lock" Class="icon--sm" />Clave de API</a>
+                                                        <a href="/organizacion/canales/@channel.Id/plantillas" id="ct-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="ct-@channel.Id ch-@channel.Id" data-testid="channel-templates-link"><Icon Name="layers" Class="icon--sm" />Plantillas</a>
+                                                        <a href="/organizacion/canales/@channel.Id/historial" id="chh-@channel.Id" class="btn btn--ghost btn--sm" aria-labelledby="chh-@channel.Id ch-@channel.Id" data-testid="channel-history-link"><Icon Name="clock" Class="icon--sm" />Historial</a>
                                                     </div>
                                                 </td>
                                             }
@@ -237,6 +255,7 @@ else if (!Redirected)
                                 </tbody>
                             </table>
                         </div>
+                        <p class="muted" data-testid="coexistence-reminder">Si el número también se usa en la aplicación WhatsApp Business (coexistencia), ábrela en el teléfono al menos una vez cada 13 días: si no, Meta desconecta el número de la API y Conversia deja de recibir sus mensajes.</p>
                     }
 
                     <div class="stack" hidden="@(!_canManage)" data-testid="channel-form-panel">

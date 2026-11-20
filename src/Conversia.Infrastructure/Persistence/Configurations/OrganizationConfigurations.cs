@@ -68,6 +68,15 @@ public class WhatsAppChannelConfiguration : IEntityTypeConfiguration<WhatsAppCha
         builder.Property(c => c.ProviderApiKeySetAt);
         builder.Property(c => c.ProviderEnvironment).IsRequired().HasConversion<string>().HasMaxLength(EnumColumns.MaxLength)
             .HasDefaultValue(WhatsAppProviderEnvironment.Sandbox);
+        // Coexistence (docs/WEBHOOKS.md, "Coexistence"): an event word and a reason word, no content.
+        builder.Property(c => c.ProviderDisconnectionEvent).HasMaxLength(WhatsAppChannel.DisconnectionWordMaxLength);
+        builder.Property(c => c.ProviderDisconnectionReason).HasMaxLength(WhatsAppChannel.DisconnectionWordMaxLength);
+        builder.Property(c => c.ProviderDisconnectedAt);
+        builder.Property(c => c.ProviderAccountEventAt);
+        builder.Property(c => c.HistoryImportEnabled).IsRequired().HasDefaultValue(false);
+        builder.Property(c => c.HistoryAiAnalysisEnabled).IsRequired().HasDefaultValue(false);
+        builder.Property(c => c.HistoryImportConsentedBy);
+        builder.Property(c => c.HistoryImportConsentedAt);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.UpdatedAt);
 

@@ -126,6 +126,22 @@ public class ConversationPreprocessorTests
     }
 
     [Fact]
+    public void ACut_KeepsOnePriceOfAPriceList_AndTheClosingCues()
+    {
+        // The closing point reads "the business shared a price": one amount is enough, a whole price list is not needed. A move off the
+        // chat or a payment in the middle of boilerplate stays.
+        static string Filler(int count) => string.Join(" ", Enumerable.Range(1, count).Select(i => $"Recuerda la recomendación número {i} antes de venir."));
+        var prices = string.Join(" ", Enumerable.Range(1, 15).Select(i => $"zona{i} {i}0 mil."));
+        var text = "Te cuento cómo funciona. " + Filler(6) + " " + prices + " " + Filler(2) + " Si quieres te llamo en un rato. " + Filler(2) + " Gracias por escribirnos.";
+
+        var line = Body(Run(C("Hola"), A(text))).Split('\n')[1];
+
+        Assert.Contains("zona1 10 mil.", line);
+        Assert.DoesNotContain("zona9 90 mil.", line);
+        Assert.Contains("te llamo en un rato.", line);
+    }
+
+    [Fact]
     public void ACut_NeverDropsAClauseTheRulesReadOnTheAdvisorSide()
     {
         // A service, a day or a booking statement in the middle of a long advisor message stays; boilerplate around it goes.

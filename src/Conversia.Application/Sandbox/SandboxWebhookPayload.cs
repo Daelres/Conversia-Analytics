@@ -17,6 +17,11 @@ public static class SandboxIds
 
     /// <summary>The id the internal sender gives a message it accepts instead of a provider.</summary>
     public static string NewOutboundMessageId() => $"{MessageIdPrefix}out.{Guid.NewGuid():N}";
+
+    /// <summary>Every media id of the sandbox starts with this (letters and digits only, like a provider's media id).</summary>
+    public const string MediaIdPrefix = "sandbox";
+
+    public static string NewMediaId() => $"{MediaIdPrefix}{Guid.NewGuid():N}";
 }
 
 /// <summary>
@@ -30,7 +35,45 @@ public static class SandboxWebhookPayload
     // Readable text in the stored payload (accents, emoji) instead of \u escapes; it is never written into HTML.
     private static readonly JsonSerializerOptions Options = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
+    /// <summary>A synthetic attachment of the simulated customer: <c>image</c> (PNG) or <c>document</c> (PDF), with an optional caption.</summary>
+    public static string InboundMedia(WhatsAppChannel channel, string customerWaId, string customerName, string messageId, string kind, string? caption, DateTime sentAtUtc)
+    {
+        var mime = kind switch
+        {
+            "image" => "image/png",
+            "document" => "application/pdf",
+            _ => throw new ArgumentException("Only an image or a document can be simulated.", nameof(kind)),
+        };
+        var media = new JsonObject { ["id"] = SandboxIds.NewMediaId(), ["mime_type"] = mime };
+        if (!string.IsNullOrEmpty(caption))
+        {
+            media["caption"] = caption;
+        }
+
+        return Envelope(channel, customerWaId, customerName, new JsonObject
+        {
+            ["from"] = customerWaId,
+            ["id"] = messageId,
+            ["timestamp"] = Timestamp(sentAtUtc),
+            ["type"] = kind,
+            [kind] = media,
+        });
+    }
+
     public static string InboundText(WhatsAppChannel channel, string customerWaId, string customerName, string messageId, string text, DateTime sentAtUtc)
+        => Envelope(channel, customerWaId, customerName, new JsonObject
+        {
+            ["from"] = customerWaId,
+            ["id"] = messageId,
+            ["timestamp"] = Timestamp(sentAtUtc),
+            ["type"] = "text",
+            ["text"] = new JsonObject { ["body"] = text },
+        });
+
+    private static string Timestamp(DateTime sentAtUtc)
+        => new DateTimeOffset(DateTime.SpecifyKind(sentAtUtc, DateTimeKind.Utc)).ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
+
+    private static string Envelope(WhatsAppChannel channel, string customerWaId, string customerName, JsonObject message)
     {
         var metadata = new JsonObject { ["display_phone_number"] = Digits(channel.DisplayPhoneNumber) };
         if (channel.ProviderPhoneNumberId is not null)
@@ -44,14 +87,7 @@ public static class SandboxWebhookPayload
             ["messaging_product"] = "whatsapp",
             ["metadata"] = metadata,
             ["contacts"] = new JsonArray(new JsonObject { ["profile"] = new JsonObject { ["name"] = customerName }, ["wa_id"] = customerWaId }),
-            ["messages"] = new JsonArray(new JsonObject
-            {
-                ["from"] = customerWaId,
-                ["id"] = messageId,
-                ["timestamp"] = new DateTimeOffset(DateTime.SpecifyKind(sentAtUtc, DateTimeKind.Utc)).ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture),
-                ["type"] = "text",
-                ["text"] = new JsonObject { ["body"] = text },
-            }),
+            ["messages"] = new JsonArray(message),
         };
 
         var envelope = new JsonObject

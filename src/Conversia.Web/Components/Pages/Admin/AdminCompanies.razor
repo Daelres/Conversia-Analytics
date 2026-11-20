@@ -78,6 +78,7 @@
                             <th scope="col">Empresa</th>
                             <th scope="col">Estado</th>
                             <th scope="col">Líneas activas</th>
+                            <th scope="col">Facturación</th>
                             <th scope="col">Propietario</th>
                             <th scope="col">Registro</th>
                             <th scope="col">Última actividad</th>
@@ -96,6 +97,7 @@
                                     }
                                 </td>
                                 <td data-label="Líneas activas" data-testid="company-lines" data-active="@company.ActiveLines" data-max="@company.MaxActiveLines">@AdminFormat.LinesOfQuota(company.ActiveLines, company.MaxActiveLines)</td>
+                                <td data-label="Facturación" data-testid="company-billing" data-billing="@company.BillingStatus">@BillingFormat.Subscription(company.BillingStatus)@(company.DunningStage is Conversia.Domain.Enums.DunningStage.Retrying or Conversia.Domain.Enums.DunningStage.Suspended ? $" · {BillingFormat.Dunning(company.DunningStage)}" : "")</td>
                                 <td data-label="Propietario">@(company.OwnerEmail ?? MetricsFormat.NoData)</td>
                                 <td data-label="Registro">@MetricsFormat.Date(DateOnly.FromDateTime(TimeZone.ToLocal(company.RegisteredAt)))</td>
                                 <td data-label="Última actividad" data-testid="company-activity">@(company.LastActivityAt is { } last ? AdminFormat.Moment(TimeZone.ToLocal(last)) : AdminFormat.NoActivity)</td>

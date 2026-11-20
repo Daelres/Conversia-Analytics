@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
 
 namespace Conversia.Application.Classification.Llm;
@@ -30,7 +31,7 @@ public sealed partial class LlmResultMapper
         ArgumentNullException.ThrowIfNull(catalog);
         _catalog = catalog;
         _extractAgeRange = extractAgeRange;
-        _allowed = ["stage", "loss_reason", "objection", "services", "interest_reason", "gender", "confidence", "won_evidence_line"];
+        _allowed = ["stage", "loss_reason", "objection", "services", "interest_reason", "gender", "confidence", "won_evidence_line", .. ExtractionVocabulary.ClosingPointProperties];
         if (extractAgeRange)
         {
             _allowed.Add("age_range");
@@ -151,6 +152,11 @@ public sealed partial class LlmResultMapper
             evidence = line;
         }
 
+        if (!TryClosingPoint(root, presentLines, out var closingPoint, out error))
+        {
+            return Fail(error!);
+        }
+
         var result = new ClassificationResult(
             services.Count == 0 ? null : string.Join(',', services),
             reason,
@@ -161,8 +167,61 @@ public sealed partial class LlmResultMapper
             codes,
             ageRange,
             gender,
-            evidence);
+            evidence,
+            ClosingPoint: closingPoint);
         return new LlmMapping(result, null);
+    }
+
+    // The closing point (schema version 2). An answer with none of its properties (a canned answer of the first schema) leaves it unread;
+    // otherwise a missing property is "nothing read". A move needs its evidence line (shown in the prompt) and a line needs a move.
+    private static bool TryClosingPoint(JsonElement root, IReadOnlySet<int> presentLines, out ClosingPointReading? point, out string? error)
+    {
+        point = null;
+        error = null;
+        if (!ExtractionVocabulary.ClosingPointProperties.Any(p => root.TryGetProperty(p, out _)))
+        {
+            return true;
+        }
+
+        if (!TryNullableEnum(root, "reached_stage", ExtractionVocabulary.ReachedStages, out var stage, out error)
+            || !TryEnum(root, "moved_off_channel", ExtractionVocabulary.OffChannelMoves, required: false, out var move, out error)
+            || !TryEnum(root, "closed_by", ExtractionVocabulary.Closers, required: false, out var closedBy, out error))
+        {
+            return false;
+        }
+
+        var outside = false;
+        if (root.TryGetProperty("closed_outside_system", out var outsideElement))
+        {
+            if (outsideElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                error = "invalid:closed_outside_system";
+                return false;
+            }
+
+            outside = outsideElement.GetBoolean();
+        }
+
+        int? line = null;
+        if (root.TryGetProperty("off_channel_evidence_line", out var lineElement) && lineElement.ValueKind != JsonValueKind.Null)
+        {
+            if (lineElement.ValueKind != JsonValueKind.Number || !lineElement.TryGetInt32(out var value) || !presentLines.Contains(value))
+            {
+                error = "invalid:off_channel_evidence_line";
+                return false;
+            }
+
+            line = value;
+        }
+
+        if ((move == OffChannelMove.None) != (line is null))
+        {
+            error = "invalid:off_channel_evidence_line";
+            return false;
+        }
+
+        point = new ClosingPointReading(stage, move, line, closedBy, outside);
+        return true;
     }
 
     private bool TryServices(JsonElement root, out List<string> services, out bool coerced)

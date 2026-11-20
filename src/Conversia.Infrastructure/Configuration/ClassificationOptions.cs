@@ -15,8 +15,13 @@ public sealed record ClassificationOptions(
     int RetryDelaySeconds,
     int ProcessingTimeoutSeconds,
     string? RulesPath,
-    LlmOptions? Llm = null)
+    LlmOptions? Llm = null,
+    Application.Classification.Scheduling.AnalysisScheduleSettings? Schedule = null)
 {
+    /// <summary>The LLM schedule's deployment settings (<c>Classification:Schedule:*</c>), read whatever the provider.</summary>
+    public Application.Classification.Scheduling.AnalysisScheduleSettings ScheduleSettings
+        => Schedule ?? Application.Classification.Scheduling.AnalysisScheduleSettings.Default;
+
     public const string SectionName = "Classification";
     public const string EnabledKey = SectionName + ":Enabled";
     public const string ProviderKey = SectionName + ":Provider";
@@ -36,9 +41,6 @@ public sealed record ClassificationOptions(
 
     /// <summary>Rules and LLM side by side (design PR 3): not available yet; rejected at startup.</summary>
     public const string ShadowProvider = "Shadow";
-
-    /// <summary>The quiet period the claim waits for: the LLM's own, longer one when the provider is the LLM.</summary>
-    public TimeSpan EffectiveDebounce => Llm is null ? Debounce : Llm.Debounce;
 
     public static ClassificationOptions Default { get; } = new(
         Enabled: true, Provider: RulesProvider, DebounceSeconds: 60, PollIntervalMilliseconds: 2000, BatchSize: 20,

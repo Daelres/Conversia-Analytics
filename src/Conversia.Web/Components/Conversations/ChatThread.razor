@@ -13,14 +13,20 @@ else
             {
                 <li class="chat__day" data-testid="chat-day"><span>@entry.DayLabel</span></li>
             }
-            <li class="chat__item chat__item--@entry.Side" data-testid="chat-message" data-direction="@entry.Message.Direction" data-message-id="@entry.Message.Id">
+            <li class="@ItemClass(entry)" data-testid="chat-message"
+                data-direction="@entry.Message.Direction" data-sender="@entry.Message.Sender" data-message-id="@entry.Message.Id">
                 <div class="chat__bubble">
-                    <span class="chat__who">@(entry.Side == "in" ? "Cliente" : "Negocio")</span>
-                    @if (string.IsNullOrEmpty(entry.Message.Text))
+                    @* Marked for the advisors only: the customer receives the text alone. *@
+                    <span class="chat__who">@Who(entry)</span>
+                    @if (entry.Message.Attachment is { } attachment)
+                    {
+                        <ChatMedia Attachment="attachment" Url="@MediaLinks.File(ConversationId, entry.Message.Id)" />
+                    }
+                    @if (entry.Message.Attachment is null && string.IsNullOrEmpty(entry.Message.Text))
                     {
                         <p class="chat__text chat__text--empty">[@ConversationFormat.MessageType(entry.Message.Type) sin texto]</p>
                     }
-                    else
+                    else if (!string.IsNullOrEmpty(entry.Message.Text))
                     {
                         <p class="chat__text">@entry.Message.Text</p>
                     }
@@ -32,10 +38,21 @@ else
 }
 
 @code {
+    private static string ItemClass(Entry entry)
+        => $"chat__item chat__item--{entry.Side}" + (entry.Message.Sender == "AiAssistant" ? " chat__item--assistant" : string.Empty);
+
+    private static string Who(Entry entry)
+        => (entry.Side == "in" ? "Cliente" : entry.Message.Sender == "AiAssistant" ? "Asistente de IA" : "Negocio")
+           + (entry.Message.Imported ? " · historial importado" : string.Empty);
+
     private sealed record Entry(MessageResponse Message, DateTime Local, string Side, bool NewDay, string DayLabel);
 
     [Parameter, EditorRequired]
     public IReadOnlyList<MessageResponse> Messages { get; set; } = [];
+
+    /// <summary>The conversation the messages belong to: the files are served under its address.</summary>
+    [Parameter]
+    public Guid ConversationId { get; set; }
 
     /// <summary>Turns an instant the API sent (UTC) into the wall-clock time of the business.</summary>
     [Parameter, EditorRequired]

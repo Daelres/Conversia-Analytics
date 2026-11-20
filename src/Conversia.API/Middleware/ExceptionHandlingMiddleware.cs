@@ -87,8 +87,34 @@ public class ExceptionHandlingMiddleware
         }
         catch (TenantNotActiveException ex)
         {
-            await WriteProblemAsync(context, StatusCodes.Status403Forbidden, ProblemTexts.TenantNotActiveTitle, ex.Message,
-                ("code", TenantNotActiveException.Code), ("tenantStatus", ex.Status.ToString()));
+            (string, object)[] extensions = ex.Cause is { } cause
+                ? [("code", TenantNotActiveException.Code), ("tenantStatus", ex.Status.ToString()), ("suspensionCause", cause.ToString())]
+                : [("code", TenantNotActiveException.Code), ("tenantStatus", ex.Status.ToString())];
+            await WriteProblemAsync(context, StatusCodes.Status403Forbidden, ProblemTexts.TenantNotActiveTitle, ex.Message, extensions);
+        }
+        catch (TenantGoneException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status401Unauthorized, ProblemTexts.TenantGoneTitle, ex.Message, ("code", TenantGoneException.Code));
+        }
+        catch (TenantLifecycleConflictException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.TenantStatusConflictTitle, ex.Message, ("code", ex.Code));
+        }
+        catch (ReportNotFoundException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.ReportNotFoundTitle, ex.Message);
+        }
+        catch (AssistantException ex)
+        {
+            await WriteProblemAsync(context, ex.StatusCode, ProblemTexts.AssistantTitle, ex.Message, ("code", ex.Code));
+        }
+        catch (ReportLimitException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.ReportLimitTitle, ex.Message, ("code", ReportLimitException.Code));
+        }
+        catch (ContactNotFoundException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.ContactNotFoundTitle, ex.Message);
         }
         catch (ConversationNotFoundException ex)
         {
@@ -105,6 +131,36 @@ public class ExceptionHandlingMiddleware
         catch (MessagingException ex)
         {
             await WriteMessagingProblemAsync(context, ex);
+        }
+        catch (LineLicenseNotFoundException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status404NotFound, ProblemTexts.LineLicenseNotFoundTitle, ex.Message);
+        }
+        catch (LineLicenseConflictException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.LineLicenseConflictTitle, ex.Message, ("code", ex.Code));
+        }
+        catch (DuplicateLineLicenseException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.LineLicenseConflictTitle, ex.Message, ("code", "license_duplicate"));
+        }
+        catch (LicenseRequiredException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.LicenseRequiredTitle, ex.Message, ("code", LicenseRequiredException.Code));
+        }
+        catch (BillingException ex)
+        {
+            if (ex.StatusCode == StatusCodes.Status503ServiceUnavailable)
+            {
+                // An operations problem, not a defect of the request: logged by its code only (never the gateway's answer).
+                _logger.LogWarning("Billing unavailable ({Code}): {Method} {Path}.", ex.Code, context.Request.Method, RequestPathRedactor.Redact(context.Request.Path.Value));
+            }
+
+            await WriteProblemAsync(context, ex.StatusCode, ProblemTexts.BillingTitle, ex.Message, ("code", ex.Code));
+        }
+        catch (ConcurrencyConflictException ex)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status409Conflict, ProblemTexts.ConcurrentChangeTitle, ex.Message, ("code", "concurrent_change"));
         }
         catch (SandboxException ex)
         {
@@ -151,10 +207,13 @@ public class ExceptionHandlingMiddleware
         {
             MessagingProblem.ConversationClosed or MessagingProblem.ChannelInactive or MessagingProblem.CredentialsMissing
                 or MessagingProblem.InvalidCredentials or MessagingProblem.SandboxConversation
-                or MessagingProblem.SandboxModeActive or MessagingProblem.SandboxDataDeleted => StatusCodes.Status409Conflict,
+                or MessagingProblem.SandboxModeActive or MessagingProblem.SandboxDataDeleted or MessagingProblem.WindowClosed
+                or MessagingProblem.TemplateUnavailable => StatusCodes.Status409Conflict,
             MessagingProblem.RecipientNotAllowed or MessagingProblem.Rejected => StatusCodes.Status422UnprocessableEntity,
             MessagingProblem.LimitReached => StatusCodes.Status429TooManyRequests,
-            MessagingProblem.ProviderUnavailable => StatusCodes.Status503ServiceUnavailable,
+            MessagingProblem.ProviderUnavailable or MessagingProblem.MediaStorageUnavailable => StatusCodes.Status503ServiceUnavailable,
+            MessagingProblem.MediaTypeNotAllowed => StatusCodes.Status415UnsupportedMediaType,
+            MessagingProblem.MediaTooLarge => StatusCodes.Status413PayloadTooLarge,
             _ => StatusCodes.Status500InternalServerError,
         };
 

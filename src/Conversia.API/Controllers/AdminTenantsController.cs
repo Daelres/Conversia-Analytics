@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Conversia.API.Controllers;
 
 /// <summary>
-/// What the platform administrator does with the companies: approve or suspend them, set how many lines each may have active, switch a
+/// What the platform administrator does with the companies: approve, pause, suspend, cancel or delete them, set how many lines each may have active, switch a
 /// line off. Business facts only: there is no endpoint here (or anywhere for this role) that returns conversations, messages, contacts,
 /// metrics or a company's users.
 /// </summary>
@@ -48,10 +48,52 @@ public class AdminTenantsController : ControllerBase
     public async Task<ActionResult<TenantSummaryResponse>> SetSandboxMode(Guid id, SetSandboxModeRequest request, CancellationToken cancellationToken)
         => Ok(await _admin.SetSandboxModeAsync(AdminId, id, request, cancellationToken));
 
+    /// <summary>
+    /// Switches the AI on or off for a company (docs/CLASSIFICATION.md, "Usage and quota"): the reason is required, and the version of the terms
+    /// the company accepted is required to switch it on. Audited (<c>tenant.ai_enabled_changed</c>). Idempotent.
+    /// </summary>
+    [HttpPut("tenants/{id:guid}/ai-enabled")]
+    public async Task<ActionResult<TenantSummaryResponse>> SetAiEnabled(Guid id, SetAiEnabledRequest request, CancellationToken cancellationToken)
+        => Ok(await _admin.SetAiEnabledAsync(AdminId, id, request, cancellationToken));
+
+    /// <summary>The company's monthly AI quota (0 to 1,000,000 distinct conversations); null resets it to the deployment default.</summary>
+    [HttpPut("tenants/{id:guid}/ai-quota")]
+    public async Task<ActionResult<TenantSummaryResponse>> SetAiQuota(Guid id, SetAiQuotaRequest request, CancellationToken cancellationToken)
+        => Ok(await _admin.SetAiQuotaAsync(AdminId, id, request, cancellationToken));
+
+    /// <summary>When the LLM reads the company: <c>Nightly</c> (optional local hour), <c>EveryHours</c> (1 to 24) or <c>NearRealTime</c>.</summary>
+    [HttpPut("tenants/{id:guid}/ai-schedule")]
+    public async Task<ActionResult<TenantSummaryResponse>> SetAiSchedule(Guid id, SetAiScheduleRequest request, CancellationToken cancellationToken)
+        => Ok(await _admin.SetAiScheduleAsync(AdminId, id, request, cancellationToken));
+
+    /// <summary>The company's send rate limit per minute (all its users together); null resets it to <c>Messaging:TenantSendRateLimitPerMinute</c>.</summary>
+    [HttpPut("tenants/{id:guid}/send-rate-limit")]
+    public async Task<ActionResult<TenantSummaryResponse>> SetSendRateLimit(Guid id, SetSendRateLimitRequest request, CancellationToken cancellationToken)
+        => Ok(await _admin.SetSendRateLimitAsync(AdminId, id, request, cancellationToken));
+
+    /// <summary>How long the company's stored media is kept, in days; null resets it to <c>Media:RetentionDays</c>.</summary>
+    [HttpPut("tenants/{id:guid}/media-retention")]
+    public async Task<ActionResult<TenantSummaryResponse>> SetMediaRetention(Guid id, SetMediaRetentionRequest request, CancellationToken cancellationToken)
+        => Ok(await _admin.SetMediaRetentionAsync(AdminId, id, request, cancellationToken));
+
     /// <summary>Forces a line off whatever the company wants. Idempotent.</summary>
     [HttpPost("tenants/{id:guid}/channels/{channelId:guid}/deactivate")]
     public async Task<ActionResult<TenantLineResponse>> DeactivateChannel(Guid id, Guid channelId, CancellationToken cancellationToken)
         => Ok(await _admin.DeactivateChannelAsync(AdminId, id, channelId, cancellationToken));
+
+    /// <summary>
+    /// Deletes a cancelled company's data now instead of at the end of its retention window (Ley 1581): the body carries the company's name
+    /// typed by the administrator and the reason. <c>202</c>: the deletion job does it in the background (the company shows when it started);
+    /// asking again changes nothing. <c>409</c> <c>tenant_not_cancelled</c> for a company that is not cancelled.
+    /// </summary>
+    [HttpPost("tenants/{id:guid}/data-deletion")]
+    public async Task<ActionResult<TenantSummaryResponse>> RequestDataDeletion(Guid id, DeleteTenantDataRequest request, CancellationToken cancellationToken)
+        => Accepted(await _admin.RequestDataDeletionAsync(AdminId, id, request, cancellationToken));
+
+    /// <summary>The company's lifecycle history (status changes and data deletion) from the audit trail, newest first.</summary>
+    [HttpGet("tenants/{id:guid}/lifecycle")]
+    public async Task<ActionResult<PagedResponse<AuditEntryResponse>>> ListLifecycle(Guid id, [FromQuery] AdminAuditQuery query, CancellationToken cancellationToken)
+        => Ok(await _admin.ListLifecycleAsync(id, query.Page, query.PageSize, cancellationToken));
 
     [HttpGet("audit")]
     public async Task<ActionResult<PagedResponse<AuditEntryResponse>>> ListAudit([FromQuery] AdminAuditQuery query, CancellationToken cancellationToken)

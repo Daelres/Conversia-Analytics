@@ -24,6 +24,22 @@
             </Alert>
         }
 
+        @if (!Customer && State.CanSendTemplate)
+        {
+            @if (State.WindowClosed)
+            {
+                <Alert Kind="AlertKind.Warning" Title="Ventana de 24 horas cerrada" data-testid="composer-window-closed">
+                    Pasaron más de 24 horas desde el último mensaje del cliente: WhatsApp no permite enviarle texto libre. Para retomar la conversación, envía una plantilla aprobada.
+                </Alert>
+            }
+            else if (State.WindowClosesAt is { } closes)
+            {
+                <p class="@(closes - NowUtc <= TimeSpan.FromHours(2) ? "composer__window composer__window--soon" : "composer__window")" data-testid="composer-window" data-closes-at="@closes.ToString("O")">
+                    <Icon Name="clock" Class="icon--sm" />Puedes escribir texto libre durante @ComposerState.Remaining(closes, NowUtc) más. Después, solo una plantilla aprobada.
+                </p>
+            }
+        }
+
         @if (Error is not null)
         {
             <Alert Kind="AlertKind.Danger" data-testid="@Prefix("composer-error")">@Error</Alert>
@@ -38,6 +54,7 @@
                 <FormField TValue="string" For="() => Input.Text" Id="@Prefix("composer-text")" Label="@(Customer ? "Mensaje del cliente" : "Mensaje")" ApiErrors="ApiErrors"
                            Hint="@(Customer ? "Texto sin formato. Entra a Conversia como si el cliente lo hubiera escrito por WhatsApp." : "Texto sin formato. Revisa el mensaje antes de enviarlo: no se puede deshacer.")" Context="field">
                     <InputTextArea id="@Prefix("composer-text")" class="input" rows="@(Customer ? 3 : 4)" maxlength="@SendMessageInput.MaxLength" data-char-count="@($"#{Prefix("composer-count-value")}")"
+                                   data-typing-url="@(Customer || TypingUrl is null ? null : TypingUrl)"
                                    name="@($"{nameof(Input)}.{nameof(SendMessageInput.Text)}")" @bind-Value="Input.Text" @attributes="field" />
                 </FormField>
                 <p class="composer__count" data-testid="@Prefix("composer-count")"><span id="@Prefix("composer-count-value")">@Input.Length</span> / @SendMessageInput.MaxLength caracteres</p>
@@ -82,6 +99,17 @@
         : "Texto por WhatsApp para el cliente de esta conversación. Lo envía una persona: Conversia no responde por su cuenta.";
 
     private string Prefix(string name) => Customer ? $"customer-{name}" : name;
+
+    /// <summary>The page's time, for the countdown of the customer service window.</summary>
+    [Parameter]
+    public DateTime NowUtc { get; set; }
+
+    /// <summary>
+    /// Where the page's script posts "the advisor is typing" (docs/MESSAGING.md, "Read receipts and typing"); null when the company has
+    /// it off, so nothing is posted.
+    /// </summary>
+    [Parameter]
+    public string? TypingUrl { get; set; }
 
     /// <summary>Whether the composer is offered and, when it is not, why.</summary>
     [Parameter, EditorRequired]

@@ -39,6 +39,18 @@ public class Conversation : BaseEntity
     /// <summary>For an ad, what identified it (headline, URL or ad id).</summary>
     public string? SourceReference { get; private set; }
 
+    /// <summary>The Click-to-WhatsApp referral's <c>source_type</c> (<c>ad</c> or <c>post</c>); null when the conversation did not come from one.</summary>
+    public string? ReferralSourceType { get; private set; }
+
+    /// <summary>The referral's <c>source_id</c>: the ad's id (or the post's). Business data, never the customer's.</summary>
+    public string? ReferralSourceId { get; private set; }
+
+    /// <summary>The referral's <c>source_url</c>: the ad's or post's URL.</summary>
+    public string? ReferralSourceUrl { get; private set; }
+
+    /// <summary>The referral's <c>headline</c>: the ad's headline.</summary>
+    public string? ReferralHeadline { get; private set; }
+
     public DateTime StartedAt { get; private set; }
 
     public DateTime LastMessageAt { get; private set; }
@@ -46,6 +58,34 @@ public class Conversation : BaseEntity
     public DateTime? FirstInboundAt { get; private set; }
 
     public DateTime? FirstResponseAt { get; private set; }
+
+    /// <summary>The customer's latest message: WhatsApp's customer service window runs 24 hours from it (docs/MESSAGING.md).</summary>
+    public DateTime? LastInboundAt { get; private set; }
+
+    /// <summary>The business's latest message, by any way of sending.</summary>
+    public DateTime? LastOutboundAt { get; private set; }
+
+    /// <summary>
+    /// The time of the latest customer message this conversation marked as read on WhatsApp (read receipts, docs/MESSAGING.md); null when
+    /// none was. Marking one marks the earlier ones too.
+    /// </summary>
+    public DateTime? CustomerReadMarkedAt { get; private set; }
+
+    /// <summary>The customer wrote last: nothing from the business at or after the customer's latest message.</summary>
+    public bool AwaitingReply => LastInboundAt is { } inbound && (LastOutboundAt is not { } outbound || outbound < inbound);
+
+    /// <summary>A customer message newer than the last one marked as read exists.</summary>
+    public bool NeedsReadReceipt => LastInboundAt is { } inbound && (CustomerReadMarkedAt is not { } marked || marked < inbound);
+
+    /// <summary>Records that the customer's messages up to <paramref name="lastInboundAt"/> were marked as read on WhatsApp.</summary>
+    public void MarkCustomerMessagesRead(DateTime lastInboundAt)
+    {
+        var at = UtcTime.Normalize(lastInboundAt);
+        if (CustomerReadMarkedAt is null || CustomerReadMarkedAt < at)
+        {
+            CustomerReadMarkedAt = at;
+        }
+    }
 
     public ConversationStatus Status { get; private set; } = ConversationStatus.Open;
 
@@ -116,6 +156,12 @@ public class Conversation : BaseEntity
     /// </summary>
     public bool IsSandbox { get; private set; }
 
+    /// <summary>
+    /// Built from a shared chat history (coexistence onboarding, docs/WEBHOOKS.md "History import"): created closed, so a live message never
+    /// joins it (the customer's next message opens a live conversation). Set at creation, never changed.
+    /// </summary>
+    public bool IsImported { get; private set; }
+
     // Required by EF Core for materialization.
     private Conversation()
     {
@@ -123,7 +169,7 @@ public class Conversation : BaseEntity
 
     public static Conversation Start(
         Guid tenantId, Guid contactId, Guid channelId, Guid branchId, DateTime startedAt, ConversationSource source, string? sourceReference = null,
-        bool isSandbox = false)
+        bool isSandbox = false, AdReferral? referral = null, bool isImported = false)
     {
         if (!Enum.IsDefined(source))
         {
@@ -142,7 +188,16 @@ public class Conversation : BaseEntity
             StartedAt = started,
             LastMessageAt = started,
             IsSandbox = isSandbox,
-        };
+            IsImported = isImported,
+            Status = isImported ? ConversationStatus.Closed : ConversationStatus.Open,
+            ClosedAt = isImported ? started : null,
+        }.WithReferral(source == ConversationSource.Ads ? referral : null);
+    }
+
+    private Conversation WithReferral(AdReferral? referral)
+    {
+        RecordReferral(referral);
+        return this;
     }
 
     /// <param name="advisorId">The advisor to assign.</param>
@@ -191,8 +246,9 @@ public class Conversation : BaseEntity
     /// A referral on any message of the conversation marks it as coming from an ad. A conversation that is already an ad keeps its
     /// reference, unless it has none yet and this referral brings one.
     /// </summary>
-    public void MarkAsAds(string? sourceReference)
+    public void MarkAsAds(string? sourceReference, AdReferral? referral = null)
     {
+        RecordReferral(referral);
         var reference = TextRules.Optional(sourceReference, SourceReferenceMaxLength, SourceReferenceRuleMessage);
         if (Source == ConversationSource.Ads)
         {
@@ -204,27 +260,45 @@ public class Conversation : BaseEntity
         SourceReference = reference;
     }
 
+    // The first referral that brings its details is kept: the ad that started the conversation is its origin.
+    private void RecordReferral(AdReferral? referral)
+    {
+        if (referral is null || ReferralSourceType is not null || ReferralSourceId is not null || ReferralSourceUrl is not null || ReferralHeadline is not null)
+        {
+            return;
+        }
+
+        ReferralSourceType = referral.SourceType;
+        ReferralSourceId = referral.SourceId;
+        ReferralSourceUrl = referral.SourceUrl;
+        ReferralHeadline = referral.Headline;
+    }
+
     /// <summary>
     /// New messages changed what the classifier should read: the conversation waits for the classification worker again, with a fresh
     /// failure count. <see cref="ClassificationRequestedAt"/> changes on every call, so the row is always written, even when it was
     /// already dirty: a worker that is classifying the conversation right now cannot clear this request by mistake (its own write
     /// waits for the row lock this one takes, and this one lands after it).
     /// </summary>
-    public void RequestClassification(DateTime now)
+    public void RequestClassification(DateTime now, bool includeLlm = true)
     {
         ClassificationDirty = true;
         ClassificationRequestedAt = UtcTime.Normalize(now);
         ClassificationFailures = 0;
         ClassificationAttemptedAt = null;
         LlmFailures = 0;
+        // Imported history is read by the AI only when the company opted in (it costs per conversation): otherwise the rules alone.
+        LlmPending = includeLlm;
     }
 
     /// <summary>
-    /// The worker classified the conversation: nothing is pending. <see cref="LlmFailures"/> is left alone (a rules reading, or one where the
+    /// The worker classified the conversation with the rules only (Provider=Rules): nothing is pending, not even for the LLM. <see cref="LlmFailures"/> is left alone (a rules reading, or one where the
     /// LLM was not admitted, says nothing about the LLM).
     /// </summary>
     public void CompleteClassification(DateTime now)
     {
+        // The rules-only path (Provider=Rules): nothing waits for an LLM that does not run, so no backlog grows (docs/CLASSIFICATION.md).
+        LlmPending = false;
         ClassificationDirty = false;
         ClassificationFailures = 0;
         ClassificationAttemptedAt = UtcTime.Normalize(now);
@@ -285,11 +359,165 @@ public class Conversation : BaseEntity
         LastLlmSnapshotHash = null;
     }
 
+    // ---- The LLM analysis (docs/CLASSIFICATION.md, "When the AI reads"): its own state, apart from the rules' near-real-time pass ----
+
+    /// <summary>
+    /// True while the conversation received messages the LLM has not analysed yet. Set by every <see cref="RequestClassification"/>, cleared
+    /// when an LLM reading is applied, when nothing it reads changed, or when it is not to be analysed (no customer text, not admitted).
+    /// </summary>
+    public bool LlmPending { get; private set; }
+
+    /// <summary>
+    /// The lease of an analysis in flight (phase 1 to phase 3 of the runner, or a submitted batch): nobody else claims the conversation for the
+    /// LLM until then. Also the time a deferred conversation (transport failure, open breaker) may be claimed again. Null: none.
+    /// </summary>
+    public DateTime? LlmLeaseUntil { get; private set; }
+
+    /// <summary>When the last LLM analysis attempt ended (applied, unchanged, discarded, skipped or failed). A scheduled window never claims a
+    /// conversation whose attempt is already inside it: one analysis per window, however many messages arrive.</summary>
+    public DateTime? LlmAttemptedAt { get; private set; }
+
+    /// <summary>When an LLM reading of this conversation was last applied (shown to the company as "Análisis de IA: última actualización").</summary>
+    public DateTime? LlmAnalyzedAt { get; private set; }
+
+    /// <summary>The rules read the conversation (the near-real-time pass while the LLM is the provider): the rules flag is cleared, the LLM
+    /// state (pending, hash, lease) is left alone.</summary>
+    public void CompleteRulesPass(DateTime now)
+    {
+        ClassificationDirty = false;
+        ClassificationFailures = 0;
+        ClassificationAttemptedAt = UtcTime.Normalize(now);
+    }
+
+    /// <summary>Phase 1 of the runner: the conversation is leased until <paramref name="until"/> while its analysis is in flight.</summary>
+    public void LeaseLlmAnalysis(DateTime until)
+    {
+        LlmLeaseUntil = UtcTime.Normalize(until);
+    }
+
+    /// <summary>An LLM reading was applied: nothing is pending, the lease is released, the LLM failures start over, the hash is kept.</summary>
+    public void CompleteLlmAnalysis(DateTime now, string snapshotHash)
+    {
+        if (snapshotHash is null || snapshotHash.Length != SnapshotHashLength || !snapshotHash.All(c => char.IsAsciiDigit(c) || c is >= 'a' and <= 'f'))
+        {
+            throw new DomainException("La huella de la conversación no es válida.");
+        }
+
+        var at = UtcTime.Normalize(now);
+        LlmPending = false;
+        LlmLeaseUntil = null;
+        LlmAttemptedAt = at;
+        LlmAnalyzedAt = at;
+        LlmFailures = 0;
+        LastLlmSnapshotHash = snapshotHash;
+    }
+
+    /// <summary>Nothing the model reads changed since the applied reading: nothing is pending, the hash and the reading stay.</summary>
+    public void ConfirmLlmAnalysisUnchanged(DateTime now)
+    {
+        LlmPending = false;
+        LlmLeaseUntil = null;
+        LlmAttemptedAt = UtcTime.Normalize(now);
+    }
+
+    /// <summary>Not to be analysed (no customer text, not admitted, kept from the client): nothing is pending, the stored hash is forgotten.</summary>
+    public void SkipLlmAnalysis(DateTime now)
+    {
+        LlmPending = false;
+        LlmLeaseUntil = null;
+        LlmAttemptedAt = UtcTime.Normalize(now);
+        LastLlmSnapshotHash = null;
+    }
+
+    /// <summary>
+    /// The model's answer could not be used: <see cref="LlmFailures"/> + 1; the conversation stays pending while it is at most
+    /// <paramref name="maxFallbackRetries"/> (it is tried in a later window), else the rules stand. Returns whether it is still pending.
+    /// </summary>
+    public bool RecordLlmContentFailure(DateTime now, int maxFallbackRetries)
+    {
+        if (maxFallbackRetries < 0)
+        {
+            throw new DomainException("El número de reintentos debe ser cero o mayor.");
+        }
+
+        LlmFailures++;
+        LlmLeaseUntil = null;
+        LlmAttemptedAt = UtcTime.Normalize(now);
+        LlmPending = LlmFailures <= maxFallbackRetries;
+        return LlmPending;
+    }
+
+    /// <summary>The call could not be made or did not answer (transport failure, open breaker): pending, claimable again at <paramref name="until"/>.</summary>
+    public void DeferLlmAnalysis(DateTime until)
+    {
+        LlmLeaseUntil = UtcTime.Normalize(until);
+    }
+
+    /// <summary>Phase 3 found the conversation changed during the call: the answer is thrown away, it stays pending for the next window.</summary>
+    public void DiscardLlmAnalysis(DateTime now)
+    {
+        LlmLeaseUntil = null;
+        LlmAttemptedAt = UtcTime.Normalize(now);
+    }
+
     public void ApplyTimeline(ConversationTimeline timeline)
     {
         StartedAt = UtcTime.Normalize(timeline.StartedAt);
         LastMessageAt = UtcTime.Normalize(timeline.LastMessageAt);
         FirstInboundAt = UtcTime.Normalize(timeline.FirstInboundAt);
         FirstResponseAt = UtcTime.Normalize(timeline.FirstResponseAt);
+        LastInboundAt = UtcTime.Normalize(timeline.LastInboundAt);
+        LastOutboundAt = UtcTime.Normalize(timeline.LastOutboundAt);
+
+        // An imported conversation stays closed at its last message, however many history chunks it took to arrive.
+        if (IsImported && ClosedAt < LastMessageAt)
+        {
+            ClosedAt = LastMessageAt;
+        }
+    }
+}
+
+/// <summary>
+/// The Click-to-WhatsApp <c>referral</c> of a message (docs/WEBHOOKS.md, "Ad referral"): the ad's data, never the customer's. The click id
+/// (<c>ctwa_clid</c>), the ad's body, media URLs and welcome message are not kept (data minimisation, docs/decisiones.md).
+/// </summary>
+public sealed record AdReferral(string? SourceType, string? SourceId, string? SourceUrl, string? Headline)
+{
+    public const int SourceTypeMaxLength = 20;
+    public const int SourceIdMaxLength = 100;
+    public const int SourceUrlMaxLength = 500;
+    public const int HeadlineMaxLength = 500;
+
+    /// <summary>Each value cleaned (NUL removed, trimmed, blank as null) and cut to its column; a type that is not a lower-case word is dropped.</summary>
+    public static AdReferral? Create(string? sourceType, string? sourceId, string? sourceUrl, string? headline)
+    {
+        static string? Clean(string? value, int max)
+        {
+            var text = value?.Replace("\0", string.Empty).Trim();
+            return string.IsNullOrEmpty(text) ? null : TextRules.Truncate(text, max);
+        }
+
+        var type = Clean(sourceType, SourceTypeMaxLength)?.ToLowerInvariant();
+        if (type is not null && !type.All(c => char.IsAsciiLetterLower(c) || c == '_'))
+        {
+            type = null;
+        }
+
+        var referral = new AdReferral(type, Clean(sourceId, SourceIdMaxLength), Clean(SafeUrl(sourceUrl), SourceUrlMaxLength), Clean(headline, HeadlineMaxLength));
+        return referral is { SourceType: null, SourceId: null, SourceUrl: null, Headline: null } ? null : referral;
+    }
+
+    /// <summary>
+    /// An http(s) URL reduced to scheme, host (and port) and path: the query and the fragment are dropped, since tracking parameters
+    /// (<c>fbclid</c>, <c>utm_*</c>) can carry click or user identifiers. Anything else is null.
+    /// </summary>
+    public static string? SafeUrl(string? url)
+    {
+        if (!Uri.TryCreate(url?.Replace("\0", string.Empty).Trim(), UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return null;
+        }
+
+        return uri.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped);
     }
 }

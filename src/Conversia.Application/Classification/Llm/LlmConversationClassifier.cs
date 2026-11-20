@@ -84,7 +84,14 @@ public sealed class LlmConversationClassifier
             return new LlmAttempt(null, ex.Kind, ex.ErrorType, LlmUsage.None, _settings.ModelId, Elapsed(started));
         }
 
-        var latency = Elapsed(started);
+        return Interpret(call, completion, Elapsed(started));
+    }
+
+    /// <summary>Reads an answer obtained elsewhere (a batch result) exactly like a synchronous one: stop reason, then the strict mapper over the lines shown.</summary>
+    public LlmAttempt Interpret(PreparedLlmCall call, LlmCompletion completion, long latencyMs)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        ArgumentNullException.ThrowIfNull(completion);
         var failure = completion.StopReason switch
         {
             LlmStopReason.EndTurn => (LlmFailureKind?)null,
@@ -94,13 +101,13 @@ public sealed class LlmConversationClassifier
         };
         if (failure is { } kind)
         {
-            return new LlmAttempt(null, kind, "stop:" + completion.StopReason, completion.Usage, completion.ModelId, latency);
+            return new LlmAttempt(null, kind, "stop:" + completion.StopReason, completion.Usage, completion.ModelId, latencyMs);
         }
 
         var mapping = _mapper.Map(completion.JsonText, call.Prompt.PresentLines);
         return mapping.Succeeded
-            ? new LlmAttempt(mapping.Result, null, null, completion.Usage, completion.ModelId, latency)
-            : new LlmAttempt(null, LlmFailureKind.InvalidOutput, mapping.Error, completion.Usage, completion.ModelId, latency);
+            ? new LlmAttempt(mapping.Result, null, null, completion.Usage, completion.ModelId, latencyMs)
+            : new LlmAttempt(null, LlmFailureKind.InvalidOutput, mapping.Error, completion.Usage, completion.ModelId, latencyMs);
     }
 
     private static long Elapsed(long started) => (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;

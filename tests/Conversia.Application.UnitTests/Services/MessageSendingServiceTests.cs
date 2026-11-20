@@ -1,5 +1,6 @@
 using Conversia.Application.DTOs.Conversations;
 using Conversia.Application.Exceptions;
+using Conversia.Application.Interfaces;
 using Conversia.Application.Messaging;
 using Conversia.Application.Services;
 using Conversia.Domain.Entities;
@@ -17,7 +18,7 @@ namespace Conversia.Application.UnitTests.Services;
 /// What <see cref="MessageSendingService"/> refuses before calling the provider, what it hands to the sender, and what it stores once the
 /// provider accepted the message. Tenant isolation and the locks are the repositories' job (integration tests).
 /// </summary>
-public class MessageSendingServiceTests
+public partial class MessageSendingServiceTests
 {
     private const string CustomerWaId = "573005550101";
     private static readonly DateTime Start = new(2026, 11, 9, 15, 0, 0, DateTimeKind.Utc);
@@ -58,6 +59,17 @@ public class MessageSendingServiceTests
             Sent.Add(message);
             return Task.FromResult(Result);
         }
+
+        public List<WhatsAppTemplateMessage> SentTemplates { get; } = [];
+
+        public Task<WhatsAppSendResult> SendTemplateAsync(WhatsAppTemplateMessage message, CancellationToken cancellationToken = default)
+        {
+            SentTemplates.Add(message);
+            return Task.FromResult(Result);
+        }
+
+        public Task<WhatsAppSendStatus> MarkReadAsync(WhatsAppReadReceipt receipt, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("A send never marks messages as read.");
     }
 
     private readonly RecordingLogger _logger = new();
@@ -74,11 +86,29 @@ public class MessageSendingServiceTests
             => Lines.Add((logLevel, formatter(state, exception)));
     }
 
+    private readonly RecordingOutcomes _outcomes = new();
+
+    /// <summary>What the send recorded for the platform's monitoring: (tenant, sandbox, outcome).</summary>
+    private sealed class RecordingOutcomes : IMessageSendOutcomeRecorder
+    {
+        public List<(Guid TenantId, bool IsSandbox, string Outcome)> Recorded { get; } = [];
+
+        public Task RecordAsync(Guid tenantId, bool isSandbox, string outcome, CancellationToken cancellationToken = default)
+        {
+            Recorded.Add((tenantId, isSandbox, outcome));
+            return Task.CompletedTask;
+        }
+    }
+
+    private readonly Mock<IAdvisorRepository> _advisors = new();
+
     private MessageSendingService CreateSut()
-        => new(_conversations.Object, _channels.Object, _contacts.Object, _messages.Object, _tenants.Object, _sender, new FixedTimeProvider(Now), _logger);
+        => new(_conversations.Object, _channels.Object, _contacts.Object, _messages.Object, _tenants.Object, _sender, new FixedTimeProvider(Now), _logger, _outcomes, _advisors.Object, _templates.Object);
 
     /// <summary>An open conversation with one customer message, on an active channel that has credentials.</summary>
-    private void Arrange(bool active = true, bool credentials = true, bool closed = false, bool sandboxConversation = false, bool sandboxMode = false)
+    /// <param name="lastCustomerMessageAt">When the customer last wrote (the start of the 24-hour window); <see cref="Start"/> by default.</param>
+    private void Arrange(
+        bool active = true, bool credentials = true, bool closed = false, bool sandboxConversation = false, bool sandboxMode = false, DateTime? lastCustomerMessageAt = null)
     {
         _tenants.Setup(r => r.GetSandboxModeAsync(_tenant, It.IsAny<CancellationToken>())).ReturnsAsync(sandboxMode);
         (_channel, _) = WhatsAppChannel.Create(_tenant, Guid.NewGuid(), "+57 300 555 0100");
@@ -94,6 +124,7 @@ public class MessageSendingServiceTests
 
         var contact = Contact.Create(_tenant, CustomerWaId, "Laura", Start);
         _conversation = Conversation.Start(_tenant, contact.Id, _channel.Id, _channel.BranchId, Start, ConversationSource.Organic, isSandbox: sandboxConversation);
+        _conversation.ApplyTimeline(ConversationTimeline.From([(MessageDirection.Inbound, lastCustomerMessageAt ?? Start)])!);
         _locked = _conversation; // the row the repository hands over once it is locked
         if (closed)
         {
@@ -158,6 +189,52 @@ public class MessageSendingServiceTests
         Assert.Equal(Now, response.SentAt);
     }
 
+    // ---- Who sent it (docs/MESSAGING.md, "Who sent it") ---------------------------------------------------------
+
+    [Fact]
+    public async Task Send_RecordsTheUser_AndTheAdvisorLinkedToThem()
+    {
+        Arrange();
+        var user = Guid.NewGuid();
+        var advisor = Advisor.Create(_tenant, _channel.BranchId, "Ana", user);
+        _advisors.Setup(r => r.GetByUserIdAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(advisor);
+
+        await CreateSut().SendTextAsync(_conversation.Id, new SendMessageRequest { Text = "Hola" }, user);
+
+        var message = Assert.Single(_stored);
+        Assert.Equal((MessageSender.Conversia, (Guid?)user, (Guid?)advisor.Id), (message.Sender, message.SentByUserId, message.SentByAdvisorId));
+    }
+
+    [Fact]
+    public async Task Send_ByAUserWithoutAnAdvisor_RecordsNoAdvisor_NotTheAssignedOne()
+    {
+        Arrange();
+        _conversation.AssignAdvisor(Guid.NewGuid());
+        var user = Guid.NewGuid();
+
+        await CreateSut().SendTextAsync(_conversation.Id, new SendMessageRequest { Text = "Hola" }, user);
+
+        var message = Assert.Single(_stored);
+        Assert.Equal((MessageSender.Conversia, (Guid?)user, (Guid?)null), (message.Sender, message.SentByUserId, message.SentByAdvisorId));
+    }
+
+    [Fact]
+    public async Task Send_WhoseEchoWasStoredFirst_ClaimsIt()
+    {
+        Arrange();
+        var user = Guid.NewGuid();
+        var assigned = Guid.NewGuid();
+        var echo = Message.Create(_tenant, _conversation.Id, _channel.Id, "wamid.SENT-1", MessageDirection.Outbound, "text", "Hola", Now, MessageSender.PhoneApp, assignedAdvisorIdAtReceipt: assigned);
+        _messages.Setup(r => r.FindAsync(_channel.Id, "wamid.SENT-1", It.IsAny<CancellationToken>())).ReturnsAsync(echo);
+
+        await CreateSut().SendTextAsync(_conversation.Id, new SendMessageRequest { Text = "Hola" }, user);
+
+        Assert.Empty(_stored);
+        Assert.Equal((MessageSender.Conversia, (Guid?)user, (Guid?)null), (echo.Sender, echo.SentByUserId, echo.SentByAdvisorId));
+        Assert.Null(echo.AssignedAdvisorIdAtReceipt); // it was not an echo of the phone app after all
+        _messages.Verify(r => r.UpdateAsync(echo, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     [Fact]
     public async Task Send_UpdatesTheConversationTheWayIngestionDoes_TimelineAndClassificationRequest()
     {
@@ -211,7 +288,7 @@ public class MessageSendingServiceTests
                 return true;
             });
 
-        await sut.SendTextAsync(_conversation.Id, new SendMessageRequest { Text = "Hola" }, cancelled.Token);
+        await sut.SendTextAsync(_conversation.Id, new SendMessageRequest { Text = "Hola" }, cancellationToken: cancelled.Token);
 
         Assert.Single(_stored);
     }
@@ -516,5 +593,69 @@ public class MessageSendingServiceTests
         var exception = await Assert.ThrowsAsync<MessagingException>(() => SendAsync());
 
         Assert.Equal(MessagingProblem.SentNotRecorded, exception.Problem);
+    }
+
+    // ---- Outcomes for the platform's monitoring (counts only) ---------------------------------
+
+    [Fact]
+    public async Task ASentMessage_IsCountedAsSent()
+    {
+        Arrange();
+
+        await SendAsync();
+
+        Assert.Equal([(_tenant, false, "sent")], _outcomes.Recorded);
+    }
+
+    [Fact]
+    public async Task ARefusal_IsCountedByItsStableCode_AndStillThrown()
+    {
+        Arrange();
+        _sender.Result = WhatsAppSendResult.Failed(WhatsAppSendStatus.LimitReached);
+
+        await Assert.ThrowsAsync<MessagingException>(() => SendAsync());
+
+        Assert.Equal([(_tenant, false, "provider_limit_reached")], _outcomes.Recorded);
+    }
+
+    [Fact]
+    public async Task ARefusalBeforeTheProvider_IsCountedToo_WithTheSandboxFlagOfTheConversation()
+    {
+        Arrange(closed: true, sandboxConversation: true, sandboxMode: true);
+
+        await Assert.ThrowsAsync<MessagingException>(() => SendAsync());
+
+        Assert.Equal([(_tenant, true, "conversation_closed")], _outcomes.Recorded);
+    }
+
+    [Fact]
+    public async Task AnUnknownConversation_IsNotCounted()
+    {
+        Arrange();
+
+        await Assert.ThrowsAsync<ConversationNotFoundException>(() => CreateSut().SendTextAsync(Guid.NewGuid(), new SendMessageRequest { Text = "Hola" }));
+
+        Assert.Empty(_outcomes.Recorded);
+    }
+
+    private sealed class ThrowingOutcomes : IMessageSendOutcomeRecorder
+    {
+        public Task RecordAsync(Guid tenantId, bool isSandbox, string outcome, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("counter down");
+    }
+
+    [Fact]
+    public async Task ACounterThatFails_NeverChangesTheAnswerOfTheSend()
+    {
+        Arrange();
+        var sut = new MessageSendingService(
+            _conversations.Object, _channels.Object, _contacts.Object, _messages.Object, _tenants.Object, _sender, new FixedTimeProvider(Now), _logger, new ThrowingOutcomes());
+
+        var sent = await sut.SendTextAsync(_conversation.Id, new SendMessageRequest { Text = "Hola" });
+
+        Assert.Equal("Hola", sent.Text);
+        _sender.Result = WhatsAppSendResult.Failed(WhatsAppSendStatus.LimitReached);
+        var refused = await Assert.ThrowsAsync<MessagingException>(() => sut.SendTextAsync(_conversation.Id, new SendMessageRequest { Text = "Hola" }));
+        Assert.Equal("provider_limit_reached", refused.Code);
     }
 }

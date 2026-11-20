@@ -77,6 +77,14 @@ Nothing secret is baked into an image; everything below is supplied at run time.
 | `Messaging__CredentialEncryptionKey` | api | no | Master key (base64 of 32 random bytes) of the stored 360dialog keys; unset, sending answers `503`; malformed, the API does not start (`docs/MESSAGING.md`). |
 | `PlatformAdmin__Email`, `PlatformAdmin__Password` | api | no | Both set: the API creates this platform administrator at startup when no one has the email (never overwrites). Empty = none. Password: at least 12 characters, not a placeholder, or the API will not start. Compose passes them from `PLATFORM_ADMIN_EMAIL` / `PLATFORM_ADMIN_PASSWORD`; add those two to your `.env` (they are not in `.env.example` yet) and **remove `PLATFORM_ADMIN_PASSWORD` once the account exists**: the API forgets the password in memory after the bootstrap, but the container's environment keeps it for as long as the variable is set. `docs/PLATFORM_ADMIN.md`. |
 | `PlatformAdmin__PasswordFile` | api | no | Instead of `PlatformAdmin__Password`: the path, inside the container, of a file that holds the bootstrap password (a Docker secret you mount; a trailing newline is dropped). Both set, or a file that is unreadable or empty, stop the API at startup with an error that names the key. Compose passes it from `PLATFORM_ADMIN_PASSWORD_FILE`. |
+| `Media__Store` | api | no | `None` (default: received media is not downloaded, attachments cannot be sent), `Local` or `Azure`. See "Media storage" below and docs/MESSAGING.md. Compose passes `MEDIA_STORE`. |
+| `Media__Local__RootPath`, `Media__Local__EncryptionKey` | api | with `Local` | The image creates `/var/lib/conversia/media` for the non-root user; compose mounts the `api-media` volume there. The key is base64 of 32 random bytes (`MEDIA_ENCRYPTION_KEY`); a malformed or missing one stops the API. |
+| `Media__Azure__ServiceUri` or `Media__Azure__ConnectionString`, `Media__Azure__ManagedIdentityClientId`, `Media__Azure__Container` | api | with `Azure` | Exactly one of the service URL (`https://<account>.blob.core.windows.net`, the app's managed identity) or the connection string (a secret). Container name default `conversia-media`. |
+| `Media__RetentionDays` | api | no | Platform default of the media retention (90). |
+| `Media__Local__AllowOutsideDevelopment` | api | with `Local` outside Development | `true` to accept the local store in Production (one instance only: the compose stack). Compose passes `MEDIA_LOCAL_ALLOW_OUTSIDE_DEVELOPMENT` (default `false`); the smoke test sets it. |
+| `Reports__WebBaseUrl` | api | no | Public address of the Web for the links of the manager reports (default `http://localhost:5112`; https required outside Development unless loopback). Compose: `REPORTS_WEB_BASE_URL`. docs/REPORTS.md. |
+| `Email__Provider`, `Email__FromAddress`, `Email__FromName` | api | no | `None` (default: no email is sent, deliveries fail with `email_not_configured`), `Smtp` or `Pickup` (Development only). With a provider the From address is required and validated at startup. Compose: `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME`. |
+| `Email__Smtp__Host`, `__Port`, `__Security`, `__UserName`, `__Password` | api | with `Smtp` | TLS is mandatory: `StartTls` (587, default) or `SslOnConnect` (465). The password is a secret: only from the environment (`EMAIL_SMTP_PASSWORD`). Compose: `EMAIL_SMTP_*`. |
 | `Api__BaseUrl` | web | yes | Base URL of the API as seen from the Web container. |
 | `ErrorReporting__ApiKey` | web | no | See `ErrorLogging__ReportKey`. |
 | `Support__ContactText` | web | no | One line of plain text (up to 300 characters) shown on the pending/suspended page so the person knows how to reach the team, for example `Escríbenos a soporte@empresa.co o al +57 300 000 0000`. Empty = no contact card. Too long or with control characters stops the Web at startup. Compose passes it from `SUPPORT_CONTACT_TEXT`; `.env.example` does not list it yet, add `SUPPORT_CONTACT_TEXT=` to your `.env` by hand. |
@@ -85,7 +93,7 @@ Nothing secret is baked into an image; everything below is supplied at run time.
 | `ASPNETCORE_HTTP_PORTS` | api, web | no | Defaults to 8080 in the images. |
 | `--connection` (argument) | migrator | yes | Same connection string as the API. |
 
-Compose-level variables (`.env`, see `.env.example`): `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ERROR_REPORT_KEY`, `D360_API_KEY`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `PLATFORM_ADMIN_PASSWORD_FILE`, `SUPPORT_CONTACT_TEXT`, `API_PORT`, `WEB_PORT`, `POSTGRES_PORT`, `CONVERSIA_TAG`, `CONVERSIA_VERSION`, `CONVERSIA_GIT_SHA`, `CONVERSIA_BUILD_DATE`.
+Compose-level variables (`.env`, see `.env.example`): `MEDIA_STORE`, `MEDIA_ENCRYPTION_KEY`, `MEDIA_AZURE_CONNECTION_STRING`, `MEDIA_AZURE_SERVICE_URI`, `MEDIA_AZURE_MANAGED_IDENTITY_CLIENT_ID`, `MEDIA_AZURE_CONTAINER`, `MEDIA_RETENTION_DAYS`, `REPORTS_WEB_BASE_URL`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME`, `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_SECURITY`, `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ERROR_REPORT_KEY`, `D360_API_KEY`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `PLATFORM_ADMIN_PASSWORD_FILE`, `SUPPORT_CONTACT_TEXT`, `API_PORT`, `WEB_PORT`, `POSTGRES_PORT`, `CONVERSIA_TAG`, `CONVERSIA_VERSION`, `CONVERSIA_GIT_SHA`, `CONVERSIA_BUILD_DATE`.
 
 ### Volumes
 
@@ -93,6 +101,29 @@ Compose-level variables (`.env`, see `.env.example`): `POSTGRES_DB`, `POSTGRES_U
 |---|---|---|
 | `postgres-data` | `/var/lib/postgresql/data` (postgres) | The database. The password is fixed here when the volume is first created. |
 | `web-keys` | `/keys` (web) | The Web's ASP.NET Core Data Protection keys. |
+| `api-media` | `/var/lib/conversia/media` (api) | The local media store (`Media__Store=Local`): every file encrypted with `Media__Local__EncryptionKey`. Empty with `None` or `Azure`. |
+
+### Email of the manager reports
+
+The compose stack sends no email by default (`EMAIL_PROVIDER=None`). For a real server set `EMAIL_PROVIDER=Smtp`, `EMAIL_FROM_ADDRESS`,
+`EMAIL_SMTP_HOST` and, if it needs a login, `EMAIL_SMTP_USERNAME` and `EMAIL_SMTP_PASSWORD` in `.env`; the connection always uses TLS.
+Running the API with `dotnet run` (Development), `appsettings.Development.json` uses `Email:Provider=Pickup`: every report email is written as
+an `.eml` file to `.email-outbox/` at the repository root (ignored by git), to open with any mail program. Nothing leaves the machine.
+Also set `REPORTS_WEB_BASE_URL` to the address people use to open the Web, or the links of the emails point to `localhost`.
+
+### Media storage
+
+- **Development and this compose:** `MEDIA_STORE=Local`, `MEDIA_LOCAL_ALLOW_OUTSIDE_DEVELOPMENT=true` (the images run as Production) and
+  `MEDIA_ENCRYPTION_KEY=$(openssl rand -base64 32)` in `.env` (all new; add
+  them by hand, `.env.example` does not list them yet). Losing the key makes the stored files unreadable (the messages stay). The smoke test
+  runs with `Local` and a throw-away key.
+- **Production (Azure):** a Storage account with a **private** container (no anonymous access; the API refuses a public one), "Secure transfer
+  required", and preferably the App Service's managed identity with the role *Storage Blob Data Contributor* on the container
+  (`Media__Azure__ServiceUri`), so no secret is configured. Azure encrypts blobs at rest by default (Microsoft-managed keys; customer-managed
+  keys in Key Vault are an option of the account). Lifecycle rules are not needed: the API purges by the companies' retention.
+- **Azurite** (the Azure Storage emulator) is what the integration tests use, in a Testcontainers container
+  (`mcr.microsoft.com/azure-storage/azurite`); to try the Azure adapter by hand, run it and point `Media__Azure__ConnectionString` at
+  `UseDevelopmentStorage=true`-style settings of the emulator.
 
 The Web uses Data Protection to protect the sign-in cookie and the antiforgery tokens of every form. Without persisted keys, each container restart or recreate (`docker compose up --build` included) generates a new key ring, so every cookie and every form that was open before the restart is rejected. The `web-keys` volume keeps the ring across restarts; the application name is fixed (`Conversia.Web`) so the keys belong to this app only. The Dockerfile creates `/keys` owned by the non-root app user before dropping privileges, so a fresh named volume inherits a writable directory.
 
@@ -157,7 +188,12 @@ Compose merges the `environment` maps: the simulator overlay shortens both debou
 `PrivacyApproved=true`, `TimeoutSeconds=8`, `MaxRetries=0`. Then:
 
 1. Create a company and a line, and play conversations through the webhook with the simulator (docs/SIMULATOR.md), or turn on the company's
-   internal sandbox and start a simulated conversation from `/conversaciones/simular` (docs/SANDBOX.md).
+   internal sandbox and start a simulated conversation from `/conversaciones/simular` (docs/SANDBOX.md). **Switch the AI on for the company
+   first** (`/admin/empresas/{id}/ia/activar`, docs/PLATFORM_ADMIN.md): it is off by default and, while it is off, the rules read everything
+   and no call is made. Each call is then recorded in the company's usage (`/admin/empresas/{id}`, "Inteligencia artificial"). The LLM reads
+   a company on its **schedule** (docs/CLASSIFICATION.md, "When the AI reads"), nightly at 01:00 Bogota by default: to see it now, set the
+   company's schedule to "Casi en tiempo real" (or "Cada noche" with the current hour) in "Límites" on the same page. A nightly company goes in
+   a Message Batch; the Replay batch client answers it at once and the next poll (`Classification__Llm__Batch__PollSeconds`, 60 s) applies it.
 2. Wait for the debounce (about 5 s) and look for the call in the API log:
    `docker compose logs api | grep "LLM classification"`. Each line carries the ids, `Sandbox`, provider, model (`replay`), status, the four
    token counters, the estimated USD (0 with replay) and the preprocessor statistics, never text.
@@ -183,6 +219,22 @@ docker compose -f docker-compose.yml -f docker-compose.simulator.yml -f docker-c
 
 Compose stops with a clear message if `ANTHROPIC_API_KEY` is empty. The overlay maps it to `Anthropic__ApiKey` and sets
 `Classification__Llm__Client=Anthropic`; the log line of each call then shows real tokens (cache reads included) and the estimated USD.
+
+## Upgrade notes
+
+### Platform limits, licences and AI usage (migration `AddPlatformLimitsLicensesAndUsage`)
+
+* **AI off by default, Development included.** Every company, existing ones too, starts with the AI switched off. The Replay and real-API
+  overlays above make no LLM call until the platform administrator switches the AI on for the company (`/admin/empresas/{id}/ia/activar`, with a
+  reason and the version of the accepted terms; docs/PLATFORM_ADMIN.md, "Upgrade notes"). Do it before testing.
+* **Index builds without blocking writes.** The migration creates `IX_WebhookEvents_ReceivedAt` and `IX_Conversations_TenantId_ClosedAt` with
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS`, each outside the migration's transaction, so webhooks and conversations keep being written while
+  they build (on a large table it can take a while; the migrator waits). The rest of the migration (new columns with defaults and new tables)
+  runs in its own transaction first. If the migrator is interrupted during a concurrent build, PostgreSQL may leave the index `INVALID`:
+  check with `SELECT c.relname, i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE c.relname IN
+  ('IX_WebhookEvents_ReceivedAt', 'IX_Conversations_TenantId_ClosedAt');`, drop an invalid one (`DROP INDEX CONCURRENTLY "<name>";`) and run the
+  migrator again. Rolling back (`dotnet ef database update AddLlmClassificationState`) drops them `CONCURRENTLY` too. Verified on a fresh
+  database, on one at the previous migration with data, and back.
 
 ## Troubleshooting
 
@@ -226,3 +278,10 @@ Only the host side changes; containers keep talking to each other on the interna
 - The migrator receives the database password in its command line (visible in `docker inspect` of that container). Acceptable for local compose; use a secret store or Key Vault in production.
 - `docker compose up` waits for the API to be healthy before starting the Web, so a slow API start delays the Web.
 - The smoke test builds on the host architecture only; the amd64 build is verified separately (see Multi-arch).
+
+## Billing behind a proxy
+
+The Wompi events endpoint (`POST /api/billing/wompi/events`, docs/BILLING.md) limits forged events per client address. Behind a reverse
+proxy, configure the forwarded headers (`ForwardedHeaders:KnownProxies` / `KnownNetworks`) so that address is the real client's; without them
+every caller shares the proxy's address. Verified events are never blocked by that budget, so Wompi keeps working either way. The images
+carry the `America/Bogota` time zone data the billing calendar needs; the smoke test checks it.

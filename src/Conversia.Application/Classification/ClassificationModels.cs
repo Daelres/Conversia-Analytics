@@ -1,3 +1,4 @@
+using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
 
 namespace Conversia.Application.Classification;
@@ -23,7 +24,8 @@ public enum ClassificationOutcome
 /// <param name="Text">The message text; null for media without caption. Customer data: it is read, never copied into a result.</param>
 /// <param name="SentAt">UTC.</param>
 /// <param name="Id">The stored message id (part of the snapshot hash); null for snapshots built without the database.</param>
-public sealed record SnapshotMessage(MessageDirection Direction, string Type, string? Text, DateTime SentAt, Guid? Id = null);
+/// <param name="Sender">Who wrote it (docs/MESSAGING.md, "Who sent it"): the rules name the AI sales assistant as the closer from it. Not hashed.</param>
+public sealed record SnapshotMessage(MessageDirection Direction, string Type, string? Text, DateTime SentAt, Guid? Id = null, MessageSender Sender = MessageSender.Unknown);
 
 /// <summary>
 /// Everything a classifier is given about one conversation: its messages in conversation order (oldest first) and the markers ingestion
@@ -71,6 +73,8 @@ public sealed record ConversationSnapshot(
 /// <param name="Gender">The customer's stated gender (LLM only).</param>
 /// <param name="WonEvidenceIndex">The message the LLM cites for a Won (1-based line of the prompt); informational only.</param>
 /// <param name="IsRulesFallback">A rules result applied because the LLM failed or was not admitted (see <c>ClassificationUpdate.IsRulesFallback</c>).</param>
+/// <param name="ClosingPoint">How far the conversation got and where it stopped (docs/CLASSIFICATION.md, "Closing point"); null when the
+/// classifier did not read it (the opportunity's closing point is then left as it is).</param>
 public sealed record ClassificationResult(
     string? ServiceInterest,
     string? InterestReason,
@@ -82,4 +86,5 @@ public sealed record ClassificationResult(
     AgeRange? AgeRange = null,
     Gender Gender = Gender.Undetermined,
     int? WonEvidenceIndex = null,
-    bool IsRulesFallback = false);
+    bool IsRulesFallback = false,
+    ClosingPointReading? ClosingPoint = null);

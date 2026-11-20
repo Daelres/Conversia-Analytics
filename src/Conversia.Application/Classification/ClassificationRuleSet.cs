@@ -81,6 +81,9 @@ public sealed partial class ClassificationRuleSet
 
     public CancellationPhrases Cancellation { get; set; } = new();
 
+    /// <summary>The cues of the closing point (docs/CLASSIFICATION.md, "Closing point"). Every list may be empty: the cue is then never read.</summary>
+    public ClosingPointPhrases ClosingPoint { get; set; } = new();
+
     /// <summary>
     /// SHA-256 (lower-case hex) of the rules as they were loaded, serialized canonically: an input of the LLM snapshot hash, because the rules
     /// feed the Won guard and the catalog, so editing the file must invalidate stored hashes. Computed on each call (the set is mutable).
@@ -151,6 +154,8 @@ public sealed partial class ClassificationRuleSet
         Require(Refusal.Count > 0, "refusal must not be empty.");
         Require(Cancellation.Window is >= 1 and <= 10, "cancellation.window must be between 1 and 10.");
         Require(Cancellation.Verbs.Count == 0 || Cancellation.Objects.Count > 0, "cancellation.objects must not be empty when cancellation.verbs is not.");
+        Require(ClosingPoint.ChannelWindow is >= 1 and <= 10, "closingPoint.channelWindow must be between 1 and 10.");
+        Require(ClosingPoint.ChannelVerbs.Count == 0 || ClosingPoint.ChannelNouns.Count > 0, "closingPoint.channelNouns must not be empty when closingPoint.channelVerbs is not.");
 
         foreach (var (name, list) in new (string, IReadOnlyList<CodedPhrases>)[] { ("services", Services), ("generalServices", GeneralServices), ("interestReasons", InterestReasons) })
         {
@@ -197,6 +202,17 @@ public sealed partial class ClassificationRuleSet
         yield return ("objections.other", Objections.Other);
         yield return ("customerConfirmation.strong", CustomerConfirmation.Strong);
         yield return ("customerConfirmation.weakAck", CustomerConfirmation.WeakAck);
+        yield return ("closingPoint.priceUnits", ClosingPoint.PriceUnits);
+        yield return ("closingPoint.priceContext", ClosingPoint.PriceContext);
+        yield return ("closingPoint.deferralCues", ClosingPoint.DeferralCues);
+        yield return ("closingPoint.channelPrepositions", ClosingPoint.ChannelPrepositions);
+        yield return ("closingPoint.channelDeterminers", ClosingPoint.ChannelDeterminers);
+        yield return ("closingPoint.payment", ClosingPoint.Payment);
+        yield return ("closingPoint.phoneCall", ClosingPoint.PhoneCall);
+        yield return ("closingPoint.inPerson", ClosingPoint.InPerson);
+        yield return ("closingPoint.channelVerbs", ClosingPoint.ChannelVerbs);
+        yield return ("closingPoint.channelNouns", ClosingPoint.ChannelNouns);
+        yield return ("closingPoint.selfService", ClosingPoint.SelfService);
         foreach (var entry in Services.Concat(GeneralServices).Concat(InterestReasons))
         {
             yield return ($"phrases of {entry.Code}", entry.Phrases);
@@ -252,6 +268,42 @@ public sealed partial class ClassificationRuleSet
 
         /// <summary>How many words may separate the verb from the noun.</summary>
         public int Window { get; set; } = 5;
+    }
+
+    public sealed class ClosingPointPhrases
+    {
+        /// <summary>Words right after a number that make it a price in a business message ("80 mil").</summary>
+        public List<string> PriceUnits { get; set; } = [];
+
+        /// <summary>With an amount: a price word in its clause makes it a price ("el valor es de 60 mil").</summary>
+        public List<string> PriceContext { get; set; } = [];
+
+        /// <summary>A condition or a deferral in the clause of a move or a payment: not a fact ("te llamo si me decido").</summary>
+        public List<string> DeferralCues { get; set; } = [];
+
+        /// <summary>The word right before a channel noun ("por correo", "al otro número").</summary>
+        public List<string> ChannelPrepositions { get; set; } = [];
+
+        /// <summary>One word allowed between the preposition and the channel noun ("a mi correo").</summary>
+        public List<string> ChannelDeterminers { get; set; } = [];
+
+        /// <summary>A payment or deposit said by the customer or confirmed by the business.</summary>
+        public List<string> Payment { get; set; } = [];
+
+        public List<string> PhoneCall { get; set; } = [];
+
+        public List<string> InPerson { get; set; } = [];
+
+        /// <summary>With <see cref="ChannelNouns"/>: another channel ("escríbeme al otro número").</summary>
+        public List<string> ChannelVerbs { get; set; } = [];
+
+        public List<string> ChannelNouns { get; set; } = [];
+
+        /// <summary>The most words between a channel verb and its noun.</summary>
+        public int ChannelWindow { get; set; } = 4;
+
+        /// <summary>The customer booked or paid on their own (the web page, a payment link).</summary>
+        public List<string> SelfService { get; set; } = [];
     }
 
     public sealed class CustomerConfirmationPhrases

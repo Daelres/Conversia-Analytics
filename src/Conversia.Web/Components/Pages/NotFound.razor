@@ -11,11 +11,23 @@
 
     <CompanyNotFoundView />
 }
+else if (NotFoundMarker.IsMarked(HttpContext, NotFoundMarker.License))
+{
+    <PageTitle>Licencia no encontrada - Conversia</PageTitle>
+
+    <LicenseNotFoundView />
+}
 else if (NotFoundMarker.IsMarked(HttpContext, NotFoundMarker.Conversation))
 {
     <PageTitle>Conversación no encontrada - Conversia</PageTitle>
 
     <ConversationNotFoundView />
+}
+else if (NotFoundMarker.IsMarked(HttpContext, NotFoundMarker.Report))
+{
+    <PageTitle>Informe no encontrado - Conversia</PageTitle>
+
+    <ReportNotFoundView />
 }
 else if (NotFoundMarker.IsMarked(HttpContext, NotFoundMarker.Channel))
 {

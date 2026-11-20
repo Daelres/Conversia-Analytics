@@ -105,6 +105,44 @@ A number from 0 to 1: how sure you are of `stage` and `loss_reason` together. Us
 When `stage` is `won`, the number of the message where the business confirmed the booking (or where the customer accepted the concrete
 proposal). Otherwise `null`. It must be a message number shown in the conversation.
 
+## reached_stage
+
+How far the conversation got: the furthest of these steps it reached, whatever the order they happened in. `null` only when the
+customer never wrote.
+
+1. `first_contact`: the customer wrote, nothing more (a greeting, a sticker, `hola`).
+2. `needs_identified`: the customer said what they want or why (`quiero depilarme las axilas`, `me caso en diciembre`).
+3. `price_shared`: the business gave a price, an amount of money (`axilas 60 mil la sesión`, `$120.000`). A price the customer guesses
+   is not shared by the business.
+4. `objection_raised`: the customer raised an objection (`muy caro`, `me queda lejos`, `¿duele?`).
+5. `appointment_proposed`: the business proposed a booking (`¿te agendo el sábado?`) or the customer asked for one (`quiero agendar`).
+6. `appointment_booked`: the booking was confirmed, as `won` defines it, even if it was cancelled later.
+7. `payment_or_deposit`: a payment or a deposit was made or confirmed (`ya hice la transferencia, te envío el comprobante`,
+   `recibimos tu abono`).
+
+## moved_off_channel
+
+Whether the conversation explicitly moved out of this chat: `phone_call` (`te llamo y cerramos`, `llámame`), `in_person` (`pasa por la
+sede`, `paso por la sede y pago allá`), `other_channel` (`escríbeme al otro número`, `te mando la info por correo`, `seguimos por
+Instagram`), or `none`. A question (`¿me pueden llamar?`), a refusal (`no me llamen`) or where the customer saw the ad (`los vi por
+Instagram`) is not a move. A booking at the branch confirmed in the chat is not a move either. With several moves, the latest one.
+
+## off_channel_evidence_line
+
+When `moved_off_channel` is not `none`, the number of the message where the move is said. Otherwise `null`. It must be a message
+number shown in the conversation.
+
+## closed_by
+
+Who closed the deal: `advisor` (the business closed it, in the chat or after moving it elsewhere, as the text shows),
+`customer_self_service` (the customer booked or paid on their own: `ya agendé por la página web`, `ya pagué por el link`), or `unknown`
+(not closed, or the text does not say who closed it).
+
+## closed_outside_system
+
+`true` only when the text shows the deal continued outside WhatsApp: the move off the chat is the last commercial step (nothing about the
+sale is said in the chat afterwards), or the customer booked or paid on their own outside the chat. Otherwise `false`.
+
 # Rules that always apply
 
 - Use only the codes listed in the schema and in the catalog block. Never invent a code.

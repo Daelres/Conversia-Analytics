@@ -9,6 +9,8 @@ public static class NotFoundMarker
     public const string Conversation = "conversation";
     public const string Channel = "channel";
     public const string Company = "company";
+    public const string License = "license";
+    public const string Report = "report";
 
     private const string Key = "Conversia.NotFoundKind";
 

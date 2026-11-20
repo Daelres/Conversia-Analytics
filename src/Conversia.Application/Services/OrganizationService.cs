@@ -1,6 +1,7 @@
 using Conversia.Application.DTOs.Organization;
 using Conversia.Application.Exceptions;
 using Conversia.Application.Interfaces;
+using Conversia.Application.Licensing;
 using Conversia.Application.Messaging;
 using Conversia.Domain.Entities;
 using Conversia.Domain.Enums;
@@ -22,11 +23,18 @@ public class OrganizationService : IOrganizationService
     private readonly ITenantUnitOfWork _unitOfWork;
     private readonly ISecretProtector _secretProtector;
     private readonly TimeProvider _timeProvider;
+    private readonly ILineLicenseRepository? _licenses;
+    private readonly LicensingSettings _licensing;
 
+    /// <param name="licenses">The platform's licence inventory: a registered or switched-on line is linked to its licence (docs/PLATFORM_ADMIN.md, "Line licences").</param>
+    /// <param name="licensing"><c>Licensing:RequireAssignedLicense</c>; off when not given.</param>
     public OrganizationService(
         IBranchRepository branches, IAdvisorRepository advisors, IWhatsAppChannelRepository channels, IUserRepository users,
-        ITenantUnitOfWork unitOfWork, ISecretProtector secretProtector, TimeProvider timeProvider)
+        ITenantUnitOfWork unitOfWork, ISecretProtector secretProtector, TimeProvider timeProvider, ILineLicenseRepository? licenses = null,
+        LicensingSettings? licensing = null)
     {
+        _licenses = licenses;
+        _licensing = licensing ?? LicensingSettings.Default;
         _unitOfWork = unitOfWork;
         _secretProtector = secretProtector;
         _timeProvider = timeProvider;
@@ -82,7 +90,28 @@ public class OrganizationService : IOrganizationService
         var (channel, secret) = WhatsAppChannel.Create(callerTenantId, branchId, request.DisplayPhoneNumber, request.ProviderPhoneNumberId);
 
         await _channels.AddAsync(channel, cancellationToken);
+        await LinkRegisteredLineAsync(callerTenantId, channel, cancellationToken);
         return CreateChannelResponse.From(channel, secret);
+    }
+
+    // For reporting only: the line is created switched off, and switching it on links (or, with licences required, demands) a licence again
+    // under the company's lock. A race with the administrator is therefore harmless here and is not reported to the person registering.
+    private async Task LinkRegisteredLineAsync(Guid tenantId, WhatsAppChannel channel, CancellationToken cancellationToken)
+    {
+        if (_licenses is null
+            || await _licenses.FindAssignedMatchAsync(tenantId, channel.DisplayPhoneNumber, channel.ProviderPhoneNumberId, cancellationToken) is not { ChannelId: null } license)
+        {
+            return;
+        }
+
+        license.LinkChannel(channel.Id);
+        try
+        {
+            await _licenses.SaveAsync(null, cancellationToken);
+        }
+        catch (ConcurrencyConflictException)
+        {
+        }
     }
 
     public async Task<ChannelResponse> SetChannelActiveAsync(Guid callerTenantId, Guid id, bool active, CancellationToken cancellationToken = default)
@@ -121,9 +150,38 @@ public class OrganizationService : IOrganizationService
             throw new LineQuotaFullException(activeLines, tenant.MaxActiveLines);
         }
 
+        var license = await UsableLicenseAsync(change, channel, cancellationToken);
+        if (license is null && _licensing.RequireAssignedLicense)
+        {
+            throw new LicenseRequiredException();
+        }
+
+        license?.LinkChannel(channel.Id);
         channel.Activate();
         await change.CommitAsync(cancellationToken);
         return ChannelResponse.From(channel);
+    }
+
+    /// <summary>
+    /// An assigned licence of the company that matches the line's number and is not backing another line that is on: unlinked, already
+    /// linked to this line, or linked to a line that is off (it moves to this one). Read under the company's lock.
+    /// </summary>
+    private static async Task<LineLicense?> UsableLicenseAsync(ITenantChange change, WhatsAppChannel channel, CancellationToken cancellationToken)
+    {
+        var matching = (await change.GetAssignedLicensesAsync(cancellationToken))
+            .Where(l => l.Matches(channel.DisplayPhoneNumber, channel.ProviderPhoneNumberId))
+            .ToList();
+        if (matching.Count == 0)
+        {
+            return null;
+        }
+
+        var activeLines = (await change.GetChannelsAsync(cancellationToken)).Where(c => c.IsActive && c.Id != channel.Id).Select(c => c.Id).ToHashSet();
+        return matching
+            .Where(l => l.ChannelId is null || l.ChannelId == channel.Id || !activeLines.Contains(l.ChannelId.Value))
+            .OrderByDescending(l => l.ChannelId == channel.Id)
+            .ThenBy(l => l.ChannelId is null ? 0 : 1)
+            .FirstOrDefault();
     }
 
     public async Task<CreateChannelResponse> RotateChannelSecretAsync(Guid id, CancellationToken cancellationToken = default)
